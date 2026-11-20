@@ -1,4 +1,4 @@
-import contextlib, io, os, subprocess, sys, unittest
+import contextlib, io, json, os, subprocess, sys, unittest
 from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import factory as F
@@ -75,7 +75,6 @@ class TestRiskClaims(unittest.TestCase):
         self.assertEqual(code, 0, lines)
 
     def test_risk_that_cannot_list_open_work_says_so_and_exits_1(self):
-        import json, subprocess
         failures = [G.NoAnswer("x"), subprocess.TimeoutExpired("gh", 300), json.JSONDecodeError("bad", "", 0), OSError("gone")]
         for failure in failures:
             def gh(path, paginate=False, jq=".[]", failure=failure):
