@@ -517,6 +517,11 @@ class Dispatcher:
         self.parked_at, self.parked_set, self.parked_logged = None, set(), set()
         self.others, self.extra = list, dict
         self.store = ledger_store.Store(cfg["ledger_file"])
+        try:
+            self.store.claim(self.repo, self.home)
+        except ledger_store.Refused:
+            self.store.close()
+            raise
         self.weights = weights.load()
         self.store.import_json(cfg["json_state_file"])
         self.beats = 0
@@ -2084,6 +2089,14 @@ class Dispatcher:
             clean = False
             self.machine = None
             log("-", "machine: %s" % type(e).__name__)
+        if self.machine is not None:
+            try:
+                self.own_readings = getattr(self, "own_readings", None) or machine.Own()
+                own_rows = self.own_readings.get(self.gh, self.repo, self.now(), os.environ.get("FACTORY_CODE_SHA"))
+                self.machine["readings"] = (self.machine["readings"] + own_rows)[-machine.MAX_READINGS:]
+            except Exception as e:
+                clean = False
+                log("-", "machine: %s" % type(e).__name__)
         heard, HEARD[:] = list(HEARD), []
         known = set(self.resolver.records(self, closed=True))
         try:
@@ -2279,7 +2292,8 @@ def main(argv=None):
         return 1
     if os.environ.get("FACTORY_START_CHECK") != "0" and ask_refresh(gh, cfg["repo"], set()):
         return REFRESH_EXIT
-    d = Dispatcher(cfg, account, gh)
+    import lines
+    d = lines.Lines(cfg, account, gh, mod=sys.modules[__name__])
     log("-", "dispatcher started: %d builders, %d reviewers, label %s, repo %s" % (
         len(pools.types(cfg).get("coder", {}).get("coworkers", [])), len(pools.types(cfg).get("reviewer", {}).get("coworkers", [])), cfg.get("label", "factory"), cfg["repo"]))
     if a.cmd == "once":
