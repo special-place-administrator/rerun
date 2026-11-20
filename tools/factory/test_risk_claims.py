@@ -69,18 +69,21 @@ class TestRiskClaims(unittest.TestCase):
         self.assertFalse([l for l in lines if l.startswith("CLAIM ")], lines)
         self.assertEqual(code, 0, lines)
 
-    def test_no_shared_area_prints_claims_none_line(self):
+    def test_no_shared_area_says_how_many_open_prs_or_jobs_were_checked(self):
         code, lines = risk(["apps/engine/Dockerfile"], other=("docs/a.md",))
         self.assertIn("CLAIMS: none, no shared area with 1 open PRs or jobs", lines)
         self.assertEqual(code, 0, lines)
 
-    def test_unlistable_open_work_fails_closed_with_exit_1(self):
-        def gh(path, paginate=False, jq=".[]"):
-            raise subprocess.SubprocessError("gh timed out")
-        code, lines = risk(["apps/engine/Dockerfile"], gh=gh)
-        self.assertEqual(code, 1, lines)
-        self.assertIn("risk: cannot list open work: gh timed out", lines)
-
+    def test_risk_that_cannot_list_open_work_says_so_and_exits_1(self):
+        import json, subprocess
+        failures = [G.NoAnswer("x"), subprocess.TimeoutExpired("gh", 300), json.JSONDecodeError("bad", "", 0), OSError("gone")]
+        for failure in failures:
+            def gh(path, paginate=False, jq=".[]", failure=failure):
+                raise failure
+            code, lines = risk(["apps/engine/Dockerfile"], gh=gh)
+            self.assertEqual(code, 1, lines)
+            self.assertTrue(any(l.startswith("risk: cannot list open work: ") for l in lines), lines)
+            self.assertFalse([l for l in lines if l.startswith("CLAIM ")], lines)
 
 if __name__ == "__main__":
     unittest.main()
