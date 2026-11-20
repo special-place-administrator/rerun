@@ -1,4 +1,4 @@
-import contextlib, io, os, sys, unittest
+import contextlib, io, os, subprocess, sys, unittest
 from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import factory as F
@@ -9,7 +9,7 @@ H = "abcdef0123456789abcdef0123456789abcdef01"
 ROSTER = R.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "roster.json")).read())
 
 
-def risk(files, comments=(), other=("deploy/vps/dev-engine-status.sh",)):
+def risk(files, comments=(), other=("deploy/vps/dev-engine-status.sh",), gh=None):
     def api(path, *a, **k):
         p = path.split("?")[0]
         if p.endswith("/pulls/5"):
@@ -30,7 +30,7 @@ def risk(files, comments=(), other=("deploy/vps/dev-engine-status.sh",)):
             return []
         raise AssertionError(path)
     out, code = io.StringIO(), 0
-    with mock.patch.object(F, "api", api), mock.patch.object(G, "gh_json", gh_json), mock.patch.object(F, "base_roster", lambda full: ROSTER), \
+    with mock.patch.object(F, "api", api), mock.patch.object(G, "gh_json", gh or gh_json), mock.patch.object(F, "base_roster", lambda full: ROSTER), \
             mock.patch.object(F, "jev_risk", mock.Mock(side_effect=AssertionError("no model"))), contextlib.redirect_stdout(out):
         try:
             F.cmd_risk(["rerun", "5", "--no-jev"])
@@ -68,6 +68,18 @@ class TestRiskClaims(unittest.TestCase):
         code, lines = risk(["apps/engine/Dockerfile"], other=("docs/a.md", "src/plain.ts"))
         self.assertFalse([l for l in lines if l.startswith("CLAIM ")], lines)
         self.assertEqual(code, 0, lines)
+
+    def test_no_shared_area_prints_claims_none_line(self):
+        code, lines = risk(["apps/engine/Dockerfile"], other=("docs/a.md",))
+        self.assertIn("CLAIMS: none, no shared area with 1 open PRs or jobs", lines)
+        self.assertEqual(code, 0, lines)
+
+    def test_unlistable_open_work_fails_closed_with_exit_1(self):
+        def gh(path, paginate=False, jq=".[]"):
+            raise subprocess.SubprocessError("gh timed out")
+        code, lines = risk(["apps/engine/Dockerfile"], gh=gh)
+        self.assertEqual(code, 1, lines)
+        self.assertIn("risk: cannot list open work: gh timed out", lines)
 
 
 if __name__ == "__main__":
