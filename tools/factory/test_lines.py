@@ -620,18 +620,19 @@ class OrderRules(Pair):
         self.tick(3)
         self.assertEqual([(j["issue"], j.get("pr")) for j in self.d.lines["o/r"].store.jobs()], [(5, 44)])
 
-    def test_a_long_order_views_only_its_current_issue_and_at_most_once_in_five_minutes(self):
-        self.w.unlabelled.add(5)
-        self.ready_order("all_issues", list(range(5, 205)))
+    def test_each_unlabelled_order_issue_is_viewed_once_within_five_minutes(self):
+        self.w.issues += [issue(6, "Six"), issue(7, "Seven")]
+        self.w.unlabelled.update({5, 6, 7})
+        self.running_factory()
+        line = self.d.lines["o/r"]
+        line.work = {"wait": None, "issues": [5, 6, 7], "order": [5, 6, 7], "done": []}
         views = lambda: sum(1 for a in self.w.gh_calls if a[:2] == ["issue", "view"] and "number,title,labels,body,author,state" in a)
-        for _ in range(8):
-            self.tick()
+        with contextlib.redirect_stdout(self.out):
+            line.order_issues([])
+            first = views()
             self.w.clock += 30
-        self.assertEqual((views(), self.order_jobs()), (1, [(5, "building")]))
-        self.w.clock += 300
-        self.tick()
-        self.assertEqual(views(), 2)
-
+            line.order_issues([])
+        self.assertEqual((first, views() - first), (3, 0))
 
 if __name__ == "__main__":
     unittest.main()
