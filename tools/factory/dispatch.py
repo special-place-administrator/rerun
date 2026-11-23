@@ -709,6 +709,15 @@ class Dispatcher:
             j.update(state=BACK[j["state"]], retry_attempt=j.get("attempt", 1), sending=None)
             self.save(j, "stopped: back to %s" % j["state"])
             log(j["issue"], "stopped by the owner: run %s cancelled (wasRunning %s), back to %s" % (run, c.get("wasRunning"), j["state"]))
+        for station in (self.station, self.acceptance, self.instructions, self.causes, self.classifier):
+            try:
+                station.owner_stop(log)
+            except Exception as e:
+                log("-", "stop: %s not stopped yet, tried again next beat: %s" % (type(station).__module__, str(e)[:200]))
+        try:
+            self.resolver.owner_stop(self, log)
+        except Exception as e:
+            log("-", "stop: resolver not stopped yet, tried again next beat: %s" % str(e)[:200])
 
     def strike(self, j, ran_ok):
         agent = j.get("agent")

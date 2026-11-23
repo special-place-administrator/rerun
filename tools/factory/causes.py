@@ -8,6 +8,7 @@ import instructions
 import learn
 import pools
 import states
+import stops
 import tiers
 
 NEW = 10
@@ -234,6 +235,12 @@ class Station:
         mine = next((c for c in self.pool["coworkers"] if c["name"] == self.name), None)
         others = [c["id"] for c in self.pool["coworkers"] if c["name"] != self.name]
         return mine, others
+
+    def owner_stop(self, log):
+        row = self.row()
+        if row.get("state") == "running" and row.get("run") and stops.cancel(self.account, self.store, row.get("agent"), row["run"], log):
+            self.put("asks", max(0, int(row.get("asks") or 0) - 1))
+            self.put("state", "idle")
 
     def once(self, beat, running):
         start_beat = (beat - 1) % EVERY == 0

@@ -6,6 +6,7 @@ import cutshape
 import escapes
 import labelcheck
 import pools
+import stops
 
 DONE = ("merged", "superseded")
 FORMS = ({"prefix": "ACCEPTED: ", "rest": "sentence"}, {"prefix": "GAPS: ", "rest": "sentence"})
@@ -127,6 +128,11 @@ class Station:
 
     def running(self):
         return [(r["agent"], int(r["copy"])) for r in self.live().values()]
+
+    def owner_stop(self, log):
+        for n, row in self.live().items():
+            if row.get("run") and stops.cancel(self.account, self.store, row["agent"], row["run"], log):
+                self.store.set_many("accept:%d" % n, (("sends", max(0, int(row.get("sends", 0)) - 1)), ("state", "unsent")))
 
     def open_children(self, n):
         raw = json.loads(self.gh(["issue", "list", "-R", self.repo, "--state", "open", "--json", "number,title,body",

@@ -10,6 +10,7 @@ import pools
 import problems
 import snapshot
 import states
+import stops
 import store as ledger_store
 import tiers
 
@@ -82,6 +83,12 @@ class Resolver:
 
     def put(self, d, key, r):
         d.store.set(KV, key, json.dumps(r))
+
+    def owner_stop(self, d, log):
+        for key, r in self.records(d).items():
+            if r.get("state") == "resolving" and r.get("run") and stops.cancel(d.account, d.store, r["agent"], r["run"], log):
+                r["sends"] = max(0, int(r.get("sends") or 1) - 1)
+                self.back(d, key, r, "stopped by the owner, sent again when the factory runs")
 
     def running(self, d):
         if not self.switches(d)[1]:
