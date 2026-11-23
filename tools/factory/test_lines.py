@@ -527,5 +527,88 @@ class WorkOrders(Pair):
         self.assertEqual({k: self.w.reports[-1]["work_order"][k] for k in ("current", "done")}, {"current": 5, "done": [6]})
 
 
+class OrderRules(Pair):
+    order = WorkOrders.order
+    running_factory = WorkOrders.running_factory
+
+    def ready_order(self, kind, issues):
+        self.running_factory()
+        self.select("o/r", order=False)
+        self.order(kind, issues)
+
+    def act(self, action, n):
+        self.answer["work_order_action"] = {"action": action, "order_id": self.answer["work_order"]["id"], "issue": n, "by": "rob", "at": D.iso(self.w.clock)}
+
+    def order_jobs(self):
+        return sorted((j["issue"], j["state"]) for j in self.d.lines["o/r"].store.jobs())
+
+    def block(self, n):
+        line = self.d.lines["o/r"]
+        j = line.store.get_job(str(n))
+        line.store.put_job(str(n), "blocked", dict(j, state="blocked", relabelled=True, commented=True, reason="x", sending=None))
+
+    def test_an_issue_of_the_order_needs_no_label_but_waits_while_its_body_is_not_cut_shaped(self):
+        self.w.unlabelled.add(5)
+        self.w.issues.append({"number": 6, "title": "Six", "body": "just some words", "comments": []})
+        self.ready_order("issue", [6])
+        self.tick(3)
+        self.assertEqual((self.order_jobs(), self.w.reports[-1]["work_order"]["wait"]), ([], "issue #6 body is not cut-shaped"))
+        self.assertEqual(self.w.reports[-1]["work_order"]["current"], 6)
+        self.order("issue", [5])
+        self.tick(3)
+        self.assertEqual(self.order_jobs(), [(5, "building")])
+
+    def test_both_stops_cancel_the_work_order(self):
+        self.ready_order("all_issues", [5])
+        self.tick(2)
+        self.control("DRAINING")
+        self.tick()
+        self.assertEqual((self.w.reports[-1]["work_order"]["kind"], self.w.reports[-1]["work_order"]["wait"]), (None, "no work order"))
+        self.order("issue", [5])
+        self.control("STOPPED")
+        self.tick()
+        self.assertEqual((self.w.reports[-1]["work_order"]["kind"], self.w.reports[-1]["work_order"]["wait"]), (None, "no work order"))
+        self.assertEqual(len(self.lines_said("cancelled by the stop")), 2)
+
+    def control(self, state):
+        self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock)}
+
+    def test_a_failed_job_halts_the_sequence_until_the_owner_retries_or_skips_it(self):
+        self.w.issues.append(issue(6, "Six"))
+        self.w.open_numbers.add(6)
+        self.ready_order("all_issues", [5, 6])
+        self.tick(3)
+        self.block(5)
+        self.tick(3)
+        self.assertEqual((self.order_jobs(), self.w.reports[-1]["work_order"]["wait"]), ([(5, "blocked")], "job #5 failed: retry or skip"))
+        self.act("retry", 5)
+        self.tick(3)
+        self.assertEqual(self.order_jobs(), [(5, "building")])
+        self.assertEqual(self.d.lines["o/r"].store.get_job("5")["take"], 2)
+        self.block(5)
+        self.tick(3)
+        self.assertEqual(self.w.reports[-1]["work_order"]["wait"], "job #5 failed: retry or skip")
+        self.act("skip", 5)
+        self.tick(3)
+        self.assertEqual(self.order_jobs(), [(5, "blocked"), (6, "building")])
+        self.assertEqual(self.w.reports[-1]["work_order"]["skipped"], [5])
+
+    def test_all_issues_skips_an_issue_labelled_factory_paused(self):
+        self.w.issues[0]["labels"] = ["factory", "factory-paused"]
+        self.w.issues.append(dict(issue(6, "Six"), labels=["factory"]))
+        self.w.open_numbers.add(6)
+        self.ready_order("all_issues", [5, 6])
+        self.tick(4)
+        self.assertEqual(self.order_jobs(), [(6, "building")])
+
+    def test_a_second_pick_of_an_issue_with_an_open_pull_request_takes_that_pull_request_up_again(self):
+        self.w.open_prs = [{"number": 42, "title": "Fix x (#5)", "headRefName": "chunk/5-a", "body": ""}]
+        self.ready_order("issue", [5])
+        self.tick(3)
+        line = self.d.lines["o/r"]
+        self.assertEqual([(j["issue"], j.get("pr")) for j in line.store.jobs()], [(5, 42)])
+        self.assertFalse([a for a, _, _ in self.w.sends if a.startswith("b")])
+
+
 if __name__ == "__main__":
     unittest.main()
