@@ -2,6 +2,7 @@ import { latestVersion } from '../db/ladder.js'
 import { ensureAgentsIndex } from '../db/migrate.js'
 import { reconcileConnections } from '../connections/migrate.js'
 import { logger } from '../lib/logger.js'
+import { refreshEverosClient } from '../tools/mcp-everos.js'
 import { DATA_DIR_MIGRATIONS, type DataDirMigration } from './migrations.js'
 import { readDataVersion, writeDataVersion } from './version.js'
 
@@ -24,4 +25,5 @@ export async function prepareDataDir(): Promise<void> {
     await migrateDataDir()
     await ensureAgentsIndex()
     await reconcileConnections()
+    await refreshEverosClient()
 }

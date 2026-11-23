@@ -1,0 +1,334 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["mcp>=1.2,<2", "httpx>=0.27"]
+# ///
+"""Minimal MCP server for a self-hosted EverOS (api/v2, 1.5.1) behind a bearer gate.
+
+Env: EVEROS_URL (https://everos.robagentic.tech), EVEROS_TOKEN, EVEROS_USER_ID (default "default").
+ponytail: four tools, no caching, no retries; the harness retries if it cares.
+Spaces: each tagged memory goes to project_id = tag PROJECT lowercased; reads merge those spaces with the
+legacy 'default' space (where everything before 2026-10-25 lives, and what Claude/Codex clients read).
+v2 (EverOS 1.7.1, docs/api.md): any sanitized PROJECT tag is accepted (its own space). `agent` maps to the native
+sender_id (array_has on sender_ids), the only per-agent episode filter; api.md's agent_id is the separate agent
+track (cases/skills, XOR with user_id) and does not exist on /add. Agent for memory_add: the `agent` arg, which must
+match the content's required [BOT] tag. Dedup: sha256(normalized content|project|agent) is checked against
+the local ledger seen.jsonl (last 5000 keys) before /add and rides in ContentItem.extras.dedup_key.
+"""
+import hashlib, json, os, re, time, uuid
+from contextlib import contextmanager
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+import httpx
+from mcp.server.fastmcp import FastMCP
+
+URL = os.environ["EVEROS_URL"].rstrip("/") + "/api/v2/memory"
+HEADERS = {"Authorization": f"Bearer {os.environ['EVEROS_TOKEN']}"}
+USER = os.environ.get("EVEROS_USER_ID", "default")
+SESSION = os.environ.get("EVEROS_SESSION_ID") or f"{os.environ.get('EVEROS_APP', 'mcp')}-{uuid.uuid4().hex[:8]}"
+LEGACY = "default"          # the pre-2026-10-25 shared space; still read on every search/list
+ADDED: set[str] = set()     # project_ids this process added to, so memory_flush covers each (session, project)
+CUTOFF = 0.3                # min_score default for hybrid/vector; keyword scores are raw BM25, never cut
+
+mcp = FastMCP("everos", instructions=(
+    "Long-term memory. Call memory_search at the start of a task and whenever the user refers to past "
+    "decisions, preferences, or work; an empty result means nothing relevant was found. Call memory_add with "
+    "the user's own words when they state a durable fact, decision, or preference; memory_flush at the end of "
+    "a session so extraction runs. memory_list browses episodes newest first."))
+
+# Known values (prefilled 2026-11-23 from existing EverOS memories + team roster); hints only, unknown values are accepted.
+PROJECTS = {"AAP", "AAP-RUNNER", "SYMFORGE", "TC", "FATHOM", "TESTPILOT", "PASSPORT", "TEAM", "MOLDWRIGHT", "CEREGISTER"}
+AGENTS = sorted({"GROVE", "ANDERS", "LARRY", "BRUCE", "CODD", "GRACE", "HOUSE", "HOPPER", "JEZ", "JUNIO", "LINUS", "KENT",
+                 "MARTIN", "BILL", "DIETER", "FRED", "MARGARET", "BARBARA", "CURIE", "BRENDAN", "IKE", "EVELYN", "FRESH",
+                 "ADA", "DANA", "LESLIE", "HOLMES", "BOSS", "CLAUDE", "CODEX", "GROK", "GLM", "OMP", "SCOPESHAPER",
+                 "DEVILSADVOCATE", "CHAMPOLLION"})
+NAME_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,47}$")   # sanitized PROJECT / agent: uppercase alnum, '-', '_', <= 48
+LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen.jsonl")
+LEDGER_KEEP = 5000
+TYPES = {"RULING", "DECISION", "CAUSE", "LESSON", "GOTCHA", "FACT", "STATE"}
+STATUSES = {"LIVE", "SUPERSEDES", "DEAD"}
+TAG_RE = re.compile(r"^\[([A-Z0-9_-]+)\]\[([A-Z0-9_-]+)\]\[([^\]\s]+)\]\[([A-Z]+)\]\[([A-Z]+)\] \S")
+TAG_HELP = ("Rejected: a memory must start with the 5 team tags "
+            "[PROJECT][BOT][ID][TYPE][STATUS] then a space and 2-5 plain sentences. "
+            f"PROJECT any uppercase tag (A-Z 0-9 - _, max 48; known: {sorted(PROJECTS)}); BOT your name in capitals; ID the exact id (GAP row, R ruling, PR, SHA) or '-'; "
+            f"TYPE one of {sorted(TYPES)}; STATUS one of {sorted(STATUSES)} (SUPERSEDES/DEAD must name the old entry's title, date and id). "
+            "Example: [AAP][LARRY][GAP-backend-081][CAUSE][LIVE] AAP (Agent_Army_Professionals) backend ...")
+
+
+def _check_tags(content: str) -> str:
+    m = TAG_RE.match(content.strip())
+    if not m:
+        return TAG_HELP
+    proj, _bot, _id, typ, status = m.groups()
+    bad = [n for n, v, allowed in (("TYPE", typ, TYPES), ("STATUS", status, STATUSES)) if v not in allowed]
+    bad += [n for n, v in (("PROJECT", proj), ("BOT", _bot)) if not NAME_RE.match(v)]
+    return f"{TAG_HELP} Bad tag: {', '.join(bad)}." if bad else ""
+
+
+def _space(project: str) -> str:
+    """Tag PROJECT -> EverOS project_id ('AAP' -> 'aap'). 'default_project' is a reserved literal the API rejects."""
+    return project.strip().lower()
+
+
+def _name(v: str) -> str:
+    """Sanitize a project/agent arg: uppercase, trimmed; '' if empty. Raises ValueError if not NAME_RE."""
+    v = (v or "").strip().upper()
+    if v and not NAME_RE.match(v):
+        raise ValueError(f"'{v[:60]}' must be A-Z 0-9 - _ (max 48)")
+    return v
+
+
+def _dedup_key(content: str, project: str, agent: str) -> str:
+    norm = " ".join(content.split())
+    return hashlib.sha256(f"{norm}\x1f{project}\x1f{agent}".encode()).hexdigest()
+
+
+@contextmanager
+def _ledger_lock():
+    """Exclusive cross-process lock on a sidecar file that is never replaced (fcntl on POSIX, msvcrt on Windows)."""
+    with open(LEDGER + ".lock", "a+") as lf:
+        if fcntl:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+        else:
+            lf.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(lf.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.05)
+        try:
+            yield
+        finally:
+            if fcntl:
+                fcntl.flock(lf, fcntl.LOCK_UN)
+            else:
+                lf.seek(0)
+                msvcrt.locking(lf.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _key_of(line: str):
+    try:
+        return json.loads(line).get("k")
+    except (ValueError, AttributeError):
+        return None   # a corrupt line is skipped, never fatal
+
+
+def _ledger(key: str, record: bool) -> bool:
+    """True if key is in the last LEDGER_KEEP ledger entries; with record=True append it (compacting atomically).
+    Callers hold _ledger_lock() (memory_add holds it across check + /add + record)."""
+    try:
+        with open(LEDGER, encoding="utf-8") as f:
+            lines = f.read().splitlines()[-LEDGER_KEEP:]
+    except FileNotFoundError:
+        lines = []
+    seen = key in {_key_of(x) for x in lines if x.strip()}
+    if record and not seen:
+        line = json.dumps({"k": key, "t": int(time.time())})
+        if len(lines) >= LEDGER_KEEP:   # rewrite bounded: tmp + atomic replace (ledger closed, so Windows-safe)
+            tmp = f"{LEDGER}.tmp{os.getpid()}"
+            with open(tmp, "w", encoding="utf-8") as t:
+                t.write("\n".join(lines[-(LEDGER_KEEP - 1):] + [line]) + "\n")
+            os.replace(tmp, LEDGER)
+        else:
+            with open(LEDGER, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+    return seen
+
+
+def _post(path: str, body: dict, timeout: float = 120.0) -> dict:
+    r = httpx.post(f"{URL}/{path}", json=body, headers=HEADERS, timeout=timeout)
+    if r.status_code >= 400:
+        try:
+            msg = r.json().get("message") or r.text
+        except ValueError:
+            msg = r.text
+        raise RuntimeError(f"EverOS {path} HTTP {r.status_code}: {str(msg)[:300]}")
+    return r.json().get("data", {})
+
+
+def _ms(value: str, end: bool) -> int:
+    """YYYY-MM-DD or ISO-8601 -> Unix epoch ms (the API contract). A bare date as `until` covers that whole day."""
+    v = value.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+        dt = datetime.strptime(v, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        if end:
+            dt += timedelta(days=1)
+    else:
+        dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1000)
+
+
+def _filters(since: str = "", until: str = "", sender: str = "", exclude_sessions: list[str] | None = None,
+             agent: str = "") -> dict | None:
+    """Build an api.md FilterNode: AND of timestamp range, sender_id (array_has on sender_ids), session_id ne's."""
+    nodes: list[dict] = []
+    ts: dict = {}
+    if since:
+        ts["gte"] = _ms(since, end=False)
+    if until:
+        ts["lt"] = _ms(until, end=True) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", until.strip()) else _ms(until, end=True) + 1
+    if ts:
+        nodes.append({"timestamp": ts})
+    if sender:
+        nodes.append({"sender_id": sender.strip().upper()})
+    if agent and agent != sender.strip().upper():
+        nodes.append({"sender_id": agent})
+    for s in exclude_sessions or []:
+        if s:
+            nodes.append({"session_id": {"ne": s}})
+    if not nodes:
+        return None
+    return nodes[0] if len(nodes) == 1 else {"AND": nodes}
+
+
+def _spaces(project: str) -> list[str]:
+    if project:
+        return list(dict.fromkeys([_space(project), LEGACY]))
+    return [LEGACY] + sorted({_space(p) for p in PROJECTS} | ADDED)
+
+
+def _fan(path: str, bodies: list[dict]) -> tuple[list[dict], list[str]]:
+    """Run one request per space in parallel; return the data dicts and any per-space errors."""
+    def one(b):
+        try:
+            return b["project_id"], _post(path, b), None
+        except Exception as e:  # one bad space must not hide the others
+            return b["project_id"], None, str(e)
+    with ThreadPoolExecutor(max_workers=len(bodies)) as ex:
+        res = list(ex.map(one, bodies))
+    data, errs = [], []
+    for pid, d, err in res:
+        if err:
+            errs.append(f"{pid}: {err}")
+        else:
+            data.append((pid, d))
+    return data, errs
+
+
+@mcp.tool()
+def memory_search(query: str, top_k: int = 5, keyword_only: bool = False, method: str = "hybrid",
+                  min_score: float | None = None, project: str = "", since: str = "", until: str = "",
+                  sender: str = "", exclude_sessions: list[str] | None = None, agent: str = "") -> str:
+    """Search long-term memory; empty means nothing relevant. method: hybrid (default), keyword (exact ids), vector.
+    min_score: relevance floor 0-1 (default 0.3; ignored for keyword). project: any tag, e.g. AAP (also searches the
+    legacy shared space); omit to search all known spaces. since/until: YYYY-MM-DD or ISO. sender/agent: saving bot,
+    e.g. LARRY (filters native sender_id; never defaulted). exclude_sessions: session ids to skip.
+    Known projects: AAP, AAP-RUNNER, CEREGISTER, FATHOM, MOLDWRIGHT, PASSPORT, SYMFORGE, TC, TEAM, TESTPILOT (others ok).
+    Known agents: see memory_add."""
+    method = "keyword" if keyword_only else (method or "hybrid").lower()
+    if method not in ("hybrid", "keyword", "vector"):
+        return "method must be hybrid, keyword or vector."
+    base = {"user_id": USER, "query": query, "top_k": top_k, "method": method}
+    if method != "keyword":
+        base["min_score"] = CUTOFF if min_score is None else min_score
+    try:
+        project, agent = _name(project), _name(agent)
+    except ValueError as e:
+        return f"Bad project/agent: {e}"
+    try:
+        f = _filters(since, until, sender, exclude_sessions, agent)
+    except ValueError as e:
+        return f"Bad date: {e}"
+    if f:
+        base["filters"] = f
+    data, errs = _fan("search", [dict(base, project_id=s) for s in _spaces(project)])
+    eps = [(pid, e) for pid, d in data for e in d.get("episodes", [])]
+    eps.sort(key=lambda pe: pe[1].get("score") or 0, reverse=True)
+    # ponytail: 'episode' is the full extracted text; 'summary' is a 200-char teaser
+    def meta(pid, e):
+        bits = [str(e[k]) for k in ("timestamp", "score") if e.get(k) is not None] + [f"space {pid}"]
+        return f" ({', '.join(bits)})"
+    out = [f"- [{e.get('subject', '')}]{meta(pid, e)} {e.get('episode') or e.get('summary', '')}" for pid, e in eps[:top_k]]
+    out += [f"- (profile) {p.get('content') or p}" for _pid, d in data for p in d.get("profiles", [])]
+    out += [f"(space error) {x}" for x in errs]
+    return "\n".join(out) or "No memories found."
+
+
+@mcp.tool()
+def memory_list(project: str = "", since: str = "", until: str = "", sender: str = "", limit: int = 20, offset: int = 0) -> str:
+    """Browse saved episodes newest first (title, date, id, session, space). project: e.g. TEAM (plus the legacy
+    shared space); omit for all spaces. since/until: YYYY-MM-DD or ISO. sender: saving bot. limit+offset <= 100."""
+    limit, offset = max(1, limit), max(0, offset)
+    if offset + limit > 100:
+        return "limit + offset must be <= 100 (EverOS page_size cap); narrow with since/until instead."
+    base = {"user_id": USER, "memory_type": "episode", "page": 1, "page_size": offset + limit,
+            "sort_by": "timestamp", "sort_order": "desc"}
+    try:
+        f = _filters(since, until, sender)
+    except ValueError as e:
+        return f"Bad date: {e}"
+    if f:
+        base["filters"] = f
+    data, errs = _fan("get", [dict(base, project_id=s) for s in _spaces(project)])
+    total = sum(d.get("total_count") or 0 for _pid, d in data)
+    eps = [(pid, e) for pid, d in data for e in d.get("episodes", [])]
+    eps.sort(key=lambda pe: pe[1].get("timestamp") or "", reverse=True)
+    out = [f"- {e.get('subject', '')} | {e.get('timestamp', '')} | {e.get('id', '')} | {e.get('session_id', '')} | space {pid}"
+           for pid, e in eps[offset:offset + limit]]
+    out += [f"(space error) {x}" for x in errs]
+    head = f"{total} episodes match; showing {offset + 1}-{offset + len(out) - len(errs)}" if eps[offset:] else f"{total} episodes match; none in this page."
+    return "\n".join([head] + out)
+
+
+@mcp.tool()
+def memory_add(content: str, sender_name: str = "", project: str = "", agent: str = "") -> str:
+    """Store one memory in the current session; it MUST start with [PROJECT][BOT][ID][TYPE][STATUS] (see CONSTITUTION Memory). It is saved in that PROJECT's space under the tag's BOT. Run memory_flush after.
+    project/agent: optional native project_id / sender_id; default to the tag's PROJECT / BOT; if given they must
+    match the tags. Any sanitized project is accepted (A-Z 0-9 - _, max 48).
+    Known projects: AAP, AAP-RUNNER, CEREGISTER, FATHOM, MOLDWRIGHT, PASSPORT, SYMFORGE, TC, TEAM, TESTPILOT.
+    Known agents: ADA, ANDERS, BARBARA, BILL, BOSS, BRENDAN, BRUCE, CHAMPOLLION, CLAUDE, CODD, CODEX, CURIE, DANA,
+    DEVILSADVOCATE, DIETER, EVELYN, FRED, FRESH, GLM, GRACE, GROK, GROVE, HOLMES, HOPPER, HOUSE, IKE, JEZ, JUNIO, KENT,
+    LARRY, LESLIE, LINUS, MARGARET, MARTIN, OMP, SCOPESHAPER. An identical retry (same text, project, agent) is skipped."""
+    err = _check_tags(content)
+    if err:
+        return err
+    proj, bot = TAG_RE.match(content.strip()).groups()[:2]
+    try:
+        project, agent = _name(project), _name(agent)
+    except ValueError as e:
+        return f"Bad project/agent: {e}"
+    bad = [f"{n} '{a}' != tag '{t}'" for n, a, t in (("project", project, proj), ("agent", agent, bot)) if a and a != t]
+    if bad:
+        return "Rejected: " + "; ".join(bad) + " (the [PROJECT][BOT] tags must match the args)."
+    pid = _space(proj)
+    key = _dedup_key(content, proj, bot)
+    with _ledger_lock():   # one cross-process section: check, /add, record
+        if _ledger(key, record=False):
+            return f"duplicate skipped (identical content+project+agent already stored; key {key[:12]}, space {pid})"
+        return _add(content, pid, bot, key)
+
+
+def _add(content: str, pid: str, bot: str, key: str) -> str:
+    now = int(time.time() * 1000)
+    # Always role "user": EverOS drops sessions with no user message (user_memory.py), even though flush says "extracted".
+    # The user message's sender_id is the OWNER key (api.md MessageItem: users/<sender_id>/...), so it stays USER.
+    # The bot rides as a second, assistant-role message: its sender_id is informational, not an index key, but it
+    # lands in the episode's sender_ids, which is what the `sender` filter (array_has) matches.
+    msgs = [{"sender_id": USER, "sender_name": bot, "role": "user", "timestamp": now, "content": content},
+            {"sender_id": bot, "sender_name": bot, "role": "assistant", "timestamp": now + 1,
+             "content": [{"type": "text", "text": f"Saved by {bot}.", "extras": {"dedup_key": key}}]}]
+    d = _post("add", {"session_id": SESSION, "project_id": pid, "messages": msgs})
+    ADDED.add(pid)
+    _ledger(key, record=True)
+    return f"stored ({d.get('status', '?')}, session {SESSION}, space {pid})"
+
+
+@mcp.tool()
+def memory_flush() -> str:
+    """Run extraction on everything added in this session (every project space it touched) so it becomes searchable."""
+    out = []
+    for pid in sorted(ADDED) or [LEGACY]:
+        d = _post("flush", {"session_id": SESSION, "project_id": pid}, timeout=300.0)
+        out.append(f"{pid}: {d.get('status', '?')}")
+    return "flush: " + ", ".join(out)
+
+
+if __name__ == "__main__":
+    mcp.run()
