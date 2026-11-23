@@ -2,6 +2,7 @@ import { FOREMAN_AGENT_ID } from '@moldwright/contracts'
 import { rm } from 'node:fs/promises'
 import { prepareDataDir } from '../../datadir/ladder.js'
 import { createAgent } from '../../agents/factory.js'
+import { allowAgent, listPendingEveros } from '../../agents/everos-allowlist.js'
 import { listAgentIndex, deleteAgentIndex } from '../../db/repos/agents.js'
 import { agentExists } from '../../agents/loader.js'
 import { agentDir } from '../../config/paths.js'
@@ -31,6 +32,7 @@ export async function agentCommand(args: string[]): Promise<void> {
             keys[flags.key.slice(0, eq)] = flags.key.slice(eq + 1)
         }
         const agent = await createAgent({ config: { name: flags.name, provider: (flags.provider as never) ?? undefined, model: flags.model ?? undefined }, keys })
+        await allowAgent(agent.id, 'create')
         process.stdout.write(`Created agent ${agent.id} (${agent.config.name})\n`)
         return
     }
@@ -52,5 +54,18 @@ export async function agentCommand(args: string[]): Promise<void> {
         return
     }
 
-    throw new Error('Usage: rerun agent <create|list|delete>')
+    if (sub === 'everos-pending') {
+        for (const agent of await listPendingEveros()) process.stdout.write(`${agent.id}\t${agent.reason}\t${agent.name}\n`)
+        return
+    }
+
+    if (sub === 'everos-allow') {
+        const id = args[1]
+        if (!id || !agentExists(id)) throw new Error('Usage: rerun agent everos-allow <id>')
+        await allowAgent(id, 'confirm')
+        process.stdout.write(`Allowed shared EverOS and shell for ${id}\n`)
+        return
+    }
+
+    throw new Error('Usage: rerun agent <create|list|delete|everos-pending|everos-allow>')
 }

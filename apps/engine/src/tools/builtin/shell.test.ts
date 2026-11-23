@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-shell-'))
 
-const { describe, expect, it, vi } = await import('vitest')
+const { beforeAll, describe, expect, it, vi } = await import('vitest')
 const { HostBreaker, BLOCKED_SOURCE_PREFIX } = await import('../host-breaker.js')
 const { shellTools } = await import('./shell.js')
 
@@ -17,6 +17,11 @@ function ctxWith() {
 async function exec(ctx: ReturnType<typeof ctxWith>, run: Runner, command: string): Promise<string> {
     return (await (shellTools(ctx, run).shell_exec as any).execute({ command, timeoutMs: 120_000 }, { toolCallId: 'call-1', messages: [] })) as string
 }
+
+beforeAll(async () => {
+    const { allowAgent } = await import('../../agents/everos-allowlist.js')
+    await allowAgent('shell', 'create')
+})
 
 describe('shell_exec', () => {
     it('closes a host whose curl keeps answering 403 even though curl exits 0', async () => {

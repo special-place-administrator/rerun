@@ -29,13 +29,18 @@ vi.mock('./mcp-hub-headers.js', () => ({
     },
 }))
 
-const { afterEach, describe, expect, it } = await import('vitest')
+const { afterEach, beforeAll, describe, expect, it } = await import('vitest')
 const { rm } = await import('node:fs/promises')
 const { prepareMcpServer } = await import('./mcp.js')
 const { dataDir, workspaceDir } = await import('../config/paths.js')
 const { writeSharedEnv } = await import('../agents/shared-env.js')
 
 describe('prepareMcpServer', () => {
+    beforeAll(async () => {
+        const { allowAgent } = await import('../agents/everos-allowlist.js')
+        await allowAgent('agent-2', 'create')
+    })
+
     afterEach(async () => {
         await rm(resolve(dataDir(), 'shared.env'), { force: true })
     })

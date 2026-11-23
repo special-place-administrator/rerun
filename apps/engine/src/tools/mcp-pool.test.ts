@@ -487,6 +487,8 @@ describe('agentMcpSpawn secret isolation', () => {
 
 describe('stdio env refs', () => {
     it('migrates known-package refs, reports every unresolved ref sorted in missingEnv and starts the other servers', async () => {
+        const { allowAgent } = await import('../agents/everos-allowlist.js')
+        await allowAgent('a-env-ref', 'create')
         const servers = [server('github', { url: undefined, command: 'github-mcp-server' }), server('needs-token', { url: undefined, command: 'needs-token-bin', env: { TOKEN: '${ZED_TOKEN}', AUTH: 'Bearer ${ALPHA_TOKEN}', AGAIN: '${ZED_TOKEN}' } }), server('bad-shape', { url: undefined, command: 'bad-shape-bin', env: { LOADER: '--require ${BETA_TOKEN}' } }), server('fine')]
         const agent = { id: 'a-env-ref', env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_value', AWS_SECRET_ACCESS_KEY: 'unrelated' }, config: { tools: {}, mcpServers: servers } } as unknown as Parameters<typeof pooledMcpServers>[0]
         const statuses = await probeMcpStatuses(agent.id, servers, agent.env, spawn)
@@ -504,5 +506,21 @@ describe('stdio env refs', () => {
         const servers = [server('bad', { url: undefined, command: 'bad-bin', env: { T: '${CLI_MISSING_VAR}' } }), server('ok')]
         const agent = { id: 'a-cli-ref', env: {}, config: { tools: {}, mcpServers: servers } } as unknown as Parameters<typeof preparedMcpServers>[0]
         expect((await preparedMcpServers(agent)).map(prepared => prepared.name)).toEqual(['ok'])
+    })
+
+    it('refuses a stdio spawn for an unconfirmed imported agent', async () => {
+        const { SHELL_NEEDS_CONFIRM } = await import('../agents/everos-allowlist.js')
+        const { preparedMcpServers } = await import('./mcp-pool.js')
+        const stdio = server('archive-npx', { url: undefined, command: 'npx', args: ['-y', 'some-mcp-pkg@1.2.3'] })
+        const http = server('remote')
+        const agent = { id: 'imported-unconfirmed', env: {}, config: { tools: {}, mcpServers: [stdio, http] } } as unknown as Parameters<typeof pooledMcpServers>[0]
+        expect((await preparedMcpServers(agent)).map(prepared => prepared.name)).toEqual(['remote'])
+        const pooled = await pooledMcpServers(agent)
+        expect(pooled.map(p => p.name)).toEqual(['remote'])
+        expect(mcp.connects).not.toContain('npx')
+        expect(mcp.stdioEnv['npx']).toBeUndefined()
+        const statuses = await probeMcpStatuses(agent.id, [stdio, http], agent.env, spawn)
+        expect(statuses.find(s => s.name === 'archive-npx')).toMatchObject({ status: 'config_error', error: SHELL_NEEDS_CONFIRM, transport: 'stdio' })
+        expect(statuses.find(s => s.name === 'remote')?.status).toBe('connected')
     })
 })
