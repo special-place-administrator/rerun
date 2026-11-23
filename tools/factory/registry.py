@@ -18,12 +18,12 @@ STEPS = {
     "plan": {"sending": "planning", "running": "planning", "planning": "planning", "cutting": "cutting",
              "reviewing": "plan-review", "repairing": "plan-review", "planned": "planning", "replan": "planning",
              "resend": "planning", "unsent": "planning", "asked": "planning", "revise": "plan-review",
-             "repair": "plan-review", "cut": "children", "blocked": "problem", "lost": "problem"},
-    "recheck": {"sending": "queued", "running": "queued", "fresh": "queued", "corrected": "queued", "blocked": "problem"},
+             "repair": "plan-review", "cut": "children", "blocked": "problem", "lost": "problem", "cancelled": "ended"},
+    "recheck": {"sending": "queued", "running": "queued", "fresh": "queued", "corrected": "queued", "blocked": "problem", "cancelled": "ended"},
     "accept": {"running": "acceptance", "unsent": "acceptance", "no_acceptor": "acceptance", "gaps": "acceptance",
-               "left": "acceptance", "accepted": "done", "closed": "done"},
+               "left": "acceptance", "accepted": "done", "closed": "done", "cancelled": "ended"},
     "instr": {"review": "intake", "unsent": "intake", "unreadable": "intake", "refused": "intake", "rejected": "ended",
-              "applied": "done"},
+              "applied": "done", "cancelled": "ended"},
 }
 
 BACK_MOVES = {("reviewing", "fix_wait"), ("checks", "fix_wait"), ("checks", "review_wait"), ("proving", "fix_wait"),
@@ -37,8 +37,8 @@ KV_STATUS = {
     "instr": {"review": "taken", "unsent": "sent", "unreadable": "refused", "refused": "refused"},
 }
 KEYS = ("state", "started", "why", "name", "agent", "sends", "run", "fire")
-LIVE_KV = {"plan": set(STEPS["plan"]) - {"cut", "blocked", "lost"}, "recheck": {"sending", "running"},
-           "accept": set(STEPS["accept"]) - {"accepted", "closed", "gaps", "left"}, "instr": {"review", "unsent"}}
+LIVE_KV = {"plan": set(STEPS["plan"]) - {"cut", "blocked", "lost", "cancelled"}, "recheck": {"sending", "running"},
+           "accept": set(STEPS["accept"]) - {"accepted", "closed", "gaps", "left", "cancelled"}, "instr": {"review", "unsent"}}
 
 
 def iso(v):

@@ -1,4 +1,5 @@
 WHY = "stopped by the owner"
+CANCELLED = "cancelled"
 
 
 def cancel(account, store, agent, run, log):

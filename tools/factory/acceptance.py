@@ -16,7 +16,7 @@ EVERY = 5
 ASKS = 2
 RUN_LIMIT = 2700
 REVIVE_S = 6 * 3600
-HELD = ("running", "accepted", "closed", "left")
+HELD = ("running", "accepted", "closed", "left", stops.CANCELLED)
 CLOSED_LIMIT = 200
 OPEN_LIMIT = 1000
 
@@ -130,9 +130,12 @@ class Station:
         return [(r["agent"], int(r["copy"])) for r in self.live().values()]
 
     def owner_stop(self, log):
-        for n, row in self.live().items():
-            if row.get("run") and stops.cancel(self.account, self.store, row["agent"], row["run"], log):
-                self.store.set_many("accept:%d" % n, (("sends", max(0, int(row.get("sends", 0)) - 1)), ("state", "unsent")))
+        for n, row in self.records().items():
+            if row.get("state") in ("accepted", "closed", stops.CANCELLED):
+                continue
+            if row.get("state") == "running" and row.get("run") and not stops.cancel(self.account, self.store, row["agent"], row["run"], log):
+                continue
+            self.store.set("accept:%d" % n, "state", stops.CANCELLED)
 
     def open_children(self, n):
         raw = json.loads(self.gh(["issue", "list", "-R", self.repo, "--state", "open", "--json", "number,title,body",

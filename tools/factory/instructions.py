@@ -154,8 +154,11 @@ class Station:
 
     def owner_stop(self, log):
         for n, row in self.records().items():
-            if row.get("state") == "review" and row.get("run") and stops.cancel(self.account, self.store, row["agent"], row["run"], log):
-                self.store.set("instr:%d" % n, "state", "unsent")
+            if row.get("state") not in ("review", "unsent"):
+                continue
+            if row.get("state") == "review" and row.get("run") and not stops.cancel(self.account, self.store, row["agent"], row["run"], log):
+                continue
+            self.store.set("instr:%d" % n, "state", stops.CANCELLED)
 
     def once(self, beat, running):
         for n, row in sorted(self.records().items()):

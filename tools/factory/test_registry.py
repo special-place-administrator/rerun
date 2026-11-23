@@ -30,10 +30,10 @@ class Steps(unittest.TestCase):
         self.assertEqual(set(registry.STEPS["job"]), set(states.NAMES))
         plan = set(planning.LIVE) | set(planning.ENDED) | {"planned", "replan", "revise", "repair", "resend", "asked", "unsent"}
         self.assertEqual(set(registry.STEPS["plan"]), plan)
-        self.assertEqual(set(registry.STEPS["recheck"]), {"sending", "running", "fresh", "corrected", "blocked"})
+        self.assertEqual(set(registry.STEPS["recheck"]), {"sending", "running", "fresh", "corrected", "blocked", "cancelled"})
         self.assertEqual(set(registry.STEPS["accept"]),
-                         {"running", "unsent", "no_acceptor", "gaps", "accepted", "closed", "left"})
-        self.assertEqual(set(registry.STEPS["instr"]), {"review", "unsent", "unreadable", "refused", "rejected", "applied"})
+                         {"running", "unsent", "no_acceptor", "gaps", "accepted", "closed", "left", "cancelled"})
+        self.assertEqual(set(registry.STEPS["instr"]), {"review", "unsent", "unreadable", "refused", "rejected", "applied", "cancelled"})
 
 
 class Moves(Base):

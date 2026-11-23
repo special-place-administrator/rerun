@@ -221,7 +221,7 @@ class Pass:
             return
         for row in self.store.running():
             if row["stage"] == "classify" and row.get("run_id") and stops.cancel(self.account, self.store, agent, row["run_id"], log):
-                self.store.set_many(row["job"], (("run", ""), ("hash", "")))
+                self.store.set(row["job"], "run", "")
 
     def send(self, issue, rules, settings):
         job = "classify:%s" % issue["number"]

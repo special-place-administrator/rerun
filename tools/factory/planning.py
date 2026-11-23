@@ -41,7 +41,7 @@ STAGES = {"planning": "plan", "running": "plan", "cutting": "cut", "reviewing": 
 AGAIN = {"cut": "planned", "review": "planned", "repair": "repair"}
 QUESTION_LABEL = "factory-question"
 REPLAN = "factory-replan"
-ENDED = ("blocked", "lost", "cut")
+ENDED = ("blocked", "lost", "cut", stops.CANCELLED)
 CLEARED = frozenset(("factory-plan", "factory-blocked", "factory-unsolvable", "likely-fixed"))
 ANSWER = re.compile(r"(?mi)^ANSWER:[ \t]*(.+)$")
 ISSUE_URL = re.compile(r"/issues/(\d+)\b")
@@ -657,12 +657,13 @@ class Station:
         self.store.set_many(job, items)
 
     def owner_stop(self, log):
-        for n, row in self.live().items():
-            if row.get("state") in STAGES and row.get("run") and stops.cancel(self.account, self.store, row["agent"], row["run"], log):
-                self.back(n, row, {})
+        for n, row in self.records().items():
+            if row.get("state") in ENDED or (row.get("state") in LIVE and row.get("run") and not stops.cancel(self.account, self.store, row["agent"], row["run"], log)):
+                continue
+            self.store.set_many("plan:%d" % n, (("why", stops.WHY), ("state", stops.CANCELLED)))
         for n, row in self.live_rechecks().items():
             if row.get("run") and stops.cancel(self.account, self.store, row["agent"], row["run"], log):
-                self.recheck_result("recheck:%d" % n, "stopped", stops.WHY)
+                self.recheck_result("recheck:%d" % n, stops.CANCELLED, stops.WHY)
 
     def opened_children(self, n):
         try:
