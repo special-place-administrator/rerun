@@ -28,6 +28,7 @@ import { parseEnvFile, writeAgentEnv } from './env.js'
 import { writeAgentConfig } from './config-write.js'
 import { loadAgentFromDisk } from './loader.js'
 import { defaultSoul } from './soul.js'
+import { markImported } from './imported.js'
 
 const FILE_ROOTS = new Set<string>([...ARCHIVE_ROOTS.filter(root => root.includes('.')), MANIFEST_PATH])
 const DIR_ROOTS = ARCHIVE_ROOTS.filter(root => !FILE_ROOTS.has(root))
@@ -212,6 +213,7 @@ export async function importAgent(input: ImportAgentInput): Promise<AgentImportR
 
         await mkdir(agentsDir(), { recursive: true })
         await rename(staging, agentDir(id))
+        await markImported(id)
 
         await mkdir(workspaceDir(id), { recursive: true })
         await mkdir(skillsDir(id), { recursive: true })

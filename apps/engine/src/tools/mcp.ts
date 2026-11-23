@@ -19,6 +19,7 @@ import { toToolInputSchema } from './mcp-schema.js'
 import { logger } from '../lib/logger.js'
 import { readSharedEnvSync } from '../agents/shared-env.js'
 import { EVEROS_MCP_SERVER } from './mcp-everos.js'
+import { isImported } from '../agents/imported.js'
 
 export type McpSpawn = { cwd: string; env: Record<string, string> }
 export type McpTool = Awaited<ReturnType<Client['listTools']>>['tools'][number]
@@ -124,22 +125,36 @@ export class McpServerDisabledError extends Error {
 
 const AGENT_ONLY_ENV_KEYS = new Set(['EVEROS_TOKEN'])
 
-const isEverosServer = (server: McpServer): boolean => server.command === EVEROS_MCP_SERVER.command && JSON.stringify(server.args) === JSON.stringify(EVEROS_MCP_SERVER.args)
+const EVEROS_SHARED_KEYS = ['EVEROS_URL', 'EVEROS_USER_ID', 'EVEROS_APP', 'EVEROS_TOKEN']
 
-const sharedEnvForMcp = (server: McpServer): Record<string, string> =>
-    Object.fromEntries(Object.entries(readSharedEnvSync()).filter(([key]) => !AGENT_ONLY_ENV_KEYS.has(key) || isEverosServer(server)))
+const isBlank = (value: string | undefined): boolean => value === undefined || value.trim() === ''
 
-const resolvableEnv = (agentId: string, server: McpServer, env: Record<string, string>): Record<string, string> => ({ ...sharedEnvForMcp(server), ...env, RERUN_WORKSPACE: workspaceDir(agentId) })
+const withoutBlankAgentOnly = (env: Record<string, string>): Record<string, string> =>
+    Object.fromEntries(Object.entries(env).filter(([key, value]) => !(AGENT_ONLY_ENV_KEYS.has(key) && isBlank(value))))
+
+const isEverosServer = (server: McpServer): boolean =>
+    resolveTransport(server) === 'stdio' && server.url === undefined && server.command === EVEROS_MCP_SERVER.command && JSON.stringify(server.args) === JSON.stringify(EVEROS_MCP_SERVER.args)
+
+function mcpInputs(agentId: string, server: McpServer, env: Record<string, string>): { server: McpServer; resolvable: Record<string, string> } {
+    const shared = readSharedEnvSync()
+    const own = withoutBlankAgentOnly(env)
+    const resolvable = { ...withoutBlankAgentOnly(Object.fromEntries(Object.entries(shared).filter(([key]) => !AGENT_ONLY_ENV_KEYS.has(key)))), ...own, RERUN_WORKSPACE: workspaceDir(agentId) }
+    if (own.EVEROS_TOKEN !== undefined || isBlank(shared.EVEROS_TOKEN) || !isEverosServer(server) || isImported(agentId)) return { server, resolvable }
+    const kept = Object.fromEntries(Object.entries(resolvable).filter(([key]) => !EVEROS_SHARED_KEYS.includes(key)))
+    const fromShared = Object.fromEntries(EVEROS_SHARED_KEYS.flatMap(key => (shared[key] === undefined ? [] : [[key, shared[key]!]])))
+    return { server: { ...server, env: { ...EVEROS_MCP_SERVER.env }, headers: {} }, resolvable: { ...kept, ...fromShared } }
+}
 
 export function missingMcpEnv(agentId: string, server: McpServer, env: Record<string, string>): string[] {
-    const resolvable = resolvableEnv(agentId, server, env)
-    return unsetEnvRefs(Object.values(withKnownEnvRefs(server, resolvable).env), resolvable)
+    const inputs = mcpInputs(agentId, server, env)
+    return unsetEnvRefs(Object.values(withKnownEnvRefs(inputs.server, inputs.resolvable).env), inputs.resolvable)
 }
 
 export async function prepareMcpServer(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<McpServer> {
     if (!isEnabledMcpServer(server)) throw new McpServerDisabledError(server.name)
-    const resolvable = resolvableEnv(agentId, server, env)
-    const known = withKnownEnvRefs(await withAuth(agentId, server), resolvable)
+    const inputs = mcpInputs(agentId, server, env)
+    const resolvable = inputs.resolvable
+    const known = withKnownEnvRefs(await withAuth(agentId, inputs.server), resolvable)
     const declared = { ...known, env: spawnSafeEnv(known.env) }
     const refused = templateRefusedEnvKeys(known.env)
     if (refused.length) throw new McpEnvRefError(server.name, unsetEnvRefs([...refused.map(key => known.env[key]!), ...Object.values(declared.env)], resolvable), refused)
