@@ -24,6 +24,7 @@
         "probe": {
             "bad_path": "Gib einen einfachen Ordnerpfad ein.",
             "no_root": "Für die Factory ist kein Ordner für Host-Projekte festgelegt.",
+            "bad_root": "Der Ordner für Host-Projekte ist auf dem Factory-Host nicht nutzbar.",
             "outside_root": "Der Pfad liegt außerhalb des Ordners, den die Factory lesen darf.",
             "not_found": "Pfad auf dem Factory-Host nicht gefunden.",
             "not_git": "Kein Git-Repository.",

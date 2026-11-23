@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { factoryProjectsSchema } from '@moldwright/contracts'
 
 import { workspaceFounderUserId } from '@/app/api/_auth/ownership'
 import { askProjectCheck, clearProjectAsk } from '@/lib/factory/project-asks'
@@ -54,5 +55,13 @@ describe('factory_report answer', () => {
         const answer = await factoryReportAnswer(302)
         expect(answer).toEqual({ project: { repo: 'acme/app', by: OWNER, at: '2026-11-23T18:00:00Z' }, check: { repo: 'acme/site', at: '2026-11-23T18:05:00Z' } })
         expect(await factoryReportAnswer(302)).toEqual(answer)
+    })
+})
+
+describe('factory projects: probe codes', () => {
+    it('keeps the projects field when a probe carries bad_root or a code the app does not know yet', () => {
+        const probe = (code: string) => ({ path: '/srv/app', ok: false, code, message: '', repo: '' })
+        const parsed = factoryProjectsSchema.parse({ repos: [], ready: [], probes: [probe('bad_root'), probe('later_code')] })
+        expect(parsed.probes.map(p => p.code)).toEqual(['bad_root', 'unknown'])
     })
 })

@@ -32,6 +32,7 @@
         "probe": {
             "bad_path": "Type a plain folder path.",
             "no_root": "The factory has no folder set for host projects.",
+            "bad_root": "The folder set for host projects is not usable on the factory host.",
             "outside_root": "The path is outside the folder the factory may read.",
             "not_found": "Path not found on the factory host.",
             "not_git": "Not a git repository.",
