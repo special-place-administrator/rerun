@@ -16,7 +16,7 @@ const h = vi.hoisted(() => ({
     select: vi.fn(),
 }))
 
-vi.mock('@/app/api/_actions/factory.actions', () => ({ readFactorySnapshotAction: () => Promise.resolve(h.answer) }))
+vi.mock('@/app/api/_actions/factory.actions', () => ({ readFactorySnapshotAction: () => Promise.resolve(h.answer), readFactoryControlsAction: () => Promise.resolve({ ok: true, controls: { isOwner: false, activeRepo: null, state: null, providersOff: [], throttle: null, orders: [] } }), setFactoryPoolAction: vi.fn(), setFactorySeatsAction: vi.fn() }))
 vi.mock('@/components/agent/AgentPanel', () => ({ AgentPanel: () => null }))
 vi.mock('@/components/layout/WorkspaceSwitcher', () => ({ WorkspaceSwitcher: () => createElement('div', { 'data-workspace-switcher': '' }) }))
 vi.mock('@/components/control-center/ControlCenter', () => ({ ControlCenter: () => createElement('div', { 'data-control-center': '' }) }))

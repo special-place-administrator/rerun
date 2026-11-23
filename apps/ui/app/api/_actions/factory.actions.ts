@@ -2,6 +2,7 @@
 
 import type { FactorySnapshot } from '@moldwright/contracts'
 import { requireWorkspaceContext, requireWorkspaceId } from '@/app/api/_auth/ownership'
+import { actOnWorkOrder, cancelWorkOrder, createWorkOrder, readFactoryControls, setFactoryState, setFactoryThrottle, setProviderEnabled, type FactoryControlsView, type FactoryThrottleView, type FactoryWorkOrder, type WorkOrderAction, type WorkOrderInput } from '@/app/api/_services/factory-controls.service'
 import { addPathProject, addRepoProject, listFactoryProjects, removeProject, selectProject, type FactoryProject, type PathOutcome, type SelectOutcome } from '@/app/api/_services/factory-projects.service'
 import { getFactorySnapshot } from '@/lib/factory/snapshot-store'
 import { failureOf } from '@/lib/i18n/action-error'
@@ -47,6 +48,81 @@ export async function removeFactoryProjectAction(id: number): Promise<ActionResu
     try {
         const { workspace, userId } = await requireWorkspaceContext()
         await removeProject(workspace.id, userId, Number(id))
+        return { ok: true }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function readFactoryControlsAction(): Promise<ActionResult<{ controls: FactoryControlsView }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, controls: await readFactoryControls(workspace.id, userId) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function setFactoryStateAction(state: string): Promise<ActionResult> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        await setFactoryState(workspace.id, userId, String(state))
+        return { ok: true }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function setFactoryProviderAction(connectionId: string, enabled: boolean): Promise<ActionResult<{ off: string[] }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, off: await setProviderEnabled(workspace.id, userId, String(connectionId), enabled === true) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function setFactoryPoolAction(maxGhosts: number): Promise<ActionResult<{ throttle: FactoryThrottleView }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, throttle: await setFactoryThrottle(workspace.id, userId, { maxGhosts: Number(maxGhosts) }) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function setFactorySeatsAction(station: string, seats: number): Promise<ActionResult<{ throttle: FactoryThrottleView }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, throttle: await setFactoryThrottle(workspace.id, userId, { station: String(station), seats: Number(seats) }) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function createFactoryWorkOrderAction(input: WorkOrderInput): Promise<ActionResult<{ order: FactoryWorkOrder }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, order: await createWorkOrder(workspace.id, userId, input) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function cancelFactoryWorkOrderAction(id: string): Promise<ActionResult> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        await cancelWorkOrder(workspace.id, userId, String(id))
+        return { ok: true }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function actOnFactoryWorkOrderAction(id: string, action: WorkOrderAction, issue: number): Promise<ActionResult> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        await actOnWorkOrder(workspace.id, userId, String(id), action, Number(issue))
         return { ok: true }
     } catch (err) {
         return failureOf(err)

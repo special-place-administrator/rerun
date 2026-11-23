@@ -32,7 +32,7 @@ const q = (s: string) => host.querySelector(s) as HTMLElement | null
 const chip = (name: string) => host.querySelector(`[data-chip="${name}"]`) as HTMLElement | null
 const click = (el: Element | null) => act(() => { el!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
 const render = (over: Record<string, unknown> = {}) => act(() => {
-    root.render(createElement(FactoryTopBar, { snapshot: snapshot(), selected: null, onSelect: () => {}, names: {}, onOpenCoworker: () => {}, ...over } as never))
+    root.render(createElement(FactoryTopBar, { snapshot: snapshot(), controls: { view: null, loadError: null, reload: async () => {} }, selected: null, onSelect: () => {}, names: {}, onOpenCoworker: () => {}, ...over } as never))
 })
 
 beforeEach(() => {

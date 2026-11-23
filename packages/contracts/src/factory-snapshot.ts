@@ -222,6 +222,61 @@ export const factoryProjectsSchema = z.object({
     })).max(10),
 })
 
+export const FACTORY_CONTROL_STATES = ['RUNNING', 'PAUSED', 'DRAINING', 'STOPPED'] as const
+export const FACTORY_CONTROL_DEFAULT = 'PAUSED'
+export const FACTORY_WIRE_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/
+export const FACTORY_CONNECTIONS_OFF_MAX = 50
+export const FACTORY_ORDER_KINDS = ['issue', 'all_issues', 'feature', 'bug'] as const
+export const FACTORY_ORDER_ISSUES_MAX = 200
+export const FACTORY_ORDER_TEXT_MAX = 4000
+export const FACTORY_MAX_GHOSTS_FALLBACK = 32
+export const FACTORY_POOL_DEFAULT = 1
+export const FACTORY_SEATS_DEFAULT = 1
+export const FACTORY_STATIONS_MAX = 20
+
+export const factoryControlStateSchema = z.enum(FACTORY_CONTROL_STATES)
+export const factoryOrderKindSchema = z.enum(FACTORY_ORDER_KINDS)
+
+const issueNumber = z.number().int().positive()
+const wireText = z.string().max(200).nullable()
+
+export const factoryControlSchema = z.object({
+    state: factoryControlStateSchema,
+    by: wireText,
+    at: wireText,
+})
+
+export const factoryProvidersSchema = z.object({
+    off: z.array(z.string().max(64)).max(FACTORY_CONNECTIONS_OFF_MAX),
+    enabled: z.array(z.string().max(64)).max(200),
+})
+
+export const factoryThrottleSchema = z.object({
+    max_ghosts: count.optional().catch(undefined),
+    ghosts_running: count.optional().catch(undefined),
+    max_ghosts_ceiling: count.optional().catch(undefined),
+    stations: z.record(z.string().max(64), z.object({ max: count.optional().catch(undefined), running: count.optional().catch(undefined) }))
+        .refine(stations => Object.keys(stations).length <= FACTORY_STATIONS_MAX)
+        .optional().catch(undefined),
+})
+
+export const factoryStationSeatsSchema = z.record(z.string().max(64), count)
+
+export const factoryWorkOrderReportSchema = z.object({
+    id: z.string().max(64).nullable(),
+    repo: z.string().max(201).nullable(),
+    kind: factoryOrderKindSchema.nullable().catch(null),
+    issues: z.array(issueNumber).max(FACTORY_ORDER_ISSUES_MAX),
+    text: z.string().max(FACTORY_ORDER_TEXT_MAX).nullable(),
+    by: wireText,
+    at: wireText,
+    current: issueNumber.nullable(),
+    done: z.array(issueNumber).max(FACTORY_ORDER_ISSUES_MAX),
+    skipped: z.array(issueNumber).max(FACTORY_ORDER_ISSUES_MAX),
+    halted: issueNumber.nullable(),
+    wait: z.string().max(300).nullable(),
+})
+
 export const factorySnapshotSchema = z.object({
     version: z.literal(1),
     madeAt: isoTime,
@@ -239,7 +294,19 @@ export const factorySnapshotSchema = z.object({
     endedToday: z.object({ merged: count, rejected: count, blocked: count, failed: count, returned: count }),
     finishing: z.array(z.object({ repo: z.string().max(201), jobs: count })).max(10).optional().catch(undefined),
     projects: factoryProjectsSchema.optional().catch(undefined),
+    control: factoryControlSchema.optional().catch(undefined),
+    providers: factoryProvidersSchema.optional().catch(undefined),
+    work_order: factoryWorkOrderReportSchema.optional().catch(undefined),
+    throttle: factoryThrottleSchema.optional().catch(undefined),
 })
+
+export function factoryStationNames(snapshot: FactorySnapshot | null | undefined): string[] {
+    const reported = Object.keys(snapshot?.throttle?.stations ?? {})
+    return reported.length > 0 ? reported : [...new Set(snapshot?.pools.map(p => p.type) ?? [])]
+}
+
+export const factoryGhostCeiling = (snapshot: FactorySnapshot | null | undefined): number =>
+    snapshot?.throttle?.max_ghosts_ceiling ?? FACTORY_MAX_GHOSTS_FALLBACK
 
 export const FACTORY_SNAPSHOT_MAX_BYTES = 256 * 1024
 
@@ -259,3 +326,6 @@ export type FactoryMachine = z.infer<typeof factoryMachineSchema>
 export type FactorySnapshot = z.infer<typeof factorySnapshotSchema>
 export type FactoryProjects = z.infer<typeof factoryProjectsSchema>
 export type FactoryProbeCode = z.infer<typeof factoryProbeCodeSchema>
+export type FactoryControlState = z.infer<typeof factoryControlStateSchema>
+export type FactoryOrderKind = z.infer<typeof factoryOrderKindSchema>
+export type FactoryThrottle = z.infer<typeof factoryThrottleSchema>

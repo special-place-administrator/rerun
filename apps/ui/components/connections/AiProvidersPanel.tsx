@@ -5,6 +5,7 @@ import { AddProviderPage } from '@/components/connections/AddProviderPage'
 import { AddCustomProviderPage } from '@/components/connections/custom/AddCustomProviderPage'
 import { ConnectionDetail } from '@/components/connections/ConnectionDetail'
 import { DefaultModelPicker } from '@/components/connections/DefaultModelPicker'
+import { FactoryProviderSwitch, FactoryProvidersNote, useFactoryProviders, type FactoryProviders } from '@/components/connections/FactoryProviderSwitch'
 import { NoPlanNotice, useNeedsPlanToConnect } from '@/components/connections/NoPlanNotice'
 import { ProviderPicker } from '@/components/connections/ProviderPicker'
 import { CreditMeter, PlanLimitMeter, SourceAvatar, SourceStatus } from '@/components/connections/SourceBits'
@@ -71,6 +72,7 @@ export function AiProvidersPanel({
     const errorText = useErrorText()
     const { connections, boxDefault, opencodeOffered, customOffered, loading, create, update, updateKeys, remove, setDefault } = useWorkspaceConnections({ revalidate: true })
     const credit = useMoldwrightCredit()
+    const factory = useFactoryProviders()
     const needsPlan = useNeedsPlanToConnect()
     const workspaceAdmin = useIsWorkspaceAdmin()
     const readOnlyReason = workspaceAdmin ? undefined : t('panel.adminOnly')
@@ -133,13 +135,14 @@ export function AiProvidersPanel({
                 <ConnectionsSkeleton />
             ) : (
                 <PanelScroller className="space-y-6 p-4">
+                    {factory && <FactoryProvidersNote factory={factory} />}
                     <Group title={t('panel.groups.default')}>
                         <DefaultRow connections={connections} current={current} credit={credit} onPick={pickDefault} onFix={open} readOnlyReason={readOnlyReason} />
                     </Group>
 
                     <Group title={t('panel.groups.included')}>
                         {byKind('included').map(source => (
-                            <SourceRow key={source.id} source={source} credit={credit} onClick={() => open(source.id)}>
+                            <SourceRow key={source.id} source={source} credit={credit} factory={factory} onClick={() => open(source.id)}>
                                 <CreditMeter percent={credit.percent} className="mt-1.5 max-w-56" />
                             </SourceRow>
                         ))}
@@ -152,6 +155,7 @@ export function AiProvidersPanel({
                         credit={credit}
                         taken={taken}
                         onOpen={open}
+                        factory={factory}
                         onAdd={needsPlan ? undefined : add}
                         addDisabledReason={readOnlyReason}
                         pitch={opencodeOffered ? t('panel.pitch.plansWithOpencode') : t('panel.pitch.plans')}
@@ -165,6 +169,7 @@ export function AiProvidersPanel({
                         credit={credit}
                         taken={taken}
                         onOpen={open}
+                        factory={factory}
                         onAdd={needsPlan ? undefined : add}
                         addDisabledReason={readOnlyReason}
                         pitch={customOffered ? t('panel.pitch.keysWithCustom') : t('panel.pitch.keys')}
@@ -264,13 +269,14 @@ type SourceGroupProps = {
     credit: MoldwrightCredit
     taken: Set<string>
     onOpen: (connectionId: string) => void
+    factory?: FactoryProviders | null
     onAdd?: (provider: AddableProvider) => void
     addDisabledReason?: string
     pitch: string
     providers: AddableProvider[]
 }
 
-export function SourceGroup({ title, only, sources, credit, taken, onOpen, onAdd, addDisabledReason, pitch, providers }: SourceGroupProps) {
+export function SourceGroup({ title, only, sources, credit, taken, onOpen, factory, onAdd, addDisabledReason, pitch, providers }: SourceGroupProps) {
     const t = useTranslations('connections')
     if (!onAdd && sources.length === 0) return null
 
@@ -293,7 +299,7 @@ export function SourceGroup({ title, only, sources, credit, taken, onOpen, onAdd
             {sources.map(source => {
                 const tightest = source.connected ? tightestPlanWindow(livePlanWindows(source)) : null
                 return (
-                    <SourceRow key={source.id} source={source} credit={credit} onClick={() => onOpen(source.id)}>
+                    <SourceRow key={source.id} source={source} credit={credit} factory={factory} onClick={() => onOpen(source.id)}>
                         {tightest && <PlanLimitMeter percent={tightest.usedPercent} label={t('meter.planLimit', { name: planWindowName(tightest, t, source.provider) })} className="mt-1.5 max-w-56" />}
                     </SourceRow>
                 )
@@ -315,7 +321,7 @@ export function SourceGroup({ title, only, sources, credit, taken, onOpen, onAdd
     )
 }
 
-function SourceRow({ source, credit, onClick, children }: { source: BoxConnection; credit: MoldwrightCredit; onClick: () => void; children?: ReactNode }) {
+function SourceRow({ source, credit, factory, onClick, children }: { source: BoxConnection; credit: MoldwrightCredit; factory?: FactoryProviders | null; onClick: () => void; children?: ReactNode }) {
     const t = useTranslations('connections')
     const locale = useLocale()
     return (
@@ -327,6 +333,7 @@ function SourceRow({ source, credit, onClick, children }: { source: BoxConnectio
             actions={
                 <>
                     <SourceStatus source={source} credit={credit} />
+                    {factory && <FactoryProviderSwitch connection={source} factory={factory} />}
                     <ChevronRightIcon className="ml-1 size-4 text-muted-foreground" />
                 </>
             }

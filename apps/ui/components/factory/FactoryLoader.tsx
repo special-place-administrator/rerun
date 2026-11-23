@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { FactoryJobState, FactorySnapshot } from '@moldwright/contracts'
+import { factoryStationNames, type FactoryJobState, type FactorySnapshot } from '@moldwright/contracts'
 import { JOB_STATE_VIEW } from './factory-state'
 import { loaderView } from './factory-loader'
+import { FactorySeatsPick } from './FactoryThrottle'
+import type { FactoryControlsState } from './use-factory-controls'
 
 const NO_PICTURE = 'No picture from the Loader yet. The floor is playing its sample loop.'
 const ENDED = ['merged', 'rejected', 'blocked', 'failed', 'returned'] as const
@@ -38,7 +40,7 @@ function StateIcon({ state }: { state: FactoryJobState }) {
     return <Icon className="size-4 shrink-0" style={{ color: v.color }} aria-hidden />
 }
 
-export function FactoryLoader({ snapshot, now: fixedNow }: { snapshot: FactorySnapshot | null; now?: number }) {
+export function FactoryLoader({ snapshot, now: fixedNow, controls }: { snapshot: FactorySnapshot | null; now?: number; controls?: FactoryControlsState }) {
     const [tick, setTick] = useState(() => Date.now())
     useEffect(() => {
         if (fixedNow !== undefined) return
@@ -51,6 +53,7 @@ export function FactoryLoader({ snapshot, now: fixedNow }: { snapshot: FactorySn
 
     const v = loaderView(snapshot, now)
     const empty = v.queued.length === 0 && v.waiting.length === 0
+    const unpooled = factoryStationNames(snapshot).filter(name => !v.pools.some(p => p.type === name))
 
     return (
         <div className="flex flex-col gap-4 overflow-y-auto p-4">
@@ -111,9 +114,16 @@ export function FactoryLoader({ snapshot, now: fixedNow }: { snapshot: FactorySn
                             <span>{p.type}</span>
                             <span className="tabular-nums">{p.out} / {p.allowed}</span>
                         </div>
+                        {controls && <FactorySeatsPick snapshot={snapshot} controls={controls} station={p.type} />}
                         <dl className="flex flex-col gap-1">
                             {p.coworkers.map(c => <Fact key={c.name} label={c.name}>{c.out} / {c.runs}</Fact>)}
                         </dl>
+                    </div>
+                ))}
+                {controls && unpooled.map(name => (
+                    <div key={name} className="flex flex-col gap-1">
+                        <span className="text-sm font-medium">{name}</span>
+                        <FactorySeatsPick snapshot={snapshot} controls={controls} station={name} />
                     </div>
                 ))}
             </Section>

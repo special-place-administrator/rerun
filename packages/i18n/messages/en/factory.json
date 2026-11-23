@@ -1,7 +1,11 @@
 {
     "_context": {
         "projects.trigger": "Accessible name of the button that opens the project list; {repo} is a GitHub owner/name.",
-        "projects.probe.no_github_remote": "A git remote named origin that points at GitHub."
+        "projects.probe.no_github_remote": "A git remote named origin that points at GitHub.",
+        "controls.state": "Short label of the factory state. DRAINING is the normal stop: the factory finishes what runs, then stops.",
+        "controls.hardStop": "Stops the factory at once and cancels everything that runs.",
+        "orders.ask": "The foreman's question once a project is chosen; {repo} is a GitHub owner/name.",
+        "providers.label": "Short caption next to the on/off switch of a connection: whether the factory may use it."
     },
     "projects": {
         "trigger": "Factory project: {repo}. Open the projects",
@@ -47,5 +51,69 @@
         "confirmRemoveTitle": "Remove {repo} from the projects?",
         "confirmRemoveBody": "Only the entry goes: the repository and the factory's records of its jobs stay.",
         "confirmRemove": "Remove"
+    },
+    "controls": {
+        "groupLabel": "Factory start and stop",
+        "start": "Start",
+        "pause": "Pause",
+        "stop": "Stop",
+        "hardStop": "Hard stop",
+        "state": "{state, select, RUNNING {Running} PAUSED {Paused} DRAINING {Stopping} STOPPED {Stopped} other {Paused}}",
+        "now": "The factory is {state, select, RUNNING {running} PAUSED {paused} DRAINING {stopping} STOPPED {stopped} other {paused}}",
+        "asked": "Asked for {state, select, RUNNING {running} PAUSED {paused} DRAINING {stopping} STOPPED {stopped} other {paused}}: waiting for the factory",
+        "readOnly": "Only the workspace owner can start or stop the factory",
+        "noProvider": "{count, plural, one {# job waits} other {# jobs wait}}: no enabled provider",
+        "loadFailed": "The factory controls did not load",
+        "retry": "Try again",
+        "confirmHardStopTitle": "Hard stop the factory?",
+        "confirmHardStopBody": "Every running job, planner and station run is cancelled now, and the work order ends. Nothing resumes on its own.",
+        "confirmHardStop": "Hard stop",
+        "pool": "Pool",
+        "seats": "Seats",
+        "usage": "{running} / {max} running",
+        "throttleSaved": "{label} set to {value}"
+    },
+    "orders": {
+        "trigger": "Work order",
+        "triggerAsk": "Choose the work",
+        "ask": "What should the factory work on in {repo}?",
+        "kindLabel": "Kind of work",
+        "kind": "{kind, select, feature {New feature} bug {Bug} issue {One issue} all_issues {All open issues} other {Work}}",
+        "textLabel": "{kind, select, bug {Describe the bug} other {Describe the feature}}",
+        "issueLabel": "Issue number",
+        "issuesLabel": "Issues, in the order they run",
+        "issuesHint": "{count, plural, =0 {Type issue numbers separated by commas or spaces} one {# issue: edit the list before you send it} other {# issues: edit the list before you send it}}",
+        "describedWaits": "The factory runs issues only: a described feature or bug waits until it has an issue.",
+        "submit": "Send the work order",
+        "sent": "Work order sent to the factory",
+        "ownerOnly": "Only the workspace owner can give the factory work",
+        "listHeading": "Work orders in {repo}",
+        "empty": "No work order yet",
+        "status": "{status, select, active {Active} cancelled {Cancelled} other {Ended}}",
+        "notPickedUp": "Waiting for the factory to pick it up",
+        "current": "Working on #{issue}",
+        "done": "{count, plural, =0 {Nothing done yet} one {# done} other {# done}}",
+        "skipped": "{count, plural, one {# skipped} other {# skipped}}",
+        "halted": "Job #{issue} failed: retry or skip",
+        "retry": "Retry #{issue}",
+        "skip": "Skip #{issue}",
+        "actionSent": "{action, select, retry {Retry} other {Skip}} of #{issue} sent to the factory",
+        "cancel": "Cancel",
+        "cancelTitle": "Cancel this work order?",
+        "cancelBody": "The factory takes no new job from it. Jobs already running finish.",
+        "cancelConfirm": "Cancel the order",
+        "cancelled": "Work order cancelled",
+        "replaceTitle": "Replace the current work order?",
+        "replaceBody": "The current order is cancelled and the factory starts this one.",
+        "replaceConfirm": "Replace",
+        "loadFailed": "The work orders did not load",
+        "retryLoad": "Try again"
+    },
+    "providers": {
+        "label": "Factory",
+        "toggle": "Let the factory use {name}",
+        "offBadge": "Off for the factory",
+        "note": "Switch a connection off and the factory never uses it. A job already running on it finishes.",
+        "noteReadOnly": "Only the workspace owner can switch connections on or off for the factory"
     }
 }
