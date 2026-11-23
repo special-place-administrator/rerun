@@ -6,8 +6,12 @@ import {
     FACTORY_ORDER_ISSUES_MAX,
     FACTORY_ORDER_KINDS,
     FACTORY_ORDER_TEXT_MAX,
+    FACTORY_POOL_DEFAULT,
     FACTORY_WIRE_ID_PATTERN,
     factoryControlStateSchema,
+    factoryGhostCeiling,
+    factoryStationNames,
+    factoryStationSeatsSchema,
     type FactoryControlState,
     type FactoryOrderKind,
 } from '@moldwright/contracts'
@@ -22,7 +26,7 @@ type ControlsInsert = Database['public']['Tables']['factory_controls']['Insert']
 type OrderInsert = Database['public']['Tables']['factory_work_orders']['Insert']
 type OrderUpdate = Database['public']['Tables']['factory_work_orders']['Update']
 
-const CONTROLS_COLUMNS = ['state', 'state_by', 'state_at', 'providers_off', 'providers_by', 'providers_at'] as const
+const CONTROLS_COLUMNS = ['state', 'state_by', 'state_at', 'providers_off', 'providers_by', 'providers_at', 'max_ghosts', 'stations', 'throttle_by', 'throttle_at'] as const
 const ORDER_COLUMNS = ['id', 'repo', 'kind', 'issues', 'text', 'status', 'action', 'created_by', 'created_at', 'cancelled_by', 'cancelled_at'] as const
 const ORDERS_SHOWN = 20
 const STOPS: readonly FactoryControlState[] = ['DRAINING', 'STOPPED']
@@ -33,11 +37,14 @@ export type FactoryWorkOrder = {
     action: { action: WorkOrderAction; issue: number; by: string; at: string } | null
     created_at: string; cancelled_at: string | null
 }
+export type FactoryThrottleView = { maxGhosts: number; stations: Record<string, number> }
+export type ThrottleChange = { maxGhosts: number } | { station: string; seats: number }
 export type FactoryControlsView = {
     isOwner: boolean
     activeRepo: string | null
     state: FactoryControlState | null
     providersOff: string[]
+    throttle: FactoryThrottleView | null
     orders: FactoryWorkOrder[]
 }
 export type WorkOrderInput = { repo: string; kind: FactoryOrderKind; issues: number[]; text: string }
@@ -67,6 +74,14 @@ async function controlsRow(workspaceId: number) {
     return data
 }
 
+type ControlsRow = NonNullable<Awaited<ReturnType<typeof controlsRow>>>
+
+function throttleOf(row: ControlsRow | null): FactoryThrottleView | null {
+    if (!row?.throttle_at) return null
+    const stations = factoryStationSeatsSchema.safeParse(row.stations)
+    return { maxGhosts: row.max_ghosts, stations: stations.success ? stations.data : {} }
+}
+
 async function ordersOf(workspaceId: number, repo?: string, limit = ORDERS_SHOWN): Promise<OrderRow[]> {
     const { data, error } = await selectMany(createServiceRoleClient(), 'factory_work_orders', ORDER_COLUMNS, repo ? { workspace_id: workspaceId, repo } : { workspace_id: workspaceId }, { column: 'created_at', ascending: false }, limit)
     if (error) throw new AppError('generic')
@@ -77,7 +92,7 @@ export async function readFactoryControls(workspaceId: number, userId: string): 
     const [isOwner, activeRepo, row] = await Promise.all([isFactoryOwner(workspaceId, userId), activeRepoOf(workspaceId), controlsRow(workspaceId)])
     const orders = activeRepo ? await ordersOf(workspaceId, activeRepo) : []
     const state = factoryControlStateSchema.safeParse(row?.state)
-    return { isOwner, activeRepo, state: state.success ? state.data : null, providersOff: row?.providers_off ?? [], orders: orders.map(orderOf) }
+    return { isOwner, activeRepo, state: state.success ? state.data : null, providersOff: row?.providers_off ?? [], throttle: throttleOf(row), orders: orders.map(orderOf) }
 }
 
 async function cancelActiveOrders(workspaceId: number, userId: string, now: number, repo?: string): Promise<void> {
@@ -108,6 +123,27 @@ export async function setProviderEnabled(workspaceId: number, userId: string, co
         .upsert<ControlsInsert>({ workspace_id: workspaceId, providers_off: off, providers_by: userId, providers_at: wireTime(now) }, { onConflict: 'workspace_id' })
     if (error) throw new AppError('generic')
     return off
+}
+
+const isSeatCount = (n: number, ceiling: number): boolean => Number.isInteger(n) && n >= 0 && n <= ceiling
+
+export async function setFactoryThrottle(workspaceId: number, userId: string, change: ThrottleChange, now = Date.now()): Promise<FactoryThrottleView> {
+    await assertFactoryOwner(workspaceId, userId)
+    const snapshot = getFactorySnapshot(workspaceId)?.snapshot
+    const ceiling = factoryGhostCeiling(snapshot)
+    const pool = 'maxGhosts' in change ? change.maxGhosts : null
+    const seats = 'station' in change ? change : null
+    const valid = pool !== null ? isSeatCount(pool, ceiling) : seats !== null && factoryStationNames(snapshot).includes(seats.station) && isSeatCount(seats.seats, ceiling)
+    if (!valid) throw new AppError('factoryInputInvalid')
+    const current = throttleOf(await controlsRow(workspaceId))
+    const next: FactoryThrottleView = {
+        maxGhosts: pool ?? current?.maxGhosts ?? snapshot?.throttle?.max_ghosts ?? FACTORY_POOL_DEFAULT,
+        stations: seats ? { ...current?.stations, [seats.station]: seats.seats } : current?.stations ?? {},
+    }
+    const { error } = await createServiceRoleClient().from('factory_controls')
+        .upsert<ControlsInsert>({ workspace_id: workspaceId, max_ghosts: next.maxGhosts, stations: next.stations, throttle_by: userId, throttle_at: wireTime(now) }, { onConflict: 'workspace_id' })
+    if (error) throw new AppError('generic')
+    return next
 }
 
 function validOrder(input: WorkOrderInput): WorkOrderInput {
@@ -172,6 +208,7 @@ export async function actOnWorkOrder(workspaceId: number, userId: string, id: st
 export type ControlsReportAnswer = {
     control?: { state: FactoryControlState; by: string; at: string }
     providers?: { off: string[]; by: string; at: string }
+    throttle?: { max_ghosts: number; stations: Record<string, number>; by: string; at: string }
     work_order?: { id: string; repo: string; kind: FactoryOrderKind; issues: number[]; text: string; by: string; at: string } | { kind: 'none'; by: string; at: string }
     work_order_action?: { action: WorkOrderAction; order_id: string; issue: number; by: string; at: string }
 }
@@ -189,9 +226,11 @@ function orderAnswer(row: OrderRow | undefined): Pick<ControlsReportAnswer, 'wor
 export async function controlsReportAnswer(workspaceId: number): Promise<ControlsReportAnswer> {
     const [row, activeRepo] = await Promise.all([controlsRow(workspaceId), activeRepoOf(workspaceId)])
     const state = factoryControlStateSchema.safeParse(row?.state)
+    const throttle = throttleOf(row)
     return {
         ...(state.success && row?.state_at ? { control: { state: state.data, by: row.state_by ?? '', at: wireTime(row.state_at) } } : {}),
         ...(row?.providers_at ? { providers: { off: row.providers_off, by: row.providers_by ?? '', at: wireTime(row.providers_at) } } : {}),
+        ...(throttle && row?.throttle_at ? { throttle: { max_ghosts: throttle.maxGhosts, stations: throttle.stations, by: row.throttle_by ?? '', at: wireTime(row.throttle_at) } } : {}),
         ...(activeRepo ? orderAnswer((await ordersOf(workspaceId, activeRepo, 1))[0]) : {}),
     }
 }

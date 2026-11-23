@@ -229,6 +229,10 @@ export const FACTORY_CONNECTIONS_OFF_MAX = 50
 export const FACTORY_ORDER_KINDS = ['issue', 'all_issues', 'feature', 'bug'] as const
 export const FACTORY_ORDER_ISSUES_MAX = 200
 export const FACTORY_ORDER_TEXT_MAX = 4000
+export const FACTORY_MAX_GHOSTS_FALLBACK = 32
+export const FACTORY_POOL_DEFAULT = 1
+export const FACTORY_SEATS_DEFAULT = 1
+export const FACTORY_STATIONS_MAX = 20
 
 export const factoryControlStateSchema = z.enum(FACTORY_CONTROL_STATES)
 export const factoryOrderKindSchema = z.enum(FACTORY_ORDER_KINDS)
@@ -246,6 +250,17 @@ export const factoryProvidersSchema = z.object({
     off: z.array(z.string().max(64)).max(FACTORY_CONNECTIONS_OFF_MAX),
     enabled: z.array(z.string().max(64)).max(200),
 })
+
+export const factoryThrottleSchema = z.object({
+    max_ghosts: count.optional().catch(undefined),
+    ghosts_running: count.optional().catch(undefined),
+    max_ghosts_ceiling: count.optional().catch(undefined),
+    stations: z.record(z.string().max(64), z.object({ max: count.optional().catch(undefined), running: count.optional().catch(undefined) }))
+        .refine(stations => Object.keys(stations).length <= FACTORY_STATIONS_MAX)
+        .optional().catch(undefined),
+})
+
+export const factoryStationSeatsSchema = z.record(z.string().max(64), count)
 
 export const factoryWorkOrderReportSchema = z.object({
     id: z.string().max(64).nullable(),
@@ -282,7 +297,16 @@ export const factorySnapshotSchema = z.object({
     control: factoryControlSchema.optional().catch(undefined),
     providers: factoryProvidersSchema.optional().catch(undefined),
     work_order: factoryWorkOrderReportSchema.optional().catch(undefined),
+    throttle: factoryThrottleSchema.optional().catch(undefined),
 })
+
+export function factoryStationNames(snapshot: FactorySnapshot | null | undefined): string[] {
+    const reported = Object.keys(snapshot?.throttle?.stations ?? {})
+    return reported.length > 0 ? reported : [...new Set(snapshot?.pools.map(p => p.type) ?? [])]
+}
+
+export const factoryGhostCeiling = (snapshot: FactorySnapshot | null | undefined): number =>
+    snapshot?.throttle?.max_ghosts_ceiling ?? FACTORY_MAX_GHOSTS_FALLBACK
 
 export const FACTORY_SNAPSHOT_MAX_BYTES = 256 * 1024
 
@@ -304,3 +328,4 @@ export type FactoryProjects = z.infer<typeof factoryProjectsSchema>
 export type FactoryProbeCode = z.infer<typeof factoryProbeCodeSchema>
 export type FactoryControlState = z.infer<typeof factoryControlStateSchema>
 export type FactoryOrderKind = z.infer<typeof factoryOrderKindSchema>
+export type FactoryThrottle = z.infer<typeof factoryThrottleSchema>

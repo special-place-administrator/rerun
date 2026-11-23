@@ -6,7 +6,8 @@
 -- factory_controls: one row per workspace, made on the owner's first change. No row means nothing is
 -- sent, and the dispatcher keeps its own default (PAUSED, every connection on). state_at is the click:
 -- the dispatcher applies each distinct (state, by, at) once, so every click stores a new one.
--- providers_at stays null until the owner first toggles a connection.
+-- providers_at stays null until the owner first toggles a connection. throttle_at stays null until the
+-- owner first sets the pool (max_ghosts, the most ghosts at once) or a station's seats.
 --
 -- factory_work_orders: what the owner asked the factory to do in one project. At most one active
 -- order per project; id is the order id on the wire. A stop or the owner's cancel sets status
@@ -25,6 +26,10 @@ create table public.factory_controls (
     providers_off text[] not null default '{}' check (cardinality(providers_off) <= 50),
     providers_by uuid references auth.users (id) on delete set null,
     providers_at timestamptz,
+    max_ghosts integer not null default 1 check (max_ghosts between 0 and 1000),
+    stations jsonb not null default '{}' check (jsonb_typeof(stations) = 'object'),
+    throttle_by uuid references auth.users (id) on delete set null,
+    throttle_at timestamptz,
     check ((state is null) = (state_at is null))
 );
 

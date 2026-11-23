@@ -2,7 +2,7 @@
 
 import type { FactorySnapshot } from '@moldwright/contracts'
 import { requireWorkspaceContext, requireWorkspaceId } from '@/app/api/_auth/ownership'
-import { actOnWorkOrder, cancelWorkOrder, createWorkOrder, readFactoryControls, setFactoryState, setProviderEnabled, type FactoryControlsView, type FactoryWorkOrder, type WorkOrderAction, type WorkOrderInput } from '@/app/api/_services/factory-controls.service'
+import { actOnWorkOrder, cancelWorkOrder, createWorkOrder, readFactoryControls, setFactoryState, setFactoryThrottle, setProviderEnabled, type FactoryControlsView, type FactoryThrottleView, type FactoryWorkOrder, type WorkOrderAction, type WorkOrderInput } from '@/app/api/_services/factory-controls.service'
 import { addPathProject, addRepoProject, listFactoryProjects, removeProject, selectProject, type FactoryProject, type PathOutcome, type SelectOutcome } from '@/app/api/_services/factory-projects.service'
 import { getFactorySnapshot } from '@/lib/factory/snapshot-store'
 import { failureOf } from '@/lib/i18n/action-error'
@@ -77,6 +77,24 @@ export async function setFactoryProviderAction(connectionId: string, enabled: bo
     try {
         const { workspace, userId } = await requireWorkspaceContext()
         return { ok: true, off: await setProviderEnabled(workspace.id, userId, String(connectionId), enabled === true) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function setFactoryPoolAction(maxGhosts: number): Promise<ActionResult<{ throttle: FactoryThrottleView }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, throttle: await setFactoryThrottle(workspace.id, userId, { maxGhosts: Number(maxGhosts) }) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function setFactorySeatsAction(station: string, seats: number): Promise<ActionResult<{ throttle: FactoryThrottleView }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, throttle: await setFactoryThrottle(workspace.id, userId, { station: String(station), seats: Number(seats) }) }
     } catch (err) {
         return failureOf(err)
     }

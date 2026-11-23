@@ -1192,30 +1192,42 @@ export type Database = {
       }
       factory_controls: {
         Row: {
+          max_ghosts: number
           providers_at: string | null
           providers_by: string | null
           providers_off: string[]
           state: string | null
           state_at: string | null
           state_by: string | null
+          stations: Json
+          throttle_at: string | null
+          throttle_by: string | null
           workspace_id: number
         }
         Insert: {
+          max_ghosts?: number
           providers_at?: string | null
           providers_by?: string | null
           providers_off?: string[]
           state?: string | null
           state_at?: string | null
           state_by?: string | null
+          stations?: Json
+          throttle_at?: string | null
+          throttle_by?: string | null
           workspace_id: number
         }
         Update: {
+          max_ghosts?: number
           providers_at?: string | null
           providers_by?: string | null
           providers_off?: string[]
           state?: string | null
           state_at?: string | null
           state_by?: string | null
+          stations?: Json
+          throttle_at?: string | null
+          throttle_by?: string | null
           workspace_id?: number
         }
         Relationships: [

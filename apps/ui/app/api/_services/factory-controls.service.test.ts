@@ -4,7 +4,7 @@ import { workspaceFounderUserId } from '@/app/api/_auth/ownership'
 import { createServiceRoleClient } from '@/supabase/serviceRole'
 import { selectMany, selectMaybeSingle } from '@/supabase/supabase-helpers'
 
-import { actOnWorkOrder, cancelWorkOrder, controlsReportAnswer, createWorkOrder, setFactoryState, setProviderEnabled } from './factory-controls.service'
+import { actOnWorkOrder, cancelWorkOrder, controlsReportAnswer, createWorkOrder, setFactoryState, setFactoryThrottle, setProviderEnabled } from './factory-controls.service'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/app/api/_auth/ownership', () => ({ workspaceFounderUserId: vi.fn() }))
@@ -73,5 +73,23 @@ describe('factory_report answer for controls', () => {
             work_order_action: { action: 'skip', order_id: 'order-1', issue: 1, by: OWNER, at: '2026-11-23T20:05:00.000Z' },
         })
         expect(selectMany).toHaveBeenCalledWith(expect.anything(), 'factory_work_orders', expect.anything(), { workspace_id: 403, repo: 'acme/app' }, { column: 'created_at', ascending: false }, 1)
+    })
+
+    it('refuses the pool and seats to a member, sends no throttle before the first set, then the stored pool and seats with a fresh at each time', async () => {
+        const refused = { code: 'factoryOwnerOnly', name: 'AuthorizationError' }
+        await expect(setFactoryThrottle(404, MEMBER, { maxGhosts: 16 })).rejects.toMatchObject(refused)
+        await expect(setFactoryThrottle(404, MEMBER, { station: 'coder', seats: 5 })).rejects.toMatchObject(refused)
+        expect(from).not.toHaveBeenCalled()
+
+        rows({ factory_controls: { state: 'RUNNING', state_by: OWNER, state_at: '2026-11-23T20:00:00+00:00', providers_off: [], providers_by: null, providers_at: null, max_ghosts: 1, stations: {}, throttle_by: null, throttle_at: null } })
+        expect(await controlsReportAnswer(404)).not.toHaveProperty('throttle')
+
+        await expect(setFactoryThrottle(404, OWNER, { maxGhosts: 33 })).rejects.toMatchObject({ code: 'factoryInputInvalid' })
+        await setFactoryThrottle(404, OWNER, { maxGhosts: 16 }, Date.parse('2026-11-23T21:00:00.100Z'))
+        await setFactoryThrottle(404, OWNER, { maxGhosts: 16 }, Date.parse('2026-11-23T21:00:00.900Z'))
+        expect(upsert.mock.calls.map(([payload]) => [payload.max_ghosts, payload.throttle_at])).toEqual([[16, '2026-11-23T21:00:00.100Z'], [16, '2026-11-23T21:00:00.900Z']])
+
+        rows({ factory_controls: { state: null, state_by: null, state_at: null, providers_off: [], providers_by: null, providers_at: null, max_ghosts: 16, stations: { coder: 5, reviewer: 6 }, throttle_by: OWNER, throttle_at: '2026-11-23T21:00:00.900+00:00' } })
+        expect(await controlsReportAnswer(404)).toEqual({ throttle: { max_ghosts: 16, stations: { coder: 5, reviewer: 6 }, by: OWNER, at: '2026-11-23T21:00:00.900Z' } })
     })
 })
