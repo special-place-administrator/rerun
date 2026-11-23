@@ -562,11 +562,11 @@ class OrderRules(Pair):
         self.ready_order("all_issues", [5])
         self.tick(2)
         self.control("DRAINING")
-        self.tick()
+        self.tick(2)
         self.assertEqual((self.w.reports[-1]["work_order"]["kind"], self.w.reports[-1]["work_order"]["wait"]), (None, "no work order"))
         self.order("issue", [5])
         self.control("STOPPED")
-        self.tick()
+        self.tick(2)
         self.assertEqual((self.w.reports[-1]["work_order"]["kind"], self.w.reports[-1]["work_order"]["wait"]), (None, "no work order"))
         self.assertEqual(len(self.lines_said("cancelled by the stop")), 2)
 

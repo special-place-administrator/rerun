@@ -1224,8 +1224,9 @@ class Heartbeat(Base):
 
 
 class Final(Base):
-    def build_out(self, out):
+    def build_out(self, out, prs=()):
         self.tick()
+        self.w.open_prs = list(prs) or self.w.open_prs
         self.w.finish("b1", out)
         self.tick()
 
@@ -1256,8 +1257,7 @@ class Final(Base):
         self.assertIn("Pull request: #171", self.w.issue(5)["comments"][-1])
 
     def test_open_pr_found_by_title_and_other_issue_ignored(self):
-        self.w.open_prs = [{"number": 9, "title": "Y (#6)"}, {"number": 8, "title": "X (#5)"}]
-        self.build_out("BLOCKED: stuck")
+        self.build_out("BLOCKED: stuck", [{"number": 9, "title": "Y (#6)"}, {"number": 8, "title": "X (#5)"}])
         self.assertIn("Pull request: #8", self.w.issue(5)["comments"][-1])
 
     def test_other_issue_title_alone_is_ignored(self):

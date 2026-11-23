@@ -702,20 +702,42 @@ class Dispatcher:
             self.clear_queue()
 
     def order_issues(self, issues):
-        mine = [i for i in issues if i["number"] in self.work["issues"]]
-        for n in [n for n in self.work["issues"] if n not in {i["number"] for i in mine} and not self.store.get_job(str(n))]:
-            try:
-                state = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "state"]) or "{}").get("state")
-            except (Error, ValueError) as e:
-                log(n, "work order: issue state not read: %s" % e)
+        listed, mine = {i["number"]: i for i in issues}, []
+        for n in self.work["issues"]:
+            i = listed.get(n)
+            if i is None:
+                try:
+                    i = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "number,title,labels,body,author,state"]) or "{}")
+                except (Error, ValueError) as e:
+                    log(n, "work order: issue not read: %s" % e)
+                    continue
+                if i.get("state") == "CLOSED":
+                    if not self.store.get_job(str(n)):
+                        self.store.set(str(n), "closed_unstarted", "1")
+                        log(n, "work order: issue closed before it started, skipped")
+                    continue
+                i = dict(i, number=n, title=i.get("title") or "", body=i.get("body") or "", labels=i.get("labels") or [])
+            names = {x.get("name") if isinstance(x, dict) else x for x in i.get("labels") or []}
+            kv = self.store.get_all(str(n))
+            if PAUSED in names:
+                if not kv.get("order_paused"):
+                    self.store.set(str(n), "order_paused", "1")
+                    log(n, "work order: the issue is labelled %s, so it is skipped" % PAUSED)
                 continue
-            if state == "CLOSED":
-                self.store.set(str(n), "closed_unstarted", "1")
-                log(n, "work order: issue closed before it started, skipped")
-            elif self.store.get_all(str(n)).get("order_unlabelled") != self.label:
-                self.store.set(str(n), "order_unlabelled", self.label)
-                log(n, "work order: the issue does not carry the %s label, so it cannot start" % self.label)
+            if kv.get("order_paused"):
+                self.store.set(str(n), "order_paused", "")
+            if not kv.get("order_consent"):
+                self.store.set(str(n), "order_consent", "1")
+            mine.append(i)
         return mine
+
+    def open_pr_for(self, n):
+        listed = json.loads(self.gh(["pr", "list", "-R", self.repo, "--state", "open", "--json", "number,title,headRefName,body", "--limit", "200"]) or "[]")
+        closes = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#%d\b" % n)
+        hits = [p["number"] for p in listed if isinstance(p, dict) and isinstance(p.get("number"), int) and (
+            str(p.get("title") or "").rstrip().endswith("(#%d)" % n) or str(p.get("headRefName") or "").startswith("chunk/%d-" % n)
+            or closes.search(str(p.get("body") or "")))]
+        return min(hits) if hits else None
 
     def cancel_job(self, j):
         self.to(j, "cancelled", "cancelled: the factory was %s by the owner" % ("stopped" if self.run_state == "STOPPED" else "drained"),
@@ -1027,6 +1049,8 @@ class Dispatcher:
                     job["rechecks"] = old["rechecks"]
                 if old and old.get("pr") and json.loads(self.gh(["pr", "view", str(old["pr"]), "-R", self.repo, "--json", "state"])).get("state") == "OPEN":
                     job.update(state="review_wait", pr=old["pr"], builder=old.get("builder"))
+                elif (pr := self.open_pr_for(i["number"])) is not None:
+                    job.update(state="review_wait", pr=pr, builder=(old or {}).get("builder"))
                 rooms[parsed["worker"]] -= 1
                 self.save(job, "queued")
                 log(i["number"], ("back in at the review of #%s: " % job["pr"] if job.get("pr") else "queued: ") + i["title"][:120])
@@ -1101,7 +1125,7 @@ class Dispatcher:
                         state, why = "merged", "merged outside the delegator"
                     elif pr == "CLOSED":
                         state, why = "blocked", "pull request #%s closed without merge" % j["pr"]
-                if state is None and j["issue"] not in labelled:
+                if state is None and j["issue"] not in labelled and not self.store.get_all(str(j["issue"])).get("order_consent"):
                     state, why = "returned", "issue closed or the %s label removed" % self.label
                 if state is None:
                     continue

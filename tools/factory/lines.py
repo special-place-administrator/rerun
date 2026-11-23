@@ -24,6 +24,8 @@ CONNECTIONS_OFF_MAX = 50
 ORDER_KINDS = ("feature", "bug", "issue", "all_issues")
 ORDER_ISSUES_MAX = 200
 ORDER_TEXT_MAX = 4000
+ORDER_ACTIONS = ("retry", "skip")
+FAILED = ("blocked", "failed")
 
 
 def ledger_path(cfg, repo):
@@ -129,14 +131,44 @@ class Lines:
         issues = order.get("issues") or []
         if order["kind"] in ("feature", "bug"):
             return {"wait": "the %s work order has no issue to run yet" % order["kind"], "issues": [], "order": issues}
-        store = self.lines[self.active].store
-        done = [n for n in issues if (store.get_job(str(n)) or {}).get("state") in states.END or store.get_all(str(n)).get("closed_unstarted")]
-        left = [n for n in issues if n not in done]
-        if not left:
-            return {"wait": "the work order is done", "issues": [], "order": issues, "done": done}
-        label = store.get_all(str(left[0])).get("order_unlabelled")
-        wait = "issue #%d does not carry the %s label" % (left[0], label) if label and not store.get_job(str(left[0])) else None
-        return {"wait": wait, "issues": left[:1], "order": issues, "done": done}
+        store, skipped, retried, done = self.lines[self.active].store, order.get("skipped", []), order.get("retried", {}), []
+        for n in issues:
+            j, kv = store.get_job(str(n)) or {}, store.get_all(str(n))
+            if n in skipped or (not j and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")):
+                done.append(n)
+                continue
+            if j.get("state") in FAILED and retried.get(str(n)) != j.get("take", 1):
+                return {"wait": "job #%d failed: retry or skip" % n, "issues": [], "order": issues, "done": done, "halted": n}
+            if j.get("state") in states.END and j.get("state") not in FAILED:
+                done.append(n)
+                continue
+            wait = None
+            if not j and kv.get("order_paused"):
+                wait = "issue #%d is labelled factory-paused" % n
+            elif not j and kv.get("cutshape"):
+                wait = "issue #%d body is not cut-shaped" % n
+            return {"wait": wait, "issues": [n], "order": issues, "done": done}
+        return {"wait": "the work order is done", "issues": [], "order": issues, "done": done}
+
+    def learn_action(self, ask):
+        if ask is None:
+            return
+        fingerprint = json.dumps(ask, sort_keys=True, default=str)[:2000]
+        if self.read("work_order_action_asked", {}).get("raw") == fingerprint:
+            return
+        self.kv.set("-", "work_order_action_asked", json.dumps({"raw": fingerprint}))
+        order, ask = self.order(), ask if isinstance(ask, dict) else {}
+        action, n = ask.get("action"), ask.get("issue")
+        if action not in ORDER_ACTIONS or order is None or ask.get("order_id") != order.get("id") or not isinstance(n, int) or isinstance(n, bool):
+            return self.problem("work order action not understood: nothing changes")
+        if self.work().get("halted") != n:
+            return self.problem("work order action %s on #%d not taken: that job is not halted" % (action, n))
+        if action == "retry":
+            take = (self.lines[self.active].store.get_job(str(n)) or {}).get("take", 1)
+            order = dict(order, retried=dict(order.get("retried", {}), **{str(n): take}))
+        else:
+            order = dict(order, skipped=order.get("skipped", []) + [n])
+        self.change("work_order", dict(order, by=printable(ask.get("by")), at=self.mod.iso(self.now())), "work order %s: %s #%d" % (order["id"], action, n))
 
     def learn_order(self, ask):
         if ask is None:
@@ -190,6 +222,9 @@ class Lines:
         if self.read("control_asked", {}) == asked:
             return
         self.kv.set("-", "control_asked", json.dumps(asked))
+        if state in ("DRAINING", "STOPPED") and self.order() is not None:
+            self.change("work_order", {"kind": "none", "by": printable(ask.get("by")), "at": self.mod.iso(self.now())},
+                        "work order %s cancelled by the stop" % self.order().get("id"))
         old = self.control()
         if state == old and "control" in self.kv.get_all("-"):
             return
@@ -222,7 +257,7 @@ class Lines:
         order, work = self.order() or {}, self.work()
         out["work_order"] = {"id": order.get("id"), "repo": order.get("repo"), "kind": order.get("kind"), "issues": order.get("issues", []),
                              "text": order.get("text"), "by": order.get("by"), "at": order.get("at"), "current": (work["issues"] or [None])[0],
-                             "done": work.get("done", []), "wait": work["wait"]}
+                             "done": work.get("done", []), "skipped": order.get("skipped", []), "halted": work.get("halted"), "wait": work["wait"]}
         if self.last:
             out["switch"] = self.last
         ready = self.readiness()
@@ -355,9 +390,10 @@ class Lines:
 
     def learn(self, answer):
         if isinstance(answer, dict):
-            self.learn_control(answer.get("control"))
             self.learn_providers(answer.get("providers"))
             self.learn_order(answer.get("work_order"))
+            self.learn_action(answer.get("work_order_action"))
+            self.learn_control(answer.get("control"))
             self.check(answer.get("check"))
             if answer.get("repos"):
                 self.list_repos()
