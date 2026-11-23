@@ -2500,6 +2500,9 @@ class Dispatcher:
                                            plan=renewal.plan(self.connections, now, set(self.runs_on.values())), machine=self.machine)
             digest.alarm(self.store, snap.get("digest"), now)
             snap.update(self.extra())
+            snap = snapshot.fit(snap)
+            if set(snap) <= set(snapshot.MINIMAL):
+                log("-", "report trimmed to %d B" % snapshot.size(snap))
             status = self.status(snap)
             self.answer = self.account("factory_report", {"snapshot": snap}, timeout=10)
             self.report_logged.clear()

@@ -60,11 +60,11 @@ class Snapshot(unittest.TestCase):
     def test_limits(self):
         self.put(1, "blocked", title="x" * 400, reason="y" * 500, body="**Depends on**: " + ", ".join("#%d" % n for n in range(100, 125)) + "\n")
         j = self.build()["jobs"][0]
-        self.assertEqual((len(j["title"]), len(j["reason"]), len(j["dependsOn"])), (256, 300, 20))
+        self.assertEqual((len(j["title"]), len(j["reason"]), len(j["dependsOn"])), (120, 200, 20))
         for n in range(2, 306):
             self.put(n, "merged" if n % 2 else "queued")
         snap = self.build()
-        self.assertEqual(len(snap["jobs"]), 300)
+        self.assertEqual(len(snap["jobs"]), 200)
         self.assertEqual({x["state"] for x in snap["jobs"] if x["issue"] % 2 == 0 and x["issue"] > 1}, {"queued"})
         self.assertEqual([x["issue"] for x in snap["jobs"]], sorted(x["issue"] for x in snap["jobs"]))
 

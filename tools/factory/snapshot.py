@@ -12,7 +12,7 @@ RUNNING = states.RUNNING
 END = states.END
 WAIT_STATES = states.WAIT_STATES
 TYPES = ("coder", "reviewer", "researcher", "designer")
-MAX_JOBS = 300
+MAX_JOBS = 200
 MAX_EPICS = 50
 MAX_READS = 5
 KINDS = ("feature", "review_fix", "fix", "upgrade", "refactor", "research", "other")
@@ -22,7 +22,26 @@ DEPARTMENTS = (
     ("apps/ui", "frontend"), ("packages/ui", "frontend"), ("packages/i18n", "frontend"),
     ("tools/factory", "tooling"), (".github", "tooling"), ("deploy", "tooling"), ("docs", "docs"),
 )
-MAX_BYTES = 256 * 1024
+MAX_BYTES = 200 * 1024
+JOBS_BYTES = 150 * 1024
+DIGEST_BYTES = 16 * 1024
+EPICS_BYTES = 6 * 1024
+PLANNING_BYTES = 8 * 1024
+SMALL_BYTES = 4 * 1024
+TITLE_MAX = 120
+REASON_MAX = 200
+HISTORY_MAX = 10
+RUNS_MAX = 6
+SHORT_MAX = 40
+REPOS_MAX = 50
+READY_MAX = 5
+READY_LINES_MAX = 10
+WHY_MAX = 120
+PROBES_MAX = 5
+ORDER_LIST_MAX = 50
+ENABLED_MAX = 50
+STATIONS_MAX = 20
+MINIMAL = ("version", "madeAt", "beat", "repo", "jobs", "holds", "pools", "endedToday", "control")
 MAX_PLANS = 5
 MAX_RUNS = 8
 
@@ -57,7 +76,7 @@ def _reason(j):
         text = j.get("wait_reason")
     else:
         text = None
-    return _cut(text or None, 300)
+    return _cut(text or None, REASON_MAX)
 
 
 def _department(paths):
@@ -135,17 +154,17 @@ def _job(store, cfg, names, j):
         row = store.db.execute("SELECT steps FROM fires WHERE id=?", (j["fire_id"],)).fetchone()
         steps = row[0] if row else None
     rnd = j.get("round")
-    history = [{"state": states.APP_STATE.get(r["to_state"], r["to_state"]), "at": r["at"], "reason": _cut(r["reason"], 300), "runId": _cut(r["run_id"], 64)}
-               for r in store.transitions_of(str(j["issue"])) if r["from_state"] != r["to_state"]][-30:]
+    history = [{"state": states.APP_STATE.get(r["to_state"], r["to_state"]), "at": r["at"], "reason": _cut(r["reason"], REASON_MAX), "runId": _cut(r["run_id"], 64)}
+               for r in store.transitions_of(str(j["issue"])) if r["from_state"] != r["to_state"]][-HISTORY_MAX:]
     ids = {n: i for i, n in names.items()}
     rows = store.db.execute("SELECT stage, coworker, status, intent_at, ended_at, tokens_in, tokens_out, run_id, cache_read "
-                            "FROM fires WHERE job=? ORDER BY id", (str(j["issue"]),)).fetchall()[-12:]
+                            "FROM fires WHERE job=? ORDER BY id", (str(j["issue"]),)).fetchall()[-RUNS_MAX:]
     runs = [{"stage": _cut(r[0], 20), "coworkerId": ids.get(r[1]) or _cut(r[1], 64), "status": _cut(r[2], 20),
              "startedAt": r[3], "endedAt": r[4], "tokensIn": int(r[5] or 0), "tokensOut": int(r[6] or 0),
              "runId": _cut(r[7], 64), **({"cacheRead": int(r[8])} if r[8] is not None else {})} for r in rows]
     main, others = _department(parsed.get("paths") or [])
     job = {
-        "issue": j["issue"], "title": str(j.get("title") or "")[:256], "state": states.APP_STATE.get(j["state"], j["state"]),
+        "issue": j["issue"], "title": str(j.get("title") or "")[:TITLE_MAX], "state": states.APP_STATE.get(j["state"], j["state"]),
         "enteredAt": _entered(store, j), "pr": j.get("pr"),
         "round": rnd if isinstance(rnd, int) and 1 <= rnd <= 9 else None,
         "coworker": names.get(j.get("agent")) if running else None,
@@ -170,24 +189,111 @@ def _plan(p):
             "children": max(0, int(p["children"])), "filed": max(0, int(p["filed"]))}
 
 
-def _size(v):
-    return len(json.dumps(v, separators=(",", ":")).encode())
+def size(v):
+    return len(json.dumps(v, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
 
 
-def _fit(snap):
-    total = _size(snap)
-    if total <= MAX_BYTES:
-        return snap
-    jobs = snap["jobs"]
-    cost = {id(j): _size([j["history"], j["runs"]]) for j in jobs}
-    empty = _size([[], []])
-    order = sorted(jobs, key=lambda j: (j["state"] not in END, j["enteredAt"]))
-    for j in order:
-        if total <= MAX_BYTES:
-            break
-        total -= cost[id(j)] - empty
+def _shrink_list(items, room, oldest_first=True):
+    while items and size(items) > room:
+        items.pop(0 if oldest_first else -1)
+    return items
+
+
+def _sections(snap):
+    d = snap.get("digest")
+    if isinstance(d, dict) and size(d) > DIGEST_BYTES:
+        d.pop("machine", None)
+        if size(d) > DIGEST_BYTES:
+            del snap["digest"]
+    if "epics" in snap:
+        _shrink_list(snap["epics"], EPICS_BYTES)
+    if "planning" in snap:
+        _shrink_list(snap["planning"], PLANNING_BYTES - size(snap.get("plan")), oldest_first=False)
+        if size([snap["planning"], snap.get("plan")]) > PLANNING_BYTES:
+            snap.pop("plan", None)
+    elif size(snap.get("plan")) > PLANNING_BYTES:
+        snap.pop("plan", None)
+    small = lambda: size([snap.get("machine"), snap.get("runStats"), snap["pools"], snap["holds"]])
+    m = snap.get("machine")
+    while isinstance(m, dict) and m.get("readings") and small() > SMALL_BYTES:
+        m["readings"].pop()
+    if isinstance(m, dict) and small() > SMALL_BYTES:
+        del snap["machine"]
+    p = snap.get("projects")
+    if isinstance(p, dict):
+        p["repos"] = list(p.get("repos") or [])[:REPOS_MAX]
+        p["ready"] = [dict(r, lines=[dict(x, why=str(x.get("why") or "")[:WHY_MAX]) for x in (r.get("lines") or [])[:READY_LINES_MAX]])
+                      for r in (p.get("ready") or [])[:READY_MAX]]
+        p["probes"] = list(p.get("probes") or [])[:PROBES_MAX]
+    w = snap.get("work_order")
+    if isinstance(w, dict):
+        for k in ("issues", "done", "skipped"):
+            w[k] = list(w.get(k) or [])[:ORDER_LIST_MAX]
+    pr = snap.get("providers")
+    if isinstance(pr, dict):
+        pr["enabled"] = list(pr.get("enabled") or [])[:ENABLED_MAX]
+    t = snap.get("throttle")
+    if isinstance(t, dict) and isinstance(t.get("stations"), dict):
+        t["stations"] = dict(sorted(t["stations"].items())[:STATIONS_MAX])
+
+
+class _Jobs:
+    def __init__(self, snap):
+        self.snap, self.rest = snap, size(dict(snap, jobs=[])) - 2
+        self.cost = {id(j): size(j) for j in snap["jobs"]}
+        self.jobs = size(snap["jobs"])
+
+    def over(self):
+        return self.jobs > JOBS_BYTES or self.rest + self.jobs > MAX_BYTES
+
+    def empty(self, j):
         j["history"], j["runs"] = [], []
-    return snap
+        new = size(j)
+        self.jobs += new - self.cost[id(j)]
+        self.cost[id(j)] = new
+
+    def drop(self, j):
+        self.snap["jobs"] = [k for k in self.snap["jobs"] if k is not j]
+        self.jobs -= self.cost.pop(id(j)) + 1
+
+
+def _over(snap):
+    return size(snap) > MAX_BYTES or size(snap["jobs"]) > JOBS_BYTES
+
+
+def fit(snap):
+    _sections(snap)
+    t = _Jobs(snap)
+    order = sorted(snap["jobs"], key=lambda j: (j["state"] not in END, j["enteredAt"]))
+    for j in order:
+        if not t.over():
+            break
+        t.empty(j)
+    for j in [j for j in order if j["state"] in END]:
+        if not t.over():
+            break
+        t.drop(j)
+    if not _over(snap):
+        return snap
+    for j in snap["jobs"]:
+        j["title"], j["reason"] = j["title"][:SHORT_MAX], _cut(j["reason"], SHORT_MAX)
+    if not _over(snap):
+        return snap
+    p = snap.get("projects")
+    if isinstance(p, dict):
+        p.update(repos=p["repos"][:10], ready=p["ready"][:1], probes=p["probes"][:1])
+    if not _over(snap):
+        return snap
+    small = {k: snap[k] for k in MINIMAL if k in snap}
+    small["jobs"] = [j for j in snap["jobs"] if j["state"] not in END]
+    t = _Jobs(small)
+    for j in sorted(small["jobs"], key=lambda j: j["enteredAt"]):
+        if not t.over():
+            break
+        t.drop(j)
+    while small["jobs"] and _over(small):
+        small["jobs"].pop(0)
+    return small
 
 
 def _system_error(status, error):
@@ -208,7 +314,7 @@ def build_snapshot(store, cfg, now, holds_active, beat=0, read_epic=None, planni
     all_jobs = store.jobs()
     live = [j for j in all_jobs if j["state"] not in END]
     ended = sorted((j for j in all_jobs if j["state"] in END), key=lambda j: str(j.get("updated_at") or ""), reverse=True)
-    kept = sorted(live + ended[:max(0, MAX_JOBS - len(live))], key=lambda j: int(j["issue"]))[:MAX_JOBS]
+    kept = sorted((live + ended)[:MAX_JOBS], key=lambda j: int(j["issue"]))
     out = {}
     for j in all_jobs:
         if j["state"] in RUNNING and j.get("agent"):
@@ -236,4 +342,4 @@ def build_snapshot(store, cfg, now, holds_active, beat=0, read_epic=None, planni
         snap["plan"] = plan
     if planning:
         snap["planning"] = [_plan(p) for p in planning[:MAX_PLANS]]
-    return _fit(snap)
+    return snap
