@@ -71,6 +71,27 @@ class Renewal(unittest.TestCase):
         self.assertEqual(len(self.w.sends), 3)
         self.assertEqual(self.state(6), "building")
 
+    def test_a_due_sign_in_holds_while_the_plan_week_reports_a_number(self):
+        self.make([issue(5)])
+        inner = self.w.account
+
+        def account(tool, args, timeout=30):
+            answer = inner(tool, args)
+            if tool == "list_ai_connections":
+                answer["connections"][0]["planLimits"] = {"windows": [
+                    {"kind": "weekly", "usedPercent": 40, "resetsAt": "2099-01-01T00:00:00.000Z"}]}
+            return answer
+
+        self.d.account = account
+        self.beat()
+        self.w.issues.append(issue(6))
+        self.w.sign_in = {"minutesLeft": 50, "renewalDue": True}
+        self.w.clock += 30
+        self.w.finish("b1", PR_LINE)
+        self.beat()
+        self.assertEqual(self.hold()["kind"], "sign-in renewal")
+        self.assertEqual(self.out.getvalue().count("sign-in has 50 min left"), 1)
+
     def test_an_idle_line_sends_although_the_sign_in_is_about_to_run_out(self):
         for left in (40, 0):
             self.make([issue(5)])
