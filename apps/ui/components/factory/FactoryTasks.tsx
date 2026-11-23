@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import type { FactoryJob, FactorySnapshot } from '@moldwright/contracts'
 import { cn } from '@/lib/utils'
+import { endedOnHold } from './factory-ledger'
 import { JOB_STATE_VIEW, groupOf } from './factory-state'
 
 type Shown = 'problems' | 'active' | 'waiting' | 'ended' | 'earlier'
 const SHOWN_ORDER: Shown[] = ['problems', 'active', 'waiting', 'ended', 'earlier']
-const PROBLEM_STATES = new Set<string>(['blocked', 'failed', 'returned', 'rejected'])
+const PROBLEM_STATES = new Set<string>(['blocked', 'failed', 'rejected'])
 const FOLDED = new Set<Shown>(['ended', 'earlier'])
 const GROUP_LABEL: Record<Shown, string> = { problems: 'Problems', active: 'Active', waiting: 'Waiting', ended: 'Ended today', earlier: 'Earlier' }
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -47,7 +48,7 @@ export function FactoryTasks({ jobs, repo, endedToday, selected, onSelect, sampl
 
     const byGroup: Record<Shown, FactoryJob[]> = { problems: [], active: [], waiting: [], ended: [], earlier: [] }
     for (const j of jobs) {
-        if (PROBLEM_STATES.has(j.state) && !j.closedOutside) { byGroup.problems.push(j); continue }
+        if (PROBLEM_STATES.has(j.state) && !j.closedOutside && !endedOnHold(j.runs ?? [])) { byGroup.problems.push(j); continue }
         const g = groupOf(j.state)
         byGroup[g === 'ended' && !isLocalToday(j.enteredAt, now) ? 'earlier' : g].push(j)
     }

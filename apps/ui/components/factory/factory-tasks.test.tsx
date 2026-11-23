@@ -69,6 +69,7 @@ describe('FactoryTasks', () => {
             job({ issue: 3, state: 'returned', reason: 'why-returned' }), job({ issue: 4, state: 'building', reason: 'why-building' }),
             job({ issue: 5, state: 'failed', reason: null }),
         ])
+        act(() => Array.from(host.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')).find((b) => b.textContent?.includes('Ended today'))!.click())
         const t = host.textContent ?? ''
         expect(t).toContain('why-blocked'); expect(t).toContain('why-failed'); expect(t).toContain('why-returned')
         expect(t).not.toContain('why-building')
@@ -172,7 +173,7 @@ describe('FactoryTasks', () => {
         act(() => earlierHeader().click())
         act(() => Array.from(host.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')).find((b) => b.textContent?.includes('Ended today'))!.click())
         const cells = Array.from(host.querySelectorAll('[data-ended-at]')).map((e) => e.textContent)
-        expect(cells).toEqual(['10:06', '11:07', '07:08', '06:09', '09:05', 'Mon 19:48'])
+        expect(cells).toEqual(['10:06', '11:07', '07:08', '09:05', '06:09', 'Mon 19:48'])
     })
 
     it('running rows keep the ticking time in state', () => {
@@ -205,24 +206,24 @@ describe('FactoryTasks', () => {
             job({ issue: 9, state: 'merged', enteredAt: at(11, 9, 5) }),
         ]
 
-        it('puts a Problems chip first with the count of blocked, failed, returned and rejected jobs of any day', () => {
+        it('puts a Problems chip first with the count of blocked, failed and rejected jobs of any day', () => {
             render(mixed())
-            expect(chips()).toEqual(['Problems 4', 'Active 1', 'Waiting 1', 'Ended today 2', 'Earlier 1'])
+            expect(chips()).toEqual(['Problems 3', 'Active 1', 'Waiting 1', 'Ended today 3', 'Earlier 1'])
         })
 
         it('pins the problem rows above every other group, once each, with the reason under blocked', () => {
             render(mixed())
             const sections = Array.from(host.querySelectorAll<HTMLElement>('section[data-group]')).map((x) => x.dataset.group)
             expect(sections[0]).toBe('problems')
-            expect(Array.from(group('problems')!.querySelectorAll('[data-row]')).map((r) => r.textContent?.match(/#(\d+)/)?.[1])).toEqual(['5', '6', '7', '8'])
+            expect(Array.from(group('problems')!.querySelectorAll('[data-row]')).map((r) => r.textContent?.match(/#(\d+)/)?.[1])).toEqual(['5', '6', '8'])
             expect(group('problems')!.textContent).toContain('why')
-            expect(host.querySelectorAll('[data-row]').length).toBe(6)
+            expect(host.querySelectorAll('[data-row]').length).toBe(5)
         })
 
         it('folds Ended today and Earlier by default and shows their counts on the headings', () => {
             render(mixed())
             expect(heading('Ended today').getAttribute('aria-expanded')).toBe('false')
-            expect(heading('Ended today').textContent).toContain('2')
+            expect(heading('Ended today').textContent).toContain('3')
             expect(heading('Earlier').getAttribute('aria-expanded')).toBe('false')
             expect(heading('Earlier').textContent).toContain('1')
             expect(group('ended')!.querySelectorAll('[data-row]')).toHaveLength(0)
@@ -231,7 +232,7 @@ describe('FactoryTasks', () => {
         it('opens a folded group from its heading, and from its chip, which also filters to it', () => {
             render(mixed())
             act(() => heading('Ended today').click())
-            expect(group('ended')!.querySelectorAll('[data-row]')).toHaveLength(2)
+            expect(group('ended')!.querySelectorAll('[data-row]')).toHaveLength(3)
             act(() => heading('Ended today').click())
             expect(group('ended')!.querySelectorAll('[data-row]')).toHaveLength(0)
             act(() => chipOf('Earlier').click())
@@ -260,7 +261,7 @@ describe('FactoryTasks', () => {
         it('the Problems chip filters to the problem rows', () => {
             render(mixed())
             act(() => chipOf('Problems').click())
-            expect(rows()).toHaveLength(4)
+            expect(rows()).toHaveLength(3)
         })
     })
 })

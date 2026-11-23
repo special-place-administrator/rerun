@@ -145,12 +145,12 @@ const RUNNING = new Set<FactoryJobState>(['building', 'reviewing', 'proving', 'f
 const WAITING = new Set<FactoryJobState>(['waiting', 'queued', 'review_wait', 'proof_wait', 'fix_wait'])
 const PROBLEMS = new Set<FactoryJobState>(['blocked', 'failed', 'rejected'])
 
-function endedOnHold(t: LedgerTask): boolean {
-    const runs = t.subtasks.filter((s) => s.runId !== null)
-    return runs.length > 0 && runs[runs.length - 1].status === 'held'
+export function endedOnHold(runs: readonly { runId: string | null; status: string }[]): boolean {
+    const sent = runs.filter((r) => r.runId !== null)
+    return sent.length > 0 && sent[sent.length - 1].status === 'held'
 }
 
-const isProblem = (t: LedgerTask) => PROBLEMS.has(t.state) && !endedOnHold(t)
+const isProblem = (t: LedgerTask) => PROBLEMS.has(t.state) && !endedOnHold(t.subtasks)
 
 export function filterLedger(epics: LedgerEpic[], filter: LedgerFilter | null, now: number): LedgerEpic[] {
     if (filter === null) return epics
