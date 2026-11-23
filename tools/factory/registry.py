@@ -13,7 +13,7 @@ STEP_NAMES = ("intake", "planning", "cutting", "plan-review", "children", "queue
 STEPS = {
     "job": {"waiting": "queued", "queued": "queued", "building": "building", "review_wait": "review",
             "reviewing": "review", "fix_wait": "fixing", "fixing": "fixing", "checks": "checks", "proof_wait": "proof",
-            "proving": "proof", "merged": "merged", "rejected": "ended", "failed": "ended", "superseded": "ended",
+            "proving": "proof", "merged": "merged", "rejected": "ended", "failed": "ended", "superseded": "ended", "cancelled": "ended",
             "unsolvable": "ended", "blocked": "problem", "returned": "problem"},
     "plan": {"sending": "planning", "running": "planning", "planning": "planning", "cutting": "cutting",
              "reviewing": "plan-review", "repairing": "plan-review", "planned": "planning", "replan": "planning",

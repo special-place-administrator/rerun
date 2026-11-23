@@ -18,7 +18,7 @@ def reason(job, now, hold=None, held=(), no_provider=False):
         return "back-off"
     if hold:
         kind = hold.get("kind")
-        return kind if kind in ("plan limit", "sign-in renewal", "paused", "stopped") else "hold"
+        return kind if kind in ("plan limit", "sign-in renewal", "paused", "draining", "stopped") else "hold"
     if no_provider:
         return "no enabled provider"
     if held:

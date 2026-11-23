@@ -17,7 +17,7 @@ RECHECK_FLOOR_S = 60
 READINESS_PER_HOUR = 20
 REPOS_AGAIN_S = 5 * 60
 PROBES_KEPT = 10
-CONTROL_STATES = ("RUNNING", "PAUSED", "STOPPED")
+CONTROL_STATES = ("RUNNING", "PAUSED", "DRAINING", "STOPPED")
 CONTROL_DEFAULT = "PAUSED"
 CONNECTION_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 CONNECTIONS_OFF_MAX = 50
@@ -122,10 +122,19 @@ class Lines:
         state = ask.get("state") if isinstance(ask, dict) else None
         if state not in CONTROL_STATES:
             return self.problem("control answer not understood: the factory stays %s" % self.control())
+        asked = {"state": state, "by": printable(ask.get("by")), "at": str(ask.get("at"))[:64]}
+        if self.read("control_asked", {}) == asked:
+            return
+        self.kv.set("-", "control_asked", json.dumps(asked))
         old = self.control()
         if state == old and "control" in self.kv.get_all("-"):
             return
         self.change("control", {"state": state, "by": printable(ask.get("by")), "at": self.mod.iso(self.now())}, "%s -> %s" % (old, state))
+
+    def drained(self):
+        if self.control() != "DRAINING" or any(d.store.running() or d.store.pending() for d in self.lines.values()):
+            return
+        self.change("control", {"state": "STOPPED", "by": "factory", "at": self.mod.iso(self.now())}, "DRAINING -> STOPPED")
 
     def learn_providers(self, ask):
         if ask is None:
@@ -270,6 +279,7 @@ class Lines:
                 self.lines.pop(repo).close()
         self.kv.set("-", "finishing", json.dumps([r for r, _ in self.finishing()]))
         self.learn(self.lines[self.active].answer)
+        self.drained()
         self.apply_controls()
         if self.control() == "STOPPED":
             for d in self.lines.values():

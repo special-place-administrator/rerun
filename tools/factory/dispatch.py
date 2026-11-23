@@ -683,7 +683,7 @@ class Dispatcher:
 
     def control_hold(self):
         now = self.now()
-        for kind in ("paused", "stopped"):
+        for kind in ("paused", "draining", "stopped"):
             if kind == self.run_state.lower():
                 holds.arm(self.store, kind, now + 2 * self.cfg.get("poll_s", 30))
             elif holds.until(self.store, kind) > now:
@@ -694,6 +694,17 @@ class Dispatcher:
                                         if self.runs_on.get(c["id"], default) in self.off_connections)
         if self.run_state == "STOPPED":
             self.stop_running()
+        elif self.run_state == "DRAINING":
+            self.clear_queue()
+
+    def cancel_job(self, j):
+        self.to(j, "cancelled", "cancelled: the factory was %s by the owner" % ("stopped" if self.run_state == "STOPPED" else "drained"),
+                reason="cancelled by the owner", sending=None, ended_at=ledger_store.now())
+
+    def clear_queue(self):
+        for j in self.jobs():
+            if j["state"] not in END and j["state"] not in RUNNING and not j.get("sending"):
+                self.cancel_job(j)
 
     def stop_running(self):
         for j in self.jobs():
@@ -706,9 +717,9 @@ class Dispatcher:
                 log(j["issue"], "stop: run %s not cancelled yet, tried again next beat: %s" % (run, e))
                 continue
             self.store.close_run(run, "cancelled", error="stopped by the owner", **self.kept_tokens(run))
-            j.update(state=BACK[j["state"]], retry_attempt=j.get("attempt", 1), sending=None)
-            self.save(j, "stopped: back to %s" % j["state"])
-            log(j["issue"], "stopped by the owner: run %s cancelled (wasRunning %s), back to %s" % (run, c.get("wasRunning"), j["state"]))
+            log(j["issue"], "stopped by the owner: run %s cancelled (wasRunning %s)" % (run, c.get("wasRunning")))
+            self.cancel_job(j)
+        self.clear_queue()
         for station in (self.station, self.acceptance, self.instructions, self.causes, self.classifier):
             try:
                 station.owner_stop(log)
@@ -2250,7 +2261,7 @@ class Dispatcher:
                     stepped += 1
                     self.step(j)
                     self.note_wait(j)
-                if j["state"] in END and not j.get("relabelled"):
+                if j["state"] in END and j["state"] != "cancelled" and not j.get("relabelled"):
                     self.report(j)
                 if j["state"] == "returned" and j.get("relabelled"):
                     self.replan(j)
