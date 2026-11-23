@@ -1,0 +1,64 @@
+name: SearXNG image
+
+on:
+  push:
+    paths: ['.github/workflows/searxng-image.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: searxng-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SEARXNG_SHA: a7163d091037cae586c444b05f22ecca162bb492
+  BUILDER_BASE: docker.io/searxng/base@sha256:f7f4d40e5094a19ed53a028ce2bc04e64ff50a60772601e2e37187fc7843c223
+  DIST_BASE: docker.io/searxng/base@sha256:4a7ad6c632c7189001e27dab01543bf1b45e225472fec1901d593c3321175124
+
+jobs:
+  image:
+    if: github.repository_owner == 'special-place-ai-heaven'
+    name: Build and push SearXNG
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: searxng/searxng
+          ref: ${{ env.SEARXNG_SHA }}
+          persist-credentials: false
+      - name: Freeze version
+        run: |
+          test "$(git rev-parse HEAD)" = "$SEARXNG_SHA"
+          python3 searx/version.py freeze
+          cat searx/version_frozen.py
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        id: build
+        with:
+          context: .
+          file: container/Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          build-contexts: |
+            docker.io/searxng/base:searxng-builder=docker-image://${{ env.BUILDER_BASE }}
+            docker.io/searxng/base:searxng=docker-image://${{ env.DIST_BASE }}
+          build-args: |
+            VERSION=${{ env.SEARXNG_SHA }}
+            VCS_URL=https://github.com/searxng/searxng
+            VCS_REVISION=${{ env.SEARXNG_SHA }}
+          tags: ghcr.io/${{ github.repository_owner }}/searxng:${{ env.SEARXNG_SHA }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      - name: Digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "ghcr.io/${{ github.repository_owner }}/searxng:${SEARXNG_SHA}@${DIGEST}"
