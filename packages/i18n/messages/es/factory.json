@@ -24,6 +24,7 @@
         "probe": {
             "bad_path": "Escribe una ruta de carpeta simple.",
             "no_root": "La factory no tiene ninguna carpeta definida para proyectos del host.",
+            "bad_root": "La carpeta definida para proyectos del host no se puede usar en el host de la factory.",
             "outside_root": "La ruta está fuera de la carpeta que la factory puede leer.",
             "not_found": "Ruta no encontrada en el host de la factory.",
             "not_git": "No es un repositorio git.",

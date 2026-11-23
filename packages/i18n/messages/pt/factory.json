@@ -24,6 +24,7 @@
         "probe": {
             "bad_path": "Digite um caminho de pasta simples.",
             "no_root": "A factory não tem nenhuma pasta definida para projetos do host.",
+            "bad_root": "A pasta definida para projetos do host não pode ser usada no host da factory.",
             "outside_root": "O caminho está fora da pasta que a factory pode ler.",
             "not_found": "Caminho não encontrado no host da factory.",
             "not_git": "Não é um repositório git.",

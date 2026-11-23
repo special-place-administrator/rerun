@@ -203,7 +203,7 @@ export const factoryPlanSchema = z.object({
 
 export const FACTORY_REPO_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9_.-]{1,100}$/
 
-export const factoryProbeCodeSchema = z.enum(['bad_path', 'no_root', 'outside_root', 'not_found', 'not_git', 'no_github_remote'])
+export const factoryProbeCodeSchema = z.enum(['bad_path', 'no_root', 'outside_root', 'not_found', 'not_git', 'no_github_remote', 'bad_root', 'unknown'])
 
 export const factoryProjectsSchema = z.object({
     repos: z.array(z.string().max(201)).max(300),
@@ -216,7 +216,7 @@ export const factoryProjectsSchema = z.object({
     probes: z.array(z.object({
         path: z.string().max(4096),
         ok: z.boolean(),
-        code: z.union([factoryProbeCodeSchema, z.literal('')]),
+        code: z.union([factoryProbeCodeSchema, z.literal('')]).catch('unknown'),
         message: z.string().max(200),
         repo: z.string().max(201),
     })).max(10),

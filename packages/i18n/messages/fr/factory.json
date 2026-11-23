@@ -24,6 +24,7 @@
         "probe": {
             "bad_path": "Saisissez un simple chemin de dossier.",
             "no_root": "La factory n'a aucun dossier défini pour les projets de l'hôte.",
+            "bad_root": "Le dossier défini pour les projets de l'hôte est inutilisable sur l'hôte de la factory.",
             "outside_root": "Le chemin est en dehors du dossier que la factory peut lire.",
             "not_found": "Chemin introuvable sur l'hôte de la factory.",
             "not_git": "Ce n'est pas un dépôt git.",
