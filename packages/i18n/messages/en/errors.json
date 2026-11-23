@@ -446,5 +446,11 @@
     "fileChangedOnBox": "This file changed on the Box since you opened it.",
     "saveThisFileFailed": "Failed to save this file",
     "templateSubscriptionEnded": "This coworker came from a template subscription that has ended. Buy the template again to bring it back.",
-    "noFreeCoworkerSlot": "No free coworker slot on your plan. Start Pro for unlimited coworkers, or delete a coworker to make room."
+    "noFreeCoworkerSlot": "No free coworker slot on your plan. Start Pro for unlimited coworkers, or delete a coworker to make room.",
+    "factoryOwnerOnly": "Only the workspace owner can change the factory's projects",
+    "factoryProjectNotFound": "Project not found",
+    "factoryProjectExists": "{repo} is already a project",
+    "factoryRepoNotReachable": "The factory cannot reach {repo}",
+    "factoryPathInvalid": "Type a plain folder path",
+    "factoryProjectActive": "{repo} is the project the factory works on: switch to another one first"
 }

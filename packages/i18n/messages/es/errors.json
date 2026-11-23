@@ -442,5 +442,11 @@
     "fileChangedOnBox": "Este archivo cambió en la Box desde que lo abriste.",
     "saveThisFileFailed": "No se pudo guardar este archivo",
     "templateSubscriptionEnded": "Este coworker venía de una suscripción a una plantilla que terminó. Vuelve a comprar la plantilla para recuperarlo.",
-    "noFreeCoworkerSlot": "No queda ningún espacio libre para coworkers en tu plan. Activa Pro para tener coworkers ilimitados o elimina un coworker para hacer sitio."
+    "noFreeCoworkerSlot": "No queda ningún espacio libre para coworkers en tu plan. Activa Pro para tener coworkers ilimitados o elimina un coworker para hacer sitio.",
+    "factoryOwnerOnly": "Solo el propietario del workspace puede cambiar los proyectos de la factory",
+    "factoryProjectNotFound": "Proyecto no encontrado",
+    "factoryProjectExists": "{repo} ya es un proyecto",
+    "factoryRepoNotReachable": "La factory no llega a {repo}",
+    "factoryPathInvalid": "Escribe una ruta de carpeta simple",
+    "factoryProjectActive": "{repo} es el proyecto en el que trabaja la factory: selecciona otro primero"
 }
