@@ -2063,16 +2063,16 @@ class Dispatcher:
             log("-", "a connection the coworkers run on is at its plan limit: holding new sends until it resets at %s" % iso(limited))
             holds.arm(self.store, "plan limit", limited)
         week = renewal.plan(answer, now, used) or {}
-        used, mark = week.get("weekUsedPercent"), self.cfg.get("plan_week_hold_percent")
+        week_used, mark = week.get("weekUsedPercent"), self.cfg.get("plan_week_hold_percent")
         resets = limits.ts(week["weekResetsAt"]) if week.get("weekResetsAt") else None
-        pace = renewal.pace(used, mark, resets, now)
+        pace = renewal.pace(week_used, mark, resets, now)
         if pace < 1 and self.cfg.get("slots") and round(pace, 1) != round(self.pace, 1):
-            log("-", "pacing the plan week: %d %% used, %.1f days left, %d of %d slots" % (used, (resets - now) / 86400, self.pace_slots(self.cfg["slots"], pace), self.cfg["slots"]))
+            log("-", "pacing the plan week: %d %% used, %.1f days left, %d of %d slots" % (week_used, (resets - now) / 86400, self.pace_slots(self.cfg["slots"], pace), self.cfg["slots"]))
         self.pace = pace
-        full = mark is not None and used is not None and used >= mark
+        full = mark is not None and week_used is not None and week_used >= mark
         if full:
             if not self.plan_week_full:
-                log("-", "plan week is %d %% used (hold mark %d %%): holding new sends until it resets or the mark is raised" % (used, mark))
+                log("-", "plan week is %d %% used (hold mark %d %%): holding new sends until it resets or the mark is raised" % (week_used, mark))
             holds.arm(self.store, "plan week", now + 2 * self.cfg.get("poll_s", 30))
         self.plan_week_full = full
         try:
