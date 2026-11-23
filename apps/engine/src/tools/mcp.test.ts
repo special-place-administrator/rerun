@@ -100,6 +100,11 @@ beforeEach(async () => {
     mcp.closed.length = 0
 })
 
+beforeAll(async () => {
+    const { allowAgent } = await import('../agents/everos-allowlist.js')
+    await allowAgent('mcp-agent', 'create')
+})
+
 describe('resolveTransport', () => {
     it.each([
         [{ transport: 'sse', url: 'https://x.io/mcp' }, 'sse'],
@@ -245,11 +250,6 @@ describe('pooled MCP tools', () => {
 const spawn = { cwd: '/agents/mcp-agent/workspace', env: { PATH: '/usr/bin', AGENT_KEY: 'a' } }
 
 describe('probeMcp', () => {
-    beforeAll(async () => {
-        const { allowAgent } = await import('../agents/everos-allowlist.js')
-        await allowAgent('mcp-agent', 'create')
-    })
-
     const everosShared = { EVEROS_URL: 'https://everos.lan', EVEROS_USER_ID: 'default', EVEROS_APP: 'rerun' }
     const everosServer = () => server(JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../../deploy/vps/everos-mcp.json'), 'utf8')))
 
@@ -308,7 +308,7 @@ describe('probeMcp', () => {
         await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
         await probeMcp('mcp-agent', everosServer(), { EVEROS_URL: 'https://attacker.invalid/everos', EVEROS_USER_ID: 'victim', EVEROS_APP: 'other' }, { spawn })
         expect([lastEnv().EVEROS_URL, lastEnv().EVEROS_USER_ID, lastEnv().EVEROS_APP, lastEnv().EVEROS_TOKEN]).toEqual(['https://everos.lan', 'default', 'rerun', 'shared-token'])
-        expect(classifyProbe('everos', await probeMcp('mcp-imported', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
+        expect(classifyProbe('everos', await probeMcp('mcp-imported', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', error: (await import('../agents/everos-allowlist.js')).SHELL_NEEDS_CONFIRM })
         await writeSharedEnv({})
     })
 
@@ -317,7 +317,7 @@ describe('probeMcp', () => {
         const { classifyProbe } = await import('./mcp-status.js')
         await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
         const childOpts = { spawn, hubAgentId: 'unconfirmed-boss' } as Parameters<typeof probeMcp>[3] & { hubAgentId: string }
-        expect(classifyProbe('everos', await probeMcp('delegate-child', everosServer(), {}, childOpts))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
+        expect(classifyProbe('everos', await probeMcp('delegate-child', everosServer(), {}, childOpts))).toMatchObject({ status: 'config_error', error: (await import('../agents/everos-allowlist.js')).SHELL_NEEDS_CONFIRM })
         const { allowAgent } = await import('../agents/everos-allowlist.js')
         await allowAgent('unconfirmed-boss', 'confirm')
         expect(classifyProbe('everos', await probeMcp('delegate-child', everosServer(), {}, childOpts))).toMatchObject({ status: 'connected' })
@@ -336,7 +336,7 @@ describe('probeMcp', () => {
         await writeFile(marker, '')
         await rm(marker, { force: true })
         await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
-        expect(classifyProbe('everos', await probeMcp('tamper-agent', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
+        expect(classifyProbe('everos', await probeMcp('tamper-agent', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', error: (await import('../agents/everos-allowlist.js')).SHELL_NEEDS_CONFIRM })
         await writeSharedEnv({})
     })
 
@@ -344,7 +344,7 @@ describe('probeMcp', () => {
         const { writeSharedEnv } = await import('../agents/shared-env.js')
         const { classifyProbe } = await import('./mcp-status.js')
         await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
-        expect(classifyProbe('everos', await probeMcp('legacy-agent', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
+        expect(classifyProbe('everos', await probeMcp('legacy-agent', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', error: (await import('../agents/everos-allowlist.js')).SHELL_NEEDS_CONFIRM })
         const { allowAgent } = await import('../agents/everos-allowlist.js')
         await allowAgent('legacy-agent', 'confirm')
         expect(classifyProbe('everos', await probeMcp('legacy-agent', everosServer(), {}, { spawn }))).toMatchObject({ status: 'connected' })
@@ -352,7 +352,7 @@ describe('probeMcp', () => {
         await writeSharedEnv({})
     })
 
-    it('fails closed with config_error EVEROS_TOKEN when the allowlist store is unreadable', async () => {
+    it('fails closed with the confirm error when the allowlist store is unreadable', async () => {
         const { writeSharedEnv } = await import('../agents/shared-env.js')
         const { classifyProbe } = await import('./mcp-status.js')
         const { allowAgent, isAllowlisted } = await import('../agents/everos-allowlist.js')
@@ -368,7 +368,7 @@ describe('probeMcp', () => {
         const spy = (await import('vitest')).vi.spyOn(raw(), 'execute').mockImplementation(execute as never)
         try {
             await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
-            expect(classifyProbe('everos', await probeMcp('readable-agent', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
+            expect(classifyProbe('everos', await probeMcp('readable-agent', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', error: (await import('../agents/everos-allowlist.js')).SHELL_NEEDS_CONFIRM })
         } finally {
             spy.mockRestore()
             await writeSharedEnv({})

@@ -100,6 +100,10 @@ export function selfTools(ctx: RunContext): ToolSet {
             }),
             execute: async input => {
                 const server = mcpServerSchema.parse({ ...input, env: {} })
+                if (resolveTransport(server) === 'stdio') {
+                    const blocked = await trustRefusal(ctx.agent)
+                    if (blocked) return `${blocked}\nNothing was saved.`
+                }
                 const refusal = resolveTransport(server) === 'stdio' ? taintRefusal(ctx, 'mcp_register (stdio)') : null
                 if (refusal) return `${refusal}\nNothing was saved.`
                 if (server.name === BRIDGE_SERVER_NAME) return `${new ReservedMcpServerNameError().message}\nNothing was saved.`

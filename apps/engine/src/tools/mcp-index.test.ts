@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-mcp-index-'))
 process.env.RERUN_API_KEY = ''
 
-const { describe, expect, it } = await import('vitest')
+const { beforeAll, describe, expect, it } = await import('vitest')
 const { buildMcpIndex, describeConnectorState } = await import('./mcp-index.js')
 const { saveToken } = await import('./mcp-auth.js')
 const { mcpDir, mcpTokenPath, workspaceDir } = await import('../config/paths.js')
@@ -24,6 +24,11 @@ async function writeRegistry(id: string, services: Record<string, unknown>): Pro
 }
 
 const HUB_HEADERS = { 'x-rerun-key': '${RERUN_API_KEY}', 'x-rerun-agent': 'agent' }
+
+beforeAll(async () => {
+    const { allowAgent } = await import('../agents/everos-allowlist.js')
+    for (const id of ['idx-agent', 'idx-config-error', 'idx-format']) await allowAgent(id, 'create')
+})
 
 describe('buildMcpIndex', () => {
     it('is empty for an agent without MCP servers', async () => {

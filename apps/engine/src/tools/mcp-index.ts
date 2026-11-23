@@ -1,3 +1,4 @@
+import { trustRefusal } from '../agents/everos-allowlist.js'
 import { isEnabledMcpServer, mcpToolNameFor, missingMcpEnv, resolveTransport } from './mcp.js'
 import { MCP_CALL_TOOL, MCP_SEARCH_TOOL, mcpServerToolCounts, type McpCatalogEntry } from './mcp-search.js'
 import { loadToken, serverCarriesCredential } from './mcp-auth.js'
@@ -35,6 +36,10 @@ export async function buildMcpIndex(agent: LoadedAgent, provider?: Provider, hel
         servers.map(async server => {
             const transport = resolveTransport(server)
             const state = states.get(server.name)
+            if (transport === 'stdio') {
+                const blocked = await trustRefusal({ id: agent.id, hubAgentId: agent.hubAgentId })
+                if (blocked) return `- ${server.name} (${transport}): config_error, ${blocked}`
+            }
             const missing = await missingMcpEnv(agent.id, server, agent.env, agent.hubAgentId)
             if (missing.length) return `- ${server.name} (${transport}): config_error, missing ${missing.join(', ')}`
             let auth = transport === 'stdio' ? 'local command' : serverCarriesCredential(server) ? 'authenticated with a key in its url' : `not signed in — if its tools answer that sign-in is required, ${signInStep}`

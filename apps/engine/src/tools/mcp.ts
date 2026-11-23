@@ -19,7 +19,7 @@ import { toToolInputSchema } from './mcp-schema.js'
 import { logger } from '../lib/logger.js'
 import { readSharedEnvSync } from '../agents/shared-env.js'
 import { EVEROS_MCP_SERVER } from './mcp-everos.js'
-import { isAllowlisted } from '../agents/everos-allowlist.js'
+import { isAllowlisted, trustRefusal, SHELL_NEEDS_CONFIRM } from '../agents/everos-allowlist.js'
 
 export type McpSpawn = { cwd: string; env: Record<string, string> }
 export type McpTool = Awaited<ReturnType<Client['listTools']>>['tools'][number]
@@ -123,6 +123,13 @@ export class McpServerDisabledError extends Error {
     }
 }
 
+export class McpNeedsConfirmError extends Error {
+    constructor(message = SHELL_NEEDS_CONFIRM) {
+        super(message)
+        this.name = 'McpNeedsConfirmError'
+    }
+}
+
 const AGENT_ONLY_ENV_KEYS = new Set(['EVEROS_TOKEN'])
 
 const EVEROS_SHARED_KEYS = ['EVEROS_URL', 'EVEROS_USER_ID', 'EVEROS_APP', 'EVEROS_TOKEN']
@@ -152,6 +159,10 @@ export async function missingMcpEnv(agentId: string, server: McpServer, env: Rec
 
 export async function prepareMcpServer(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<McpServer> {
     if (!isEnabledMcpServer(server)) throw new McpServerDisabledError(server.name)
+    if (resolveTransport(server) === 'stdio') {
+        const blocked = await trustRefusal({ id: agentId, hubAgentId })
+        if (blocked) throw new McpNeedsConfirmError(blocked)
+    }
     const inputs = await mcpInputs(agentId, server, env, hubAgentId)
     const resolvable = inputs.resolvable
     const known = withKnownEnvRefs(await withAuth(agentId, inputs.server), resolvable)
@@ -202,6 +213,7 @@ export async function probeMcp(agentId: string, server: McpServer, env: Record<s
         return { ok: true, transport, toolNames }
     } catch (e) {
         if (e instanceof McpEnvRefError) return { ok: false, transport, toolNames: [], error: e.message, code: e.code, missingEnv: e.refs }
+        if (e instanceof McpNeedsConfirmError) return { ok: false, transport, toolNames: [], error: e.message }
         return { ok: false, transport, toolNames: [], error: probeErrorMessage(e) }
     }
 }

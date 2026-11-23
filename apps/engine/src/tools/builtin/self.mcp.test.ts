@@ -35,7 +35,7 @@ vi.mock('../mcp-auth.js', async importOriginal => ({
     ...mocks.auth,
 }))
 
-const { beforeEach, describe, expect, it } = await import('vitest')
+const { beforeAll, beforeEach, describe, expect, it } = await import('vitest')
 const { mkdir, readFile, rm, writeFile } = await import('node:fs/promises')
 const { selfTools } = await import('./self.js')
 const { agentConfigSchema } = await import('../../agents/types.js')
@@ -61,6 +61,11 @@ async function storedServers() {
 async function seedServers(servers: Array<Record<string, unknown>>) {
     await writeAgentConfig(id, agentConfigSchema.parse({ name: 'self', mcpServers: servers }))
 }
+
+beforeAll(async () => {
+    const { allowAgent } = await import('../../agents/everos-allowlist.js')
+    await allowAgent(id, 'create')
+})
 
 beforeEach(async () => {
     mocks.probes.clear()

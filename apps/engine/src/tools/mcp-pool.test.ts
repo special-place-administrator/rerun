@@ -487,6 +487,8 @@ describe('agentMcpSpawn secret isolation', () => {
 
 describe('stdio env refs', () => {
     it('migrates known-package refs, reports every unresolved ref sorted in missingEnv and starts the other servers', async () => {
+        const { allowAgent } = await import('../agents/everos-allowlist.js')
+        await allowAgent('a-env-ref', 'create')
         const servers = [server('github', { url: undefined, command: 'github-mcp-server' }), server('needs-token', { url: undefined, command: 'needs-token-bin', env: { TOKEN: '${ZED_TOKEN}', AUTH: 'Bearer ${ALPHA_TOKEN}', AGAIN: '${ZED_TOKEN}' } }), server('bad-shape', { url: undefined, command: 'bad-shape-bin', env: { LOADER: '--require ${BETA_TOKEN}' } }), server('fine')]
         const agent = { id: 'a-env-ref', env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_value', AWS_SECRET_ACCESS_KEY: 'unrelated' }, config: { tools: {}, mcpServers: servers } } as unknown as Parameters<typeof pooledMcpServers>[0]
         const statuses = await probeMcpStatuses(agent.id, servers, agent.env, spawn)
