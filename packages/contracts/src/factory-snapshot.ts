@@ -304,4 +304,3 @@ export type FactoryProjects = z.infer<typeof factoryProjectsSchema>
 export type FactoryProbeCode = z.infer<typeof factoryProbeCodeSchema>
 export type FactoryControlState = z.infer<typeof factoryControlStateSchema>
 export type FactoryOrderKind = z.infer<typeof factoryOrderKindSchema>
-export type FactoryWorkOrderReport = z.infer<typeof factoryWorkOrderReportSchema>

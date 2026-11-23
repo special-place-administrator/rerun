@@ -74,7 +74,8 @@ async function ordersOf(workspaceId: number, repo?: string, limit = ORDERS_SHOWN
 }
 
 export async function readFactoryControls(workspaceId: number, userId: string): Promise<FactoryControlsView> {
-    const [isOwner, activeRepo, row, orders] = await Promise.all([isFactoryOwner(workspaceId, userId), activeRepoOf(workspaceId), controlsRow(workspaceId), ordersOf(workspaceId)])
+    const [isOwner, activeRepo, row] = await Promise.all([isFactoryOwner(workspaceId, userId), activeRepoOf(workspaceId), controlsRow(workspaceId)])
+    const orders = activeRepo ? await ordersOf(workspaceId, activeRepo) : []
     const state = factoryControlStateSchema.safeParse(row?.state)
     return { isOwner, activeRepo, state: state.success ? state.data : null, providersOff: row?.providers_off ?? [], orders: orders.map(orderOf) }
 }
