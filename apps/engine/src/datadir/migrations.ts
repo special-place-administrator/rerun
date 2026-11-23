@@ -5,7 +5,9 @@ import { CUSTOM_BASE_URL_AUTH_KEY } from '@moldwright/contracts'
 import { migrate } from '../db/migrate.js'
 import { latestVersion } from '../db/ladder.js'
 import { foldAgentKeysIntoConnections } from '../connections/migrate.js'
+import { EVEROS_ALLOWLIST_DDL } from '../agents/everos-allowlist.js'
 import { agentsDir, boxPlanPath, codexAuthPath, codexHomeDir, configPath, connectionConfigPath, connectionDir, connectionEnvPath, connectionsDir, isPathSegment, mcpDir, mcpPackagesDir } from '../config/paths.js'
+import { raw } from '../db/client.js'
 import { logger } from '../lib/logger.js'
 import { EVEROS_MCP_SERVER, EVEROS_WRAPPER_COMMAND } from '../tools/mcp-everos.js'
 import { parseEnvFile, serializeEnv } from '../lib/env-file.js'
@@ -192,6 +194,13 @@ export const DATA_DIR_MIGRATIONS: DataDirMigration[] = [
         id: 'everos-direct',
         up: async () => {
             for (const id of await listAgentFolders()) await moveEverosToDirect(id)
+        },
+    },
+    {
+        version: 7,
+        id: 'everos-shared-allowlist',
+        up: async () => {
+            await raw().execute(EVEROS_ALLOWLIST_DDL)
         },
     },
 ]

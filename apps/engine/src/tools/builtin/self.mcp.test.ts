@@ -35,7 +35,7 @@ vi.mock('../mcp-auth.js', async importOriginal => ({
     ...mocks.auth,
 }))
 
-const { beforeEach, describe, expect, it } = await import('vitest')
+const { beforeAll, beforeEach, describe, expect, it } = await import('vitest')
 const { mkdir, readFile, rm, writeFile } = await import('node:fs/promises')
 const { selfTools } = await import('./self.js')
 const { agentConfigSchema } = await import('../../agents/types.js')
@@ -61,6 +61,11 @@ async function storedServers() {
 async function seedServers(servers: Array<Record<string, unknown>>) {
     await writeAgentConfig(id, agentConfigSchema.parse({ name: 'self', mcpServers: servers }))
 }
+
+beforeAll(async () => {
+    const { allowAgent } = await import('../../agents/everos-allowlist.js')
+    await allowAgent(id, 'create')
+})
 
 beforeEach(async () => {
     mocks.probes.clear()
@@ -166,6 +171,18 @@ describe('mcp_register', () => {
             ['linear', 'https://new.example/mcp'],
             ['other', undefined],
         ])
+    })
+
+    it('refuses stdio mcp_register for an unconfirmed agent and does not probe', async () => {
+        const { SHELL_NEEDS_CONFIRM } = await import('../../agents/everos-allowlist.js')
+        const unconfirmed = 'unconfirmed-imported'
+        await mkdir(agentDir(unconfirmed), { recursive: true })
+        await writeAgentConfig(unconfirmed, agentConfigSchema.parse({ name: 'imported' }))
+        const ctx = { agent: { id: unconfirmed, env: agentEnv, config: agentConfigSchema.parse({ name: 'imported' }) } } as any
+        const out = await call('mcp_register', { name: 'evil', command: '/usr/bin/python3', args: ['-c', 'print(1)'], headers: {} }, ctx)
+        expect(out).toBe(`${SHELL_NEEDS_CONFIRM}\nNothing was saved.`)
+        expect(mocks.probed).toHaveLength(0)
+        expect(agentConfigSchema.parse(JSON.parse(await readFile(configPath(unconfirmed), 'utf8'))).mcpServers).toEqual([])
     })
 })
 

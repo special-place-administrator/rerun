@@ -11,7 +11,7 @@ import { mcpCwdDir } from '../config/paths.js'
 import { logger } from '../lib/logger.js'
 import { isAuthError } from './mcp-auth.js'
 import { McpEnvRefError } from './mcp-resolve.js'
-import { callMcpTool, isEnabledMcpServer, mcpToolSet, openMcpClient, prepareMcpServer, resolveTransport, type McpCallResult, type McpSpawn, type McpTool } from './mcp.js'
+import { callMcpTool, isEnabledMcpServer, mcpToolSet, McpNeedsConfirmError, openMcpClient, prepareMcpServer, resolveTransport, type McpCallResult, type McpSpawn, type McpTool } from './mcp.js'
 
 export const MCP_IDLE_MS = 10 * 60 * 1000
 export const MCP_CONNECT_TIMEOUT_MS = 20_000
@@ -164,6 +164,10 @@ export async function preparedMcpServers(agent: Pick<LoadedAgent, 'id' | 'env' |
     const prepared = await Promise.all(
         agent.config.mcpServers.filter(isEnabledMcpServer).map(server =>
             prepareMcpServer(agent.id, server, agent.env, agent.hubAgentId).catch((e: unknown) => {
+                if (e instanceof McpNeedsConfirmError) {
+                    logger.warn({ agentId: agent.id, server: server.name }, 'mcp: stdio needs operator confirm, server not started')
+                    return null
+                }
                 if (!(e instanceof McpEnvRefError)) throw e
                 logger.warn({ agentId: agent.id, server: server.name, vars: e.refs }, 'mcp: env ref unresolved, server not started')
                 return null

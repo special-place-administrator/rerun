@@ -4,6 +4,7 @@ import { configPath, soulPath, workspaceDir } from '../config/paths.js'
 import { writeAgentConfig } from './config-write.js'
 import { agentConfigSchema } from './types.js'
 import { unloadAgent } from './registry.js'
+import { allowAgent } from './everos-allowlist.js'
 
 const FOREMAN_SOUL = `# Chief of Staff
 
@@ -40,5 +41,6 @@ export async function ensureForeman(): Promise<void> {
     await mkdir(workspaceDir(FOREMAN_AGENT_ID), { recursive: true })
     await writeAgentConfig(FOREMAN_AGENT_ID, foremanConfig(await currentModelPin()))
     await writeFile(soulPath(FOREMAN_AGENT_ID), FOREMAN_SOUL, 'utf8')
+    await allowAgent(FOREMAN_AGENT_ID, 'create')
     unloadAgent(FOREMAN_AGENT_ID)
 }

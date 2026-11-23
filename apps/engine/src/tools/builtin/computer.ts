@@ -1,5 +1,6 @@
 import { modelSeesImages } from '../../agents/opencode.js'
 import { taintRefusal } from './taint.js'
+import { trustRefusal } from '../../agents/everos-allowlist.js'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -191,6 +192,8 @@ export function computerTools(ctx: RunContext): { tools: ToolSet; release: () =>
     }
 
     const onScreen = async (toolSignal: AbortSignal | undefined, settleMs: number, act: (control: ScreenControl, signal: AbortSignal | undefined) => Promise<void>): Promise<Done | Refused | Failed> => {
+        const blocked = await trustRefusal(ctx.agent)
+        if (blocked) return refused(blocked)
         const signal = ctx.abortSignal ?? toolSignal
         await handsFree(id, signal)
         const denied = await claimScreen(signal)
