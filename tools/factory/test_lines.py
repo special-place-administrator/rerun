@@ -472,5 +472,46 @@ class Controls(Pair):
         self.assertEqual(self.d.lines["o/r"].store.get_job("5")["wait_reason"], "no enabled provider")
 
 
+class WorkOrders(Pair):
+    def order(self, kind, issues, repo="o/r"):
+        self.answer["work_order"] = {"id": "wo-%d" % len(self.w.reports), "repo": repo, "kind": kind, "issues": issues, "by": "rob", "at": D.iso(self.w.clock)}
+
+    def running_factory(self):
+        self.d = self.new()
+        self.d.kv.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
+
+    def test_nothing_is_picked_up_without_an_owner_chosen_project_and_a_work_order(self):
+        self.running_factory()
+        self.tick(3)
+        self.assertEqual((self.w.sends, self.d.lines["o/r"].store.jobs()), ([], []))
+        self.assertEqual(self.w.reports[-1]["work_order"]["wait"], "no project chosen")
+        self.select("o/r")
+        self.tick(3)
+        self.assertEqual((self.w.sends, self.d.lines["o/r"].store.jobs()), ([], []))
+        self.assertEqual(self.w.reports[-1]["work_order"]["wait"], "no work order")
+        self.order("issue", [5])
+        self.tick(3)
+        self.assertEqual((self.state(), len(self.w.sends)), ("building", 1))
+        self.assertEqual({k: self.w.reports[-1]["work_order"][k] for k in ("kind", "issues", "current", "done", "wait")},
+                         {"kind": "issue", "issues": [5], "current": 5, "done": [], "wait": None})
+
+    def test_all_issues_run_one_at_a_time_in_the_order_given(self):
+        self.w.issues.append(issue(6, "Six"))
+        self.w.open_numbers.add(6)
+        self.running_factory()
+        self.select("o/r")
+        self.order("all_issues", [6, 5])
+        self.tick(4)
+        line = self.d.lines["o/r"]
+        self.assertEqual([(j["issue"], j["state"]) for j in line.store.jobs()], [(6, "building")])
+        self.assertEqual(len(self.w.sends), 1)
+        six = line.store.get_job("6")
+        line.store.put_job("6", "merged", dict(six, state="merged", relabelled=True, commented=True))
+        self.tick(4)
+        self.assertEqual(sorted((j["issue"], j["state"]) for j in line.store.jobs()), [(5, "building"), (6, "merged")])
+        self.assertEqual(len(self.w.sends), 2)
+        self.assertEqual({k: self.w.reports[-1]["work_order"][k] for k in ("current", "done")}, {"current": 5, "done": [6]})
+
+
 if __name__ == "__main__":
     unittest.main()
