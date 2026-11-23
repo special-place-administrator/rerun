@@ -155,7 +155,7 @@ def final_state(j, forms):
     return "\n".join([
         'Final state',
         '- Objective: rerun #%s, "%s", as the issue text states it.' % (j["issue"], j["title"]),
-        '- Allowed files: %s.' % issue_files(j.get("body")),
+        '- Allowed files: %s, plus each existing test file the pull request body lists under `## Tests adapted`.' % issue_files(j.get("body")),
         '- Verification: %s' % issue_run(j.get("body")),
         '- Your last line is exactly %s. Nothing may follow that line, not even a tools line.' % forms,
     ])
