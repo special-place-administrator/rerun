@@ -1411,6 +1411,12 @@ class Dispatcher:
                 self.gh(["api", "-X", "PATCH", "repos/%s/git/refs/heads/%s" % (self.repo, head), "-f", "sha=%s" % sha, "-F", "force=true"])
             except Error as e2:
                 return self.end(j, "blocked", "the branch %s could not be set to %s: %s" % (head, sha[:7], e2))
+        try:
+            self.gh(["api", "-X", "POST", "repos/%s/merges" % self.repo, "-f", "base=%s" % head, "-f", "head=dev"])
+        except Error as e:
+            if "409" in str(e) or "Merge conflict" in str(e):
+                return self.end(j, "returned", "plan: the proven branch %s conflicts with today's dev; prove it again from today's dev, or say it is already done there" % plan)
+            log(j["issue"], "dev not merged into %s, going on to the pull request: %s" % (head, e))
         notes = [
             "The change is the one pushed as `%s` at %s." % (plan, sha[:7]),
             "Proven on dev by the planner: the done-test failed there and passes at `%s`." % sha[:7],
