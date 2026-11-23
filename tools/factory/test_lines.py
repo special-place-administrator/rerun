@@ -424,23 +424,33 @@ class Controls(Pair):
         self.tick(3)
         self.assertEqual((self.jobs_by_state(), len(self.w.sends)), ([(5, "cancelled"), (6, "cancelled")], 1))
 
-    def test_a_stop_also_cancels_planner_and_station_runs_back_to_their_queue_without_an_error(self):
+    def test_a_hard_stop_ends_planner_and_station_work_cancelled_and_running_again_does_not_resume_it(self):
         self.d = self.new()
         line = self.d.lines["o/r"]
         for job, stage, agent, run in (("plan:7", "review", "p1", "pr1"), ("accept:8", "accept", "r1", "ar1"), ("9", "resolve", "x1", "rr1")):
             line.store.fired(line.store.intent(job, "", stage, coworker=agent), run)
             self.w.runs[run] = {"status": "running"}
         line.store.set_many("plan:7", (("state", "reviewing"), ("agent", "p1"), ("copy", "1"), ("run", "pr1"), ("lens", "0"), ("started", "2026-11-23T00:00:00Z")))
+        line.store.set_many("plan:10", (("state", "unsent"),))
         line.store.set_many("accept:8", (("state", "running"), ("agent", "r1"), ("copy", 1), ("run", "ar1"), ("sends", 1), ("started", self.w.clock)))
+        line.store.set_many("accept:11", (("state", "unsent"),))
         line.store.set(R.KV, "dev red", json.dumps({"state": "resolving", "issue": 9, "agent": "x1", "copy": 1, "run": "rr1", "sends": 1, "sent_at": self.w.clock}))
+        line.store.set(R.KV, "disk", json.dumps({"state": "resolve_wait", "issue": 12, "sends": 0}))
         self.control("STOPPED")
         self.tick()
         self.assertEqual(sorted(self.w.cancels), [("p1", "pr1"), ("r1", "ar1"), ("x1", "rr1")])
         self.assertEqual(self.w.rows("SELECT DISTINCT status FROM fires"), [("cancelled",)])
-        self.assertEqual(line.store.get_all("plan:7")["state"], "planned")
-        self.assertEqual((line.store.get_all("accept:8")["state"], line.store.get_all("accept:8")["sends"]), ("unsent", "0"))
-        self.assertEqual({k: json.loads(line.store.get_all(R.KV)["dev red"])[k] for k in ("state", "sends")}, {"state": "resolve_wait", "sends": 0})
+
+        def ended():
+            problems = line.store.get_all(R.KV)
+            return ([line.store.get_all(k)["state"] for k in ("plan:7", "plan:10", "accept:8", "accept:11")]
+                    + [json.loads(problems[k])["state"] for k in ("dev red", "disk")])
+
+        self.assertEqual(ended(), ["cancelled"] * 6)
         self.assertEqual(line.store.failures(), [])
+        self.control("RUNNING")
+        self.tick(3)
+        self.assertEqual((ended(), len(self.w.sends)), (["cancelled"] * 6, 0))
 
     def test_an_off_connection_is_never_fired_and_its_work_goes_to_a_coworker_on_an_enabled_one(self):
         self.w.issues.append(issue(6, "Six"))
