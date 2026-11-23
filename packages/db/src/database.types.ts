@@ -1190,6 +1190,44 @@ export type Database = {
           },
         ]
       }
+      factory_controls: {
+        Row: {
+          providers_at: string | null
+          providers_by: string | null
+          providers_off: string[]
+          state: string | null
+          state_at: string | null
+          state_by: string | null
+          workspace_id: number
+        }
+        Insert: {
+          providers_at?: string | null
+          providers_by?: string | null
+          providers_off?: string[]
+          state?: string | null
+          state_at?: string | null
+          state_by?: string | null
+          workspace_id: number
+        }
+        Update: {
+          providers_at?: string | null
+          providers_by?: string | null
+          providers_off?: string[]
+          state?: string | null
+          state_at?: string | null
+          state_by?: string | null
+          workspace_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "factory_controls_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       factory_projects: {
         Row: {
           activated_at: string | null
@@ -1227,6 +1265,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "factory_projects_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      factory_work_orders: {
+        Row: {
+          action: Json | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          issues: number[]
+          kind: string
+          repo: string
+          status: string
+          text: string
+          workspace_id: number
+        }
+        Insert: {
+          action?: Json | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          id: string
+          issues?: number[]
+          kind: string
+          repo: string
+          status?: string
+          text?: string
+          workspace_id: number
+        }
+        Update: {
+          action?: Json | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          issues?: number[]
+          kind?: string
+          repo?: string
+          status?: string
+          text?: string
+          workspace_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "factory_work_orders_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
