@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { rm, writeFile, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { Readable } from 'node:stream'
@@ -12,6 +13,7 @@ import { McpVersionUnresolvedError, mcpLaunchLine, pinStdioLaunch } from '../../
 import { agentMcpSpawn, errorClassOf, mcpSessionStates, reconnectMcp } from '../../tools/mcp-pool.js'
 import { announceToAgentRuns } from '../../runtime/run-control.js'
 import { createAgent } from '../../agents/factory.js'
+import { allowAgent, listPendingEveros } from '../../agents/everos-allowlist.js'
 import { agentConfigSchema, BRIDGE_SERVER_NAME, MCP_SERVER_NAME_RE } from '../../agents/types.js'
 import { readAgentEnv, writeAgentEnv } from '../../agents/env.js'
 import { readSharedEnvSync } from '../../agents/shared-env.js'
@@ -45,9 +47,14 @@ agentRoutes.get('/', async c => {
     return c.json({ agents: index })
 })
 
+agentRoutes.get('/everos-shared/pending', async c => {
+    return c.json({ agents: await listPendingEveros() })
+})
+
 agentRoutes.post('/', async c => {
     const body = createAgentSchema.parse(await c.req.json())
     const agent = await createAgent({ config: body.config, soul: body.soul, install: body.install, keys: body.keys })
+    await allowAgent(agent.id, 'create')
     return c.json(publicView(agent.id, agent.config, agent.soul, agent.install, agent.resolved), 201)
 })
 
@@ -89,6 +96,14 @@ agentRoutes.post('/:id/duplicate', async c => {
     if (!agentExists(id)) return c.json({ error: 'agent not found' }, 404)
     const body = duplicateAgentSchema.parse(await c.req.json())
     return c.json(await duplicateAgent(id, body), 201)
+})
+
+agentRoutes.post('/:id/everos-shared', async c => {
+    const id = c.req.param('id')
+    if (!agentExists(id)) return c.json({ error: 'agent not found' }, 404)
+    z.object({ confirm: z.literal(true) }).parse(await c.req.json())
+    await allowAgent(id, 'confirm')
+    return c.json({ id, allowed: true })
 })
 
 agentRoutes.get('/:id/archive/plan', async c => {

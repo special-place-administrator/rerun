@@ -336,6 +336,10 @@ describe('data-dir ladder', () => {
               6,
               "everos-direct",
             ],
+            [
+              7,
+              "everos-shared-allowlist",
+            ],
           ]
         `)
     })

@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-tool-install-'))
 
-const { describe, expect, it, vi, beforeEach } = await import('vitest')
+const { describe, expect, it, vi, beforeAll, beforeEach } = await import('vitest')
 
 const npm = vi.hoisted(() => ({ calls: [] as Array<{ file: string; args: string[]; cwd: string }>, fail: null as Error | null, stdout: '' }))
 vi.mock('node:child_process', async importOriginal => ({
@@ -31,6 +31,11 @@ beforeEach(() => {
     npm.calls = []
     npm.fail = null
     npm.stdout = ''
+})
+
+beforeAll(async () => {
+    const { allowAgent } = await import('../../agents/everos-allowlist.js')
+    await allowAgent(id, 'create')
 })
 
 describe('tool_install', () => {

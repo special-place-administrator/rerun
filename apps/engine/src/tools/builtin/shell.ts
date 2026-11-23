@@ -11,6 +11,7 @@ import { redactSecrets } from '../../lib/redact-secrets.js'
 import { HostBreaker, hostsOf, httpFailureInOutput, withHostBreaker, type HostAttempt } from '../host-breaker.js'
 import type { RunContext } from '../../runtime/context.js'
 import { taintRefusal } from './taint.js'
+import { trustRefusal } from '../../agents/everos-allowlist.js'
 
 export type ShellRunner = (command: string, options: ExecOptions) => Promise<{ stdout: string; stderr: string }>
 
@@ -41,6 +42,8 @@ export function shellTools(ctx: RunContext, run: ShellRunner = execAsync): ToolS
                 timeoutMs: z.number().int().positive().max(600_000).default(120_000),
             }),
             execute: async ({ command, timeoutMs }) => {
+                const blocked = await trustRefusal(ctx.agent)
+                if (blocked) return blocked
                 assertCommandAllowed(command)
                 const refusal = taintRefusal(ctx, 'shell_exec', command)
                 if (refusal) return refusal

@@ -19,7 +19,7 @@ import { toToolInputSchema } from './mcp-schema.js'
 import { logger } from '../lib/logger.js'
 import { readSharedEnvSync } from '../agents/shared-env.js'
 import { EVEROS_MCP_SERVER } from './mcp-everos.js'
-import { isImported } from '../agents/imported.js'
+import { isAllowlisted } from '../agents/everos-allowlist.js'
 
 export type McpSpawn = { cwd: string; env: Record<string, string> }
 export type McpTool = Awaited<ReturnType<Client['listTools']>>['tools'][number]
@@ -135,24 +135,24 @@ const withoutBlankAgentOnly = (env: Record<string, string>): Record<string, stri
 const isEverosServer = (server: McpServer): boolean =>
     resolveTransport(server) === 'stdio' && server.url === undefined && server.command === EVEROS_MCP_SERVER.command && JSON.stringify(server.args) === JSON.stringify(EVEROS_MCP_SERVER.args)
 
-function mcpInputs(agentId: string, server: McpServer, env: Record<string, string>): { server: McpServer; resolvable: Record<string, string> } {
+async function mcpInputs(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<{ server: McpServer; resolvable: Record<string, string> }> {
     const shared = readSharedEnvSync()
     const own = withoutBlankAgentOnly(env)
     const resolvable = { ...withoutBlankAgentOnly(Object.fromEntries(Object.entries(shared).filter(([key]) => !AGENT_ONLY_ENV_KEYS.has(key)))), ...own, RERUN_WORKSPACE: workspaceDir(agentId) }
-    if (own.EVEROS_TOKEN !== undefined || isBlank(shared.EVEROS_TOKEN) || !isEverosServer(server) || isImported(agentId)) return { server, resolvable }
+    if (own.EVEROS_TOKEN !== undefined || isBlank(shared.EVEROS_TOKEN) || !isEverosServer(server) || !(await isAllowlisted(hubAgentId))) return { server, resolvable }
     const kept = Object.fromEntries(Object.entries(resolvable).filter(([key]) => !EVEROS_SHARED_KEYS.includes(key)))
     const fromShared = Object.fromEntries(EVEROS_SHARED_KEYS.flatMap(key => (shared[key] === undefined ? [] : [[key, shared[key]!]])))
     return { server: { ...server, env: { ...EVEROS_MCP_SERVER.env }, headers: {} }, resolvable: { ...kept, ...fromShared } }
 }
 
-export function missingMcpEnv(agentId: string, server: McpServer, env: Record<string, string>): string[] {
-    const inputs = mcpInputs(agentId, server, env)
+export async function missingMcpEnv(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<string[]> {
+    const inputs = await mcpInputs(agentId, server, env, hubAgentId)
     return unsetEnvRefs(Object.values(withKnownEnvRefs(inputs.server, inputs.resolvable).env), inputs.resolvable)
 }
 
 export async function prepareMcpServer(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<McpServer> {
     if (!isEnabledMcpServer(server)) throw new McpServerDisabledError(server.name)
-    const inputs = mcpInputs(agentId, server, env)
+    const inputs = await mcpInputs(agentId, server, env, hubAgentId)
     const resolvable = inputs.resolvable
     const known = withKnownEnvRefs(await withAuth(agentId, inputs.server), resolvable)
     const declared = { ...known, env: spawnSafeEnv(known.env) }
@@ -191,11 +191,11 @@ function probeErrorMessage(e: unknown): string {
     return typeof code === 'number' && code >= 400 && !message.includes(String(code)) ? `${message.trimEnd()} (HTTP ${code})` : message
 }
 
-export async function probeMcp(agentId: string, server: McpServer, env: Record<string, string>, opts: { spawn: McpSpawn; timeoutMs?: number }): Promise<McpProbe> {
+export async function probeMcp(agentId: string, server: McpServer, env: Record<string, string>, opts: { spawn: McpSpawn; timeoutMs?: number; hubAgentId?: string }): Promise<McpProbe> {
     const transport = resolveTransport(server)
     if (!isEnabledMcpServer(server)) return { ok: false, transport, toolNames: [], error: new McpServerDisabledError(server.name).message }
     try {
-        const opening = prepareMcpServer(agentId, server, env).then(prepared => openMcpClient(prepared, opts.spawn))
+        const opening = prepareMcpServer(agentId, server, env, opts.hubAgentId ?? agentId).then(prepared => openMcpClient(prepared, opts.spawn))
         const { client, tools } = await withDeadline(opening, opts.timeoutMs)
         const toolNames = tools.map(t => t.name)
         await client.close().catch(() => {})

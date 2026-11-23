@@ -35,7 +35,7 @@ export async function buildMcpIndex(agent: LoadedAgent, provider?: Provider, hel
         servers.map(async server => {
             const transport = resolveTransport(server)
             const state = states.get(server.name)
-            const missing = missingMcpEnv(agent.id, server, agent.env)
+            const missing = await missingMcpEnv(agent.id, server, agent.env, agent.hubAgentId)
             if (missing.length) return `- ${server.name} (${transport}): config_error, missing ${missing.join(', ')}`
             let auth = transport === 'stdio' ? 'local command' : serverCarriesCredential(server) ? 'authenticated with a key in its url' : `not signed in — if its tools answer that sign-in is required, ${signInStep}`
             if (state) auth = connectorAuth(state, states)

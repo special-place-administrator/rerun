@@ -39,14 +39,18 @@ afterEach(async () => {
 })
 
 describe('rerun shared-env', () => {
-    it('a value set once reaches every coworker process and list shows only its name', async () => {
+    it('a value set once is stored and listed by name, and shared secrets stay out of the coworker process env', async () => {
         await sharedEnvCommand(['set', 'GH_TOKEN'], async () => VALUE)
         expect(out).toBe('Set GH_TOKEN for every coworker.\n')
-        expect(agentProcessEnv(agent('a1')).env.GH_TOKEN).toBe(VALUE)
-        expect(agentProcessEnv(agent('a2')).env.GH_TOKEN).toBe(VALUE)
+        expect(agentProcessEnv(agent('a1')).env.GH_TOKEN).toBeUndefined()
+        expect(agentProcessEnv(agent('a2')).env.GH_TOKEN).toBeUndefined()
+        out = ''
+        await sharedEnvCommand(['set', 'EVEROS_URL'], async () => 'https://everos.example')
+        expect(agentProcessEnv(agent('a1')).env.EVEROS_URL).toBe('https://everos.example')
+        expect(agentProcessEnv(agent('a2')).env.EVEROS_URL).toBe('https://everos.example')
         out = ''
         await sharedEnvCommand(['list'])
-        expect(out).toBe('GH_TOKEN\n')
+        expect(out).toBe('EVEROS_URL\nGH_TOKEN\n')
         expect(out).not.toContain(VALUE)
         expect(statSync(sharedFile()).mode & 0o777).toBe(0o600)
     })

@@ -117,7 +117,7 @@ describe('importAgent', () => {
         expect(await readFile(resolve(agentDir(result.id), 'schedules/daily.md'), 'utf8')).toContain('cron: 0 9 * * *')
         expect(await readFile(resolve(agentDir(result.id), 'workspace/brief.md'), 'utf8')).toBe('A reference brief.')
         expect((await listAgentIndex()).some(row => row.id === result.id && row.name === 'source_2')).toBe(true)
-        expect((await import('./imported.js')).isImported(result.id)).toBe(true)
+        expect(await (await import('./everos-allowlist.js')).isAllowlisted(result.id)).toBe(false)
     })
 
     it('rebinds the agent id the capture turned into a token', async () => {
@@ -376,7 +376,7 @@ describe('import and duplicate allowlist', () => {
         const { duplicateAgent } = await import('./duplicate.js')
         const { isAllowlisted } = await import('./everos-allowlist.js')
         const { readFileSync } = await import('node:fs')
-        const everos = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../deploy/vps/everos-mcp.json'), 'utf8'))
+        const everos = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../../deploy/vps/everos-mcp.json'), 'utf8'))
         const spawn = { cwd: '/tmp', env: { PATH: '/usr/bin' } }
         await writeSharedEnv({ EVEROS_URL: 'https://everos.lan', EVEROS_USER_ID: 'default', EVEROS_APP: 'rerun', EVEROS_TOKEN: 'shared-token' })
         const result = await importAgent({ body: bodyOf(await archiveOfSource()), name: 'imported_allow' })
@@ -401,7 +401,7 @@ describe('import and duplicate allowlist', () => {
         await writeAgentConfig(crashId, agentConfigSchema.parse({ name: 'crash-window' }))
         await insertAgentIndex(crashId, 'crash-window')
         expect(await isAllowlisted(crashId)).toBe(false)
-        const everos = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../deploy/vps/everos-mcp.json'), 'utf8'))
+        const everos = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../../deploy/vps/everos-mcp.json'), 'utf8'))
         await writeSharedEnv({ EVEROS_URL: 'https://everos.lan', EVEROS_USER_ID: 'default', EVEROS_APP: 'rerun', EVEROS_TOKEN: 'shared-token' })
         expect(classifyProbe('everos', await probeMcp(crashId, everos, {}, { spawn: { cwd: '/tmp', env: { PATH: '/usr/bin' } } }))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
         await writeSharedEnv({})

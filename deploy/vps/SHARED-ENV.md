@@ -86,7 +86,7 @@ Every check must pass before Step 7. Any failure stops the runbook and goes to t
 
    Expected: `ok` for `everos`.
 
-4. One coworker runs the GitHub check in its own shell. A variable the coworker has of its own would shadow the rotated shared value; this check shows that the shared value is the one in use:
+4. One coworker runs the GitHub check in its own shell. Shared `GH_TOKEN` is no longer in the coworker shell: put `GH_TOKEN` in that coworker's own `.env` (or UI key), and confirm the coworker with `rerun agent everos-allow <id>` if it is not already allowlisted. Then:
 
         /data/tools/bin/gh api user --jq .login
 
@@ -113,7 +113,9 @@ The release PR that carries this runbook copies this section into its Deploy not
 
 ## EverOS token from the UI
 
-The engine release that carries data-dir step 6 (`everos-direct`) rewrites, on its first boot, every coworker and Boss whose `everos` server still runs `/data/tools/bin/everos-mcp` to the direct definition in `deploy/vps/everos-mcp.json`. A second boot changes nothing. After that, the `everos` server takes `EVEROS_TOKEN` from the coworker's own key (UI, agent `.env`) when it has one, and from the shared `EVEROS_TOKEN` when it has none. When it falls back, `EVEROS_URL`, `EVEROS_USER_ID` and `EVEROS_APP` also come from the shared env only, and the server gets only its fixed env keys. The fallback applies only to a stdio server with exactly the definition in `deploy/vps/everos-mcp.json`, and never to an imported coworker: an imported one needs its own key. An empty or blank token counts as not set. Every other MCP server ignores the shared `EVEROS_TOKEN`, and no file on the host sets it. The shared `EVEROS_TOKEN` stays set, because the `everos` server falls back to it and the rollback above rebuilds `/data/tools/everos/token` from it.
+The engine release that carries data-dir step 6 (`everos-direct`) rewrites, on its first boot, every coworker and Boss whose `everos` server still runs `/data/tools/bin/everos-mcp` to the direct definition in `deploy/vps/everos-mcp.json`. A second boot changes nothing. After that, the `everos` server takes `EVEROS_TOKEN` from the coworker's own key (UI, agent `.env`) when it has one, and from the shared `EVEROS_TOKEN` when it has none and the coworker is on the engine allowlist (created from the hub or `rerun agent create`, or confirmed with `rerun agent everos-allow <id>` / `POST /agents/:id/everos-shared`). When it falls back, `EVEROS_URL`, `EVEROS_USER_ID` and `EVEROS_APP` also come from the shared env only, and the server gets only its fixed env keys. The fallback applies only to a stdio server with exactly the definition in `deploy/vps/everos-mcp.json`. Imported, duplicated-from-imported, and unconfirmed pre-version coworkers are not on the allowlist: they need their own key, or an operator confirm. A missing or unreadable allowlist fails closed as `config_error` with `EVEROS_TOKEN`. An empty or blank token counts as not set. Every other MCP server ignores the shared `EVEROS_TOKEN`, and no file on the host sets it. The shared `EVEROS_TOKEN` stays set, because the `everos` server falls back to it for allowlisted coworkers and the rollback above rebuilds `/data/tools/everos/token` from it.
+
+Data-dir step 7 (`everos-shared-allowlist`) creates the allowlist table with no rows. Existing coworkers need a one-time confirm after deploy: `rerun agent everos-pending` lists them, `rerun agent everos-allow <id>` grants both the shared EverOS fallback and shell. Until then they show `config_error, missing EVEROS_TOKEN` and `shell needs operator confirm`. Shared secrets (`GH_TOKEN`, `EVEROS_TOKEN`, and any other secret) are not copied into the coworker shell env; a shell script that needs one must use that coworker's own `.env`. Non-secret shared keys such as `EVEROS_URL`, `EVEROS_USER_ID`, `EVEROS_APP`, `GIT_AUTHOR_NAME`, `GIT_COMMITTER_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_EMAIL`, `GH_PROMPT_DISABLED` and `GH_NO_UPDATE_NOTIFIER` still reach the shell. `shared-env run` is unchanged and still injects every shared variable for the operator.
 
 Before deploying that release, check that the shared values the direct definition needs are set, because a missing one now shows the server as `config_error` with the missing name:
 
@@ -128,13 +130,13 @@ After the deploy, the old wrapper must not stay where a hand-made definition cou
     mkdir -p /data/tools/bin.pre-1284
     mv /data/tools/bin/everos-mcp /data/tools/bin.pre-1284/
 
-Then restart the engine and run check 3 of Step 6 for one coworker. A coworker without a key of its own shows `ok everos stdio 4 tools` while the shared `EVEROS_TOKEN` is set, and `config_error` with `EVEROS_TOKEN` as the missing name when neither is set. Its prompt lists the server the same way: `config_error, missing EVEROS_TOKEN` instead of `local command`.
+Then restart the engine and run check 3 of Step 6 for one allowlisted coworker. A coworker without a key of its own shows `ok everos stdio 4 tools` while the shared `EVEROS_TOKEN` is set, and `config_error` with `EVEROS_TOKEN` as the missing name when neither is set, or when the coworker is not on the allowlist. Its prompt lists the server the same way: `config_error, missing EVEROS_TOKEN` instead of `local command`.
 
 ## Rotation
 
 Set the name again with `shared-env set <NAME>`, value on stdin. New processes read it straight away; no restart is needed.
 
-- When GitHub rejects or revokes the token, `gh` and `git` print `401` or `Authentication failed` in the coworker's run. The repair is `printf '%s' '<new token>' | ... shared-env set GH_TOKEN`.
+- When GitHub rejects or revokes the token, `gh` and `git` print `401` or `Authentication failed` in the coworker's run. For an operator `shared-env run`, the repair is `printf '%s' '<new token>' | ... shared-env set GH_TOKEN`. For a coworker shell, also set `GH_TOKEN` on that coworker's own `.env`.
 - When a value landed in a run record, redact the record with `rerun redact <agentId>`, value on stdin, then set a new token with `shared-env set`.
 
 ## How Rob runs gh by hand

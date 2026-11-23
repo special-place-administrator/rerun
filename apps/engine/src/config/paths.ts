@@ -53,7 +53,6 @@ export const boxPlanPath = () => resolve(dataDir(), 'plan.json')
 
 export const mcpPackagesDir = () => resolve(dataDir(), 'mcp-packages')
 
-export const importedMarkerPath = (id: string) => resolve(dataDir(), 'imported-agents', pathSegment(id, 'agent id'))
 
 export const mcpCwdDir = (id: string) => resolve(dataDir(), 'mcp-cwd', pathSegment(id, 'agent id'))
 

@@ -71,15 +71,15 @@ describe('agentProcessEnv', () => {
         expect(env.RERUN_WORKSPACE).toBe(workspaceDir('env-agent'))
     })
 
-    it('git answers github.com credentials from the shared GH_TOKEN', async () => {
+    it('does not give git a shared GH_TOKEN, and still uses the coworker own token', async () => {
         await writeSharedEnv({ GH_TOKEN: 'tok-git-123456' })
-        const base = agentProcessEnv(agent({ sharedDb: false }))
-        const env = childProcessEnv(base.env, { HOME: mkdtempSync(resolve(tmpdir(), 'rerun-git-home-')), GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' })
+        const shared = agentProcessEnv(agent({ sharedDb: false }))
+        expect(Object.values(shared.env).some(value => value.includes('tok-git-123456'))).toBe(false)
+        const own = agentProcessEnv(agent({ sharedDb: false }, { GH_TOKEN: 'tok-git-own-123456' }))
+        const env = childProcessEnv(own.env, { HOME: mkdtempSync(resolve(tmpdir(), 'rerun-git-home-')), GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' })
         const out = execFileSync('git', ['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n', env, encoding: 'utf8' })
         expect(out).toContain('username=x-access-token')
-        expect(out).toContain('password=tok-git-123456')
-        const carriers = Object.values(base.env).filter(value => value.includes('tok-git-123456'))
-        expect(carriers).toHaveLength(1)
+        expect(out).toContain('password=tok-git-own-123456')
     })
 
     it('adds no git credential entries without a GH_TOKEN', () => {

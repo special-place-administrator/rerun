@@ -12,7 +12,7 @@ const { createServer } = await import('../server.js')
 const { migrate } = await import('../../db/migrate.js')
 const { isAllowlisted } = await import('../../agents/everos-allowlist.js')
 const { mkdir, writeFile } = await import('node:fs/promises')
-const { agentDir, soulPath } = await import('../../config/paths.js')
+const { agentDir } = await import('../../config/paths.js')
 const { MANIFEST_PATH } = await import('../../agents/archive.js')
 
 const app = createServer()
@@ -73,11 +73,9 @@ describe('everos shared allowlist routes', () => {
         const { createAgent } = await import('../../agents/factory.js')
         const agent = await createAgent({ config: { name: 'ImportedLook' } })
         await mkdir(agentDir(agent.id), { recursive: true })
-        await writeFile(resolve(agentDir(agent.id), MANIFEST_PATH), '{}
-', 'utf8')
+        await writeFile(resolve(agentDir(agent.id), MANIFEST_PATH), '{}\n', 'utf8')
         const listed = await send('GET', '/agents/everos-shared/pending')
         const pending = (await listed.json()) as { agents: Array<{ id: string; reason: string }> }
         expect(pending.agents.some(row => row.id === agent.id && row.reason === 'import_manifest')).toBe(true)
-        expect(soulPath(agent.id)).toContain(agent.id)
     })
 })

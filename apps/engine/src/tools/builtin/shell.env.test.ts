@@ -6,7 +6,7 @@ process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-shell-env-'))
 process.env.RERUN_API_KEY = 'engine-space-key'
 process.env.RERUN_HUB_BASE_URL = 'https://hub.example'
 
-const { describe, expect, it, vi } = await import('vitest')
+const { beforeAll, describe, expect, it, vi } = await import('vitest')
 const { HostBreaker } = await import('../host-breaker.js')
 const { shellTools } = await import('./shell.js')
 const { agentConfigSchema } = await import('../../agents/types.js')
@@ -22,6 +22,11 @@ async function optionsSeenBy(agentEnv: Record<string, string>, tools: Record<str
     await (shellTools(ctx, run).shell_exec as any).execute({ command: 'env', timeoutMs: 1000 }, { toolCallId: 'c', messages: [] })
     return run.mock.calls[0][1]
 }
+
+beforeAll(async () => {
+    const { allowAgent } = await import('../../agents/everos-allowlist.js')
+    await allowAgent('env-agent', 'create')
+})
 
 describe('shell_exec child environment', () => {
     it('runs in the workspace with the agent variables and the paths the prompt names', async () => {

@@ -1,3 +1,9 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
+
+process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-computer-'))
+
 import { existsSync, readFileSync } from 'node:fs'
 import { vi } from 'vitest'
 
@@ -102,7 +108,7 @@ vi.mock('../../desktop/apps.js', () => ({
     },
 }))
 
-const { afterEach, beforeEach, describe, expect, it } = await import('vitest')
+const { afterEach, beforeAll, beforeEach, describe, expect, it } = await import('vitest')
 const { agentConfigSchema } = await import('../../agents/types.js')
 const { ControlRefusal } = await import('../../desktop/control.js')
 const { agentsOnScreen, computerTools, offersComputer } = await import('./computer.js')
@@ -122,6 +128,13 @@ function build(ctx: any): Built {
 
 const act = (built: Built, input: Record<string, unknown>) => (built.tools.computer as any).execute(input, { toolCallId: 'c', messages: [] })
 const openApp = (built: Built, input: Record<string, unknown>) => (built.tools.computer_open_app as any).execute(input, { toolCallId: 'c', messages: [] })
+
+beforeAll(async () => {
+    const { migrate } = await import('../../db/migrate.js')
+    const { allowAgent } = await import('../../agents/everos-allowlist.js')
+    await migrate()
+    for (const id of ['a1', 'a2', 'a3', 'a7', 'codex-agent', 'claude-agent']) await allowAgent(id, 'create')
+})
 
 beforeEach(() => {
     state.available = true

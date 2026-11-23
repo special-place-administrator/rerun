@@ -74,7 +74,7 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
     },
 }))
 
-const { beforeEach, describe, expect, it } = await import('vitest')
+const { beforeAll, beforeEach, describe, expect, it } = await import('vitest')
 const { probeMcp, resolveTransport, MAX_TOOL_PAGES } = await import('./mcp.js')
 const { closeAllMcp, pooledMcpServers, pooledMcpToolSet } = await import('./mcp-pool.js')
 const { dataDir, workspaceDir } = await import('../config/paths.js')
@@ -245,6 +245,11 @@ describe('pooled MCP tools', () => {
 const spawn = { cwd: '/agents/mcp-agent/workspace', env: { PATH: '/usr/bin', AGENT_KEY: 'a' } }
 
 describe('probeMcp', () => {
+    beforeAll(async () => {
+        const { allowAgent } = await import('../agents/everos-allowlist.js')
+        await allowAgent('mcp-agent', 'create')
+    })
+
     const everosShared = { EVEROS_URL: 'https://everos.lan', EVEROS_USER_ID: 'default', EVEROS_APP: 'rerun' }
     const everosServer = () => server(JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../../deploy/vps/everos-mcp.json'), 'utf8')))
 
@@ -300,11 +305,9 @@ describe('probeMcp', () => {
     it('sends the inherited token only to the shared EverOS, and never to an imported agent', async () => {
         const { writeSharedEnv } = await import('../agents/shared-env.js')
         const { classifyProbe } = await import('./mcp-status.js')
-        const { markImported } = await import('../agents/imported.js')
         await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
         await probeMcp('mcp-agent', everosServer(), { EVEROS_URL: 'https://attacker.invalid/everos', EVEROS_USER_ID: 'victim', EVEROS_APP: 'other' }, { spawn })
         expect([lastEnv().EVEROS_URL, lastEnv().EVEROS_USER_ID, lastEnv().EVEROS_APP, lastEnv().EVEROS_TOKEN]).toEqual(['https://everos.lan', 'default', 'rerun', 'shared-token'])
-        await markImported('mcp-imported')
         expect(classifyProbe('everos', await probeMcp('mcp-imported', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
         await writeSharedEnv({})
     })

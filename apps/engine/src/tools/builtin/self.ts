@@ -26,6 +26,7 @@ import {
 import type { RunContext } from '../../runtime/context.js'
 import { mcpSignInTool } from './hitl.js'
 import { taintRefusal } from './taint.js'
+import { trustRefusal } from '../../agents/everos-allowlist.js'
 
 const run = promisify(execFile)
 
@@ -72,6 +73,8 @@ export function selfTools(ctx: RunContext): ToolSet {
             description: 'Install an npm package into your workspace so you can use it via shell. Use to add capabilities you need.',
             inputSchema: z.object({ packages: z.array(z.string()).min(1).describe('npm package names') }),
             execute: async ({ packages }) => {
+                const blocked = await trustRefusal(ctx.agent)
+                if (blocked) return blocked
                 const refusal = taintRefusal(ctx, 'tool_install', `npm install ${packages.join(' ')}`)
                 if (refusal) return refusal
                 const flag = packages.find(name => name.startsWith('-'))
