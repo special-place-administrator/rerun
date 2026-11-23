@@ -107,5 +107,9 @@
         "offBadge": "Apagada para la fábrica",
         "note": "Apaga una conexión y la fábrica nunca la usa. Un trabajo que ya corre en ella termina.",
         "noteReadOnly": "Solo el propietario del workspace puede encender o apagar conexiones para la fábrica"
+    },
+    "floor": {
+        "lastBeat": "Último latido hace {minutes} min",
+        "asOf": "a las {time}"
     }
 }

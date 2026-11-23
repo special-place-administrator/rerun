@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocale, useTranslations } from 'next-intl'
 import type { FactoryDepartment, FactorySnapshot } from '@moldwright/contracts'
+import { formatDate } from '@moldwright/i18n/format'
 import { cn } from '@/lib/utils'
 import { FactoryBucket } from './FactoryBucket'
 import { FactoryInspector } from './FactoryInspector'
@@ -12,6 +14,7 @@ import { FactoryPoolPick } from './FactoryThrottle'
 import { FactoryWorkOrders, FactoryWorkOrdersSkeleton } from './FactoryWorkOrders'
 import { SAMPLE_TEXT } from './FactoryTasks'
 import { type Bucket } from './factory-bucket'
+import { isAnswering } from './factory-loader'
 import { DEPARTMENT_VIEW, buildLedger, chipCounts, filterLedger, type ChipCounts, type LedgerFilter } from './factory-ledger'
 import type { FactoryControlsState } from './use-factory-controls'
 
@@ -25,8 +28,8 @@ const MAIN_CHIPS: { key: 'running' | 'waiting' | 'problems' | 'doneToday'; label
 const sameFilter = (a: LedgerFilter | null, b: LedgerFilter) =>
     a !== null && (typeof a === 'string' || typeof b === 'string' ? a === b : a.department === b.department)
 
-function Chip({ name, label, count, filter, active, onPress, color }: {
-    name: string; label: string; count?: number; filter: LedgerFilter; active: boolean; onPress: (f: LedgerFilter) => void; color?: string
+function Chip({ name, label, count, filter, active, onPress, color, asOf }: {
+    name: string; label: string; count?: number; filter: LedgerFilter; active: boolean; onPress: (f: LedgerFilter) => void; color?: string; asOf?: string | undefined
 }) {
     return (
         <button
@@ -38,6 +41,7 @@ function Chip({ name, label, count, filter, active, onPress, color }: {
         >
             {color && <span className="size-2 rounded-full" style={{ background: color }} />}
             {label}{count !== undefined ? ` ${count}` : ''}
+            {asOf && <span data-as-of className="text-muted-foreground">{asOf}</span>}
         </button>
     )
 }
@@ -52,6 +56,8 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
     bucket?: Bucket | null
     onBucket?: (bucket: Bucket | null) => void
 }) {
+    const t = useTranslations('factory.floor')
+    const locale = useLocale()
     const [now, setNow] = useState(() => Date.now())
     useEffect(() => {
         const id = setInterval(() => setNow(Date.now()), 1000)
@@ -91,6 +97,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
     if (!snapshot) return <div data-topbar className="relative w-full text-xs text-muted-foreground">{SAMPLE_TEXT}</div>
 
     const job = snapshot.jobs.find(j => j.issue === selected) ?? null
+    const asOf = isAnswering(snapshot.madeAt, now) ? undefined : t('asOf', { time: formatDate(snapshot.madeAt, locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) })
     const departments = (Object.keys(counts.byDepartment) as FactoryDepartment[]).filter(d => (counts.byDepartment[d] ?? 0) > 0)
     return (
         <div ref={rootRef} data-topbar className="relative w-full">
@@ -100,7 +107,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                 <FactoryRunControl snapshot={snapshot} controls={controls} />
                 <FactoryPoolPick snapshot={snapshot} controls={controls} />
                 {MAIN_CHIPS.map(c => (
-                    <Chip key={c.key} name={c.key} label={c.label} count={counts[c.key]} filter={c.key} active={sameFilter(filter, c.key)} onPress={press} />
+                    <Chip key={c.key} name={c.key} label={c.label} count={counts[c.key]} filter={c.key} active={sameFilter(filter, c.key)} onPress={press} asOf={c.key === 'running' ? asOf : undefined} />
                 ))}
             </div>
             {open && (

@@ -49,7 +49,7 @@ export function Sphere({ pod, at, selected = false, onSelectJob }: { pod: PodVie
                 <span className="fab-orb-tag">{pod.repo && <ProjectMark repo={pod.repo} className="size-2.5 text-[6px]" />}#{pod.issue}<b>{stageWord(pod)}</b></span>
                 {hover && <span className="fab-orb-card" data-card={pod.issue}>#{pod.issue} {pod.title}<br />stage: {stageWord(pod)}
                     {pod.holder && <><br /><span data-card-line="holder">holder: {pod.holder}</span></>}
-                    {pod.since !== undefined && <><br /><span data-card-line="since">in stage: {formatInState(clock() - pod.since)}</span></>}
+                    {pod.since !== undefined && <><br /><span data-card-line="since">in stage: {formatInState((pod.asOf ?? clock()) - pod.since)}</span></>}
                     {pod.pr !== undefined && <><br /><span data-card-line="pr">PR #{pod.pr}</span></>}
                 </span>}
             </div>

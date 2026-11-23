@@ -2,6 +2,8 @@ import type { FactoryJobState, FactorySnapshot, FactoryWorkerType } from '@moldw
 
 export const BEAT_MS = 30_000
 
+export const isAnswering = (madeAt: string, now: number) => now - Date.parse(madeAt) <= 2 * BEAT_MS
+
 export type LoaderView = {
     alive: { beat: number; lastBeatAt: string; ageMs: number; answering: boolean }
     waiting: { issue: number; title: string; waitsOn: { issue: number; state: FactoryJobState | null }[]; reason: string | null }[]
@@ -16,7 +18,7 @@ export function loaderView(snapshot: FactorySnapshot, now: number): LoaderView {
     const ageMs = now - Date.parse(snapshot.madeAt)
     const stateOf = new Map(snapshot.jobs.map(j => [j.issue, j.state]))
     return {
-        alive: { beat: snapshot.beat, lastBeatAt: snapshot.madeAt, ageMs, answering: ageMs <= 2 * BEAT_MS },
+        alive: { beat: snapshot.beat, lastBeatAt: snapshot.madeAt, ageMs, answering: isAnswering(snapshot.madeAt, now) },
         waiting: snapshot.jobs
             .filter(j => j.state === 'waiting')
             .map(j => ({
