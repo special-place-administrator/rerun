@@ -316,7 +316,8 @@ class Rechecks(Pair):
         self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(1000.5, ms=True)}
         self.tick()
         self.assertEqual((self.d.active, self.pushes()), ("p/q", 1))
-        self.assertEqual(len(self.lines_said("p/q picked by rob")), 1)
+        self.assertEqual(len(self.lines_said("#project o/r -> p/q by rob")), 1)
+        self.assertEqual(len(self.lines_said("readiness of p/q asked by rob: passed")), 1)
         self.select("o/r")
         self.tick()
         self.w.clock += 10

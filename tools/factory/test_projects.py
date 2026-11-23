@@ -111,10 +111,10 @@ class Accessible(unittest.TestCase):
     def test_the_list_is_every_repository_the_factory_credential_reaches(self):
         names = ["special-place-ai-heaven/b", "special-place-ai-heaven/a", "someone/c"]
         app = GitHub(repos=names)
-        self.assertEqual(P.accessible(app), ["someone/c", "special-place-ai-heaven/a", "special-place-ai-heaven/b"])
+        self.assertEqual(P.accessible(app), ["special-place-ai-heaven/a", "special-place-ai-heaven/b"])
         self.assertTrue(all(c[:2] == ["api", "--paginate"] for c in app.calls))
         token = GitHub(repos=names, app=False)
-        self.assertEqual(P.accessible(token), ["someone/c", "special-place-ai-heaven/a", "special-place-ai-heaven/b"])
+        self.assertEqual(P.accessible(token), ["special-place-ai-heaven/a", "special-place-ai-heaven/b"])
         self.assertEqual(token.writes(), [])
 
 
