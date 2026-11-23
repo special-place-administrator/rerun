@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+import urllib.parse
 
 import authors
 import factory
@@ -30,9 +31,19 @@ ORDER_ACTIONS = ("retry", "skip")
 FAILED = ("blocked", "failed")
 GHOSTS_CEILING = 32
 FILE_AGAIN_S = 5 * 60
-STATION = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+STATION_MAX = 64
 STATIONS_MAX = 64
-TOKEN = re.compile(r"(gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,})")
+TOKEN = re.compile(r"(?:gh[pousr]_[A-Za-z0-9_.\-]{8,}|github_pat_[A-Za-z0-9_]{8,}|x-access-token:[^@\s]+)")
+
+
+def scrub(text):
+    text = TOKEN.sub("[token]", text)
+    decoded = urllib.parse.unquote(text)
+    return TOKEN.sub("[token]", decoded) if TOKEN.search(decoded) else text
+
+
+def station(name):
+    return isinstance(name, str) and 0 < len(name) <= STATION_MAX and name.isprintable() and bool(name.strip())
 
 
 def ceiling():
@@ -176,11 +187,15 @@ class Lines:
         old = self.throttle()
         ask = ask if isinstance(ask, dict) else {}
         at, last = stamp(ask.get("at")), stamp(self.read("throttle", {}).get("asked_at"))
-        if at is not None and last is not None and at <= last:
+        if at is None:
+            return self.problem("throttle answer has no readable at: the pool stays %d" % old["max_ghosts"])
+        if last is not None and at <= last:
             return
         top, most, stations = ceiling(), ask.get("max_ghosts", old["max_ghosts"]), ask.get("stations", {})
-        if not whole(most) or not isinstance(stations, dict) or len(stations) > STATIONS_MAX or not all(isinstance(k, str) and STATION.match(k) and whole(v) for k, v in stations.items()):
+        if not whole(most) or not isinstance(stations, dict) or len(stations) > STATIONS_MAX:
             return self.problem("throttle answer not understood: the pool stays %d" % old["max_ghosts"])
+        known = {s for d in self.lines.values() for s in self.stations(d)}
+        stations = {k: v for k, v in stations.items() if station(k) and k in known and whole(v)}
         new = {"max_ghosts": min(most, top), "stations": dict(old["stations"], **{k: min(v, top) for k, v in stations.items()})}
         if new == {"max_ghosts": old["max_ghosts"], "stations": old["stations"]} and "throttle" in self.kv.get_all("-"):
             return
@@ -205,7 +220,7 @@ class Lines:
                 made = d.gh(["issue", "create", "-R", order["repo"], "--title", title, "--body", "%s\n\n%s" % (order["text"].rstrip(), marker), "--label", d.label])
                 n = int(made.strip().rsplit("/", 1)[1])
         except (self.mod.Error, ValueError, IndexError, TypeError) as e:
-            why = TOKEN.sub("[token]", printable(str(e)))[:200]
+            why = scrub(printable(str(e)))[:200]
             self.kv.set("-", "work_order_filing", json.dumps({"id": order["id"], "t": self.now(), "error": why}))
             return self.mod.log("work_order", "work order %s: issue filing failed: %s" % (order["id"], why))
         self.kv.set("-", "work_order_filing", "{}")
