@@ -379,37 +379,50 @@ class Controls(Pair):
         self.assertIn("control PAUSED", self.d.lines["o/r"].beat_line)
         self.assertEqual(self.w.reports[-1]["control"]["state"], "PAUSED")
 
-    def test_a_drain_lets_running_work_finish_then_the_factory_is_stopped(self):
+    def jobs_by_state(self):
+        return sorted((j["issue"], j["state"]) for j in self.d.lines["o/r"].store.jobs())
+
+    def waiting_job(self):
+        self.d.lines["o/r"].store.put_job("6", "waiting", {"issue": 6, "title": "Six", "recheck": True, "rechecks": 1})
+
+    def test_a_normal_stop_lets_the_running_step_finish_starts_no_follow_up_cancels_the_queue_and_ends_stopped(self):
         self.d = self.new()
         self.control("RUNNING")
         self.tick(2)
         self.assertEqual(self.state(), "building")
+        self.waiting_job()
         self.control("DRAINING")
         self.tick(2)
+        self.assertEqual(self.jobs_by_state(), [(5, "building"), (6, "cancelled")])
         self.assertEqual((len(self.w.sends), self.d.read("control", {})["state"]), (1, "DRAINING"))
         self.w.finish("b1", PR_LINE)
         self.tick(3)
-        self.assertEqual((self.state(), len(self.w.sends), self.w.cancels), ("review_wait", 1, []))
+        self.assertEqual((self.jobs_by_state(), len(self.w.sends), self.w.cancels), ([(5, "cancelled"), (6, "cancelled")], 1, []))
         self.assertEqual(self.w.rows("SELECT status FROM fires"), [("done",)])
         self.assertEqual(self.d.read("control", {})["state"], "STOPPED")
         self.assertEqual(len(self.lines_said("#control DRAINING -> STOPPED by factory")), 1)
         self.assertEqual(self.w.reports[-1]["control"]["state"], "STOPPED")
+        self.assertEqual(self.d.lines["o/r"].store.failures(), [])
+        self.control("RUNNING")
         self.tick(3)
-        self.assertEqual((self.d.read("control", {})["state"], len(self.w.sends)), ("STOPPED", 1))
+        self.assertEqual((self.jobs_by_state(), len(self.w.sends)), ([(5, "cancelled"), (6, "cancelled")], 1))
 
-    def test_a_stop_cancels_running_jobs_back_to_their_queue_without_an_error(self):
+    def test_a_hard_stop_leaves_nothing_in_flight_and_nothing_queued_without_an_error(self):
         self.d = self.new()
         self.control("RUNNING")
         self.tick(2)
         self.assertEqual(self.state(), "building")
+        self.waiting_job()
         self.control("STOPPED")
         self.tick()
+        line = self.d.lines["o/r"]
         self.assertEqual(self.w.cancels, [(self.w.order[-1][1], self.w.order[-1][0])])
-        self.assertEqual(self.state(), "queued")
-        self.assertEqual(self.w.rows("SELECT status FROM fires"), [("cancelled",)])
+        self.assertEqual(self.jobs_by_state(), [(5, "cancelled"), (6, "cancelled")])
+        self.assertEqual((self.w.rows("SELECT status FROM fires"), line.store.running(), line.store.pending()), ([("cancelled",)], [], []))
+        self.assertEqual(line.store.failures(), [])
+        self.control("RUNNING")
         self.tick(3)
-        self.assertEqual(len(self.w.sends), 1)
-        self.assertEqual(self.d.lines["o/r"].store.failures(), [])
+        self.assertEqual((self.jobs_by_state(), len(self.w.sends)), ([(5, "cancelled"), (6, "cancelled")], 1))
 
     def test_a_stop_also_cancels_planner_and_station_runs_back_to_their_queue_without_an_error(self):
         self.d = self.new()
