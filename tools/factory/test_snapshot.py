@@ -31,6 +31,29 @@ class Snapshot(unittest.TestCase):
     def build(self, hold=None):
         return snapshot.build_snapshot(self.st, CFG, NOW, hold, beat=7)
 
+    def small(self):
+        self.put(5, "building")
+        self.put(7, "merged", pr=11)
+        snap = self.build()
+        line = {"name": "read", "ok": True, "why": ""}
+        snap["projects"] = {"repos": ["o/repo%02d" % i for i in range(60)],
+                            "ready": [{"repo": "o/r%d" % i, "passed": True, "lines": [line], "at": "2026-11-24T00:0%d:00.000Z" % i} for i in range(7)],
+                            "probes": [{"path": "/p%d" % i, "ok": True, "code": "", "message": "", "repo": "o/r%d" % i} for i in range(7)]}
+        snap["work_order"] = {"id": "wo", "repo": "o/r", "kind": "all_issues", "issues": list(range(1, 81)), "text": None, "by": "rob",
+                              "at": None, "current": None, "done": list(range(1, 81)), "skipped": [], "halted": None, "wait": None}
+        snap["providers"] = {"off": [], "enabled": ["c%02d" % i for i in range(60)]}
+        return snap
+
+    def test_a_snapshot_under_the_cap_passes_through_unchanged(self):
+        snap = self.small()
+        before = json.dumps(snap, separators=(",", ":"), ensure_ascii=False)
+        self.assertEqual(json.dumps(snapshot.fit(snap), separators=(",", ":"), ensure_ascii=False), before)
+
+    def test_under_the_cap_the_newest_probe_and_every_ready_row_are_kept(self):
+        got = snapshot.fit(self.small())["projects"]
+        self.assertEqual(got["probes"][-1]["path"], "/p6")
+        self.assertIn("o/r6", [r["repo"] for r in got["ready"]])
+
     def test_keys_and_types_match_the_sample(self):
         sample = json.load(open(SAMPLE))
         fid = self.st.intent("5", "", "build", coworker="CODE")
@@ -60,11 +83,11 @@ class Snapshot(unittest.TestCase):
     def test_limits(self):
         self.put(1, "blocked", title="x" * 400, reason="y" * 500, body="**Depends on**: " + ", ".join("#%d" % n for n in range(100, 125)) + "\n")
         j = self.build()["jobs"][0]
-        self.assertEqual((len(j["title"]), len(j["reason"]), len(j["dependsOn"])), (256, 300, 20))
+        self.assertEqual((len(j["title"]), len(j["reason"]), len(j["dependsOn"])), (120, 200, 20))
         for n in range(2, 306):
             self.put(n, "merged" if n % 2 else "queued")
         snap = self.build()
-        self.assertEqual(len(snap["jobs"]), 300)
+        self.assertEqual(len(snap["jobs"]), 200)
         self.assertEqual({x["state"] for x in snap["jobs"] if x["issue"] % 2 == 0 and x["issue"] > 1}, {"queued"})
         self.assertEqual([x["issue"] for x in snap["jobs"]], sorted(x["issue"] for x in snap["jobs"]))
 

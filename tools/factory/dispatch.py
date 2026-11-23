@@ -2503,6 +2503,9 @@ class Dispatcher:
             digest.alarm(self.store, snap.get("digest"), now)
             snap.update(self.extra())
             status = self.status(snap)
+            snap = snapshot.fit(snap)
+            if set(snap) <= set(snapshot.MINIMAL):
+                log("-", "report trimmed to %d B" % snapshot.size(snap))
             self.answer = self.account("factory_report", {"snapshot": snap}, timeout=10)
             self.report_logged.clear()
         except Exception as e:  # noqa: BLE001 - the report only, never the beat
