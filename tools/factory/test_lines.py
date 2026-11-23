@@ -683,6 +683,33 @@ class Throttle(Pair):
         self.assertEqual((got["max_ghosts"], got["max_ghosts_ceiling"], got["ghosts_running"], got["stations"]["B1"]), (12, 12, 0, {"max": 5, "running": 0}))
         self.assertEqual(len(self.lines_said("pool 12")), 1)
 
+    def test_a_spaced_station_name_is_taken_and_unknown_or_bad_keys_are_ignored(self):
+        self.cfg["reviewers"][1]["name"] = "Scope Shaper"
+        self.running_factory()
+        self.select("o/r", order=False)
+        self.answer["throttle"] = {"max_ghosts": 6, "stations": {"Scope Shaper": 3, "B1": 2, "nobody": 4, "B2": -1}, "by": "rob", "at": "2026-11-23T21:00:00.123Z"}
+        self.tick(3)
+        pool = self.d.lines["o/r"].cfg["pool"]
+        self.assertEqual((pool["max"], pool["seats"]), (6, {"B1": 2, "B2": 1, "R1": 1, "Scope Shaper": 3}))
+        self.assertEqual(self.w.reports[-1]["throttle"]["stations"]["Scope Shaper"], {"max": 3, "running": 0})
+        self.assertEqual(self.lines_said("throttle answer not understood"), [])
+
+    def test_a_throttle_with_an_unreadable_at_is_refused(self):
+        self.running_factory()
+        self.select("o/r", order=False)
+        self.answer["throttle"] = {"max_ghosts": 6, "stations": {}, "by": "rob", "at": "soon"}
+        self.tick(3)
+        self.assertEqual(self.d.lines["o/r"].cfg["pool"]["max"], 1)
+        self.assertEqual(len(self.lines_said("throttle answer has no readable at")), 1)
+
+    def test_the_filing_error_scrubs_stateless_and_url_encoded_tokens(self):
+        jwt = "eyJhbGciOiJSUzI1NiJ9." + "a-b_c" * 40 + ".sig-nat_ure"
+        text = "HTTP 401 for ghs_12345678_%s, ghs%%5F12345678%%5F%s and x-access-token:ghp_abcdefgh123@github.com" % (jwt, jwt)
+        got = L.scrub(text)
+        for part in ("12345678", "eyJ", "a-b_c", "sig-nat", "ghp_abc"):
+            self.assertNotIn(part, got)
+        self.assertIn("HTTP 401 for [token]", got)
+
     def test_a_feature_order_files_its_issue_once_and_then_runs_it(self):
         made, real = [], self.w.gh
 
