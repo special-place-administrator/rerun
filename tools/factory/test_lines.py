@@ -144,6 +144,8 @@ class Two(Pair):
         self.assertFalse([m for _, m, _ in self.w.sends if "#7" in m.split("\n")[0] or "#8" in m.split("\n")[0]])
         self.assertEqual(self.p.reports[-1]["finishing"], [])
         self.assertEqual(self.p.rows("SELECT state FROM jobs WHERE job='5'"), [("building",)])
+        self.p.finish(self.p.sends[0][0], PR_LINE)
+        self.tick()
         self.select("o/r")
         self.tick(3)
         self.assertEqual(self.d.active, "o/r")
@@ -151,13 +153,16 @@ class Two(Pair):
 
     def test_two_lines_never_use_the_same_coworker_at_once(self):
         self.start()
-        self.tick()
+        self.to_review()
         self.select("p/q")
         self.tick(2)
-        self.assertEqual((self.w.sends[0][0], self.p.sends[0][0]), ("b1", "b2"))
+        busy = [a for a, _ in self.d.lines["o/r"].own()]
+        self.assertTrue(busy)
+        self.assertNotIn(self.p.sends[0][0], busy)
 
     def test_the_app_away_keeps_the_last_project_also_after_a_restart(self):
         self.start()
+        self.to_review()
         self.select("p/q")
         self.tick(2)
         self.w.report_answer = self.p.report_answer = None
@@ -253,6 +258,50 @@ class Two(Pair):
             self.assertEqual(D.main(["once"]), 0)
         self.assertIs(seen[0]["mod"], D)
         self.assertEqual(self.state(), "building")
+
+
+class Ready:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, args):
+        self.calls.append(list(args))
+        path = next(x for x in args[1:] if not x.startswith("-") and x not in ("POST", "DELETE"))
+        if path == "repos/p/q":
+            return json.dumps({"full_name": "p/q", "has_issues": True})
+        if path == "repos/p/q/actions/workflows":
+            return "Done-test red before green\n"
+        return "abc123\n"
+
+
+class Drain(Pair):
+    def test_a_switch_lets_the_old_project_push_its_jobs_in_flight_before_the_first_job_of_the_new_one(self):
+        self.cfg["project_owners"] = ["o", "p"]
+        self.start(passed=False)
+        self.d.gh = Ready()
+        self.tick()
+        self.assertEqual(self.state(), "building")
+        self.answer["check"] = {"repo": "p/q", "at": D.iso(self.w.clock)}
+        self.tick()
+        self.assertIs(json.loads(self.w.rows("SELECT v FROM kv WHERE job='-' AND k='ready:p/q'")[0][0])["passed"], True)
+        del self.answer["check"]
+        self.w.clock += 5
+        self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(self.w.clock - 1)}
+        self.tick(3)
+        self.assertEqual(self.d.active, "p/q")
+        self.assertEqual(self.p.sends, [])
+        self.w.issues.append(issue(9, "Nine"))
+        self.tick(2)
+        self.assertNotIn("9", self.job_ids())
+        self.assertEqual(self.p.sends, [])
+        self.w.finish("b1", PR_LINE)
+        self.tick(3)
+        self.assertEqual(self.state(), "reviewing")
+        self.assertEqual(len(self.p.sends), 1)
+        said = self.out.getvalue()
+        order = [said.index(x) for x in ("#project o/r -> p/q", "pull request #", "#project p/q starts")]
+        self.assertEqual(order, sorted(order))
+        self.assertGreater(said.rindex("build -> "), order[-1])
 
 
 if __name__ == "__main__":

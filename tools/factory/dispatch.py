@@ -1535,6 +1535,8 @@ class Dispatcher:
                 return
         if st in states.QUEUE and j.get("not_before") and self.now() < j["not_before"]:
             return
+        if st == "queued" and not self.taking:
+            return
         if st == "queued" and proven_line(j.get("body")):
             if self.take(j):
                 self.open_proven(j, proven_line(j.get("body")))
