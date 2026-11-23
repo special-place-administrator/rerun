@@ -1,6 +1,7 @@
 import datetime
 import json
 
+import clocks
 import cutshape
 import digest
 import pools
@@ -189,9 +190,14 @@ def _fit(snap):
     return snap
 
 
+def _system_error(status, error):
+    return status == "error" and clocks.klass("ERROR", {"error": (error or "").split(" ended ", 1)[-1]}) in ("transient", "plan_limit")
+
+
 def _run_stats(store, now):
     since = iso(now - 86400)
-    rows = store.db.execute("SELECT status, seconds FROM fires WHERE status IN ('done','error') AND ended_at >= ?", (since,)).fetchall()
+    rows = [r for r in store.db.execute("SELECT status, seconds, error FROM fires WHERE status IN ('done','error') AND ended_at >= ?",
+                                        (since,)).fetchall() if not _system_error(r[0], r[2])]
     took = [r[1] for r in rows if r[1] is not None]
     return {"since": since, "finished": len(rows), "errors": sum(1 for r in rows if r[0] == "error"),
             "avgRunS": round(sum(took) / len(took), 1) if took else None}

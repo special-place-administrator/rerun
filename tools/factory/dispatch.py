@@ -73,6 +73,7 @@ WT_NEW_FAULT = re.compile(r"(?is)(?=.*\bwt new\b)(?!.*\bplan marker\b).*\b(?:can
 CHECKOUT_ROW, CHECKOUT_HOLD_S = 3, 60 * 60
 MERGE_TRIES = 5
 STALE_RUN_S, STALE_RUNS_A_BEAT = 2 * 3600, 15
+RUNS_ON_TTL_S = 10 * 60
 DRAIN_SEND_S = 300
 DRAIN_MAX_S = 3 * 3600
 MAX_TAKES = 3
@@ -573,6 +574,7 @@ class Dispatcher:
         self.renewal_unreadable = False
         self.connections = None
         self.plan_week_full = False
+        self.runs_on, self.runs_on_at = {}, None
         self.pace = 1.0
         self.draining = False
         self.report_logged = set()
@@ -1213,7 +1215,7 @@ class Dispatcher:
         row = dict(r, runId=r.get("runId") or j["run"], startedAt=r.get("startedAt") or "1970-01-01T00:00:00Z")
         kind, _ = clocks.outcome(row, None, self.now(), self.cfg.get("clocks"))
         if clocks.klass(kind, row) == "transient":
-            self.store.close_run(j["run"], "error", error=why[:200], **self.kept_tokens(j["run"]))
+            self.store.close_run(j["run"], "held", error=why[:200], **self.kept_tokens(j["run"]))
             return self.transient(j, why)
         if clocks.klass(kind, row) == "plan_limit":
             return self.plan_limit_or_fail(j, why, str(r.get("error") or "-"))
@@ -1222,12 +1224,14 @@ class Dispatcher:
     def plan_limit_or_fail(self, j, why, error):
         if pools.provider_of(self.cfg, j.get("agent")) == "claude":
             return self.plan_limit(j, why, error)
-        self.store.close_run(j["run"], "error", error=why[:200], **self.kept_tokens(j["run"]))
-        strikes.fail(self.store, j["agent"], self.now(), 1, holds.PLAN_LIMIT_HOLD_S)
+        self.store.close_run(j["run"], "held", error=why[:200], **self.kept_tokens(j["run"]))
+        now = self.now()
+        hold_s = self.limit_until(j, error, now) - now
+        strikes.fail(self.store, j["agent"], now, 1, hold_s)
         j.update(state=BACK[j["state"]], retry_attempt=j.get("attempt", 1), sending=None)
         self.save(j, "spent key: %s" % error[:160])
         log(j["issue"], "spent key on %s, back to %s; that coworker held for %d s: %s" % (
-            self.names.get(j["agent"], j["agent"][:8]), j["state"], holds.PLAN_LIMIT_HOLD_S, error[:160]))
+            self.names.get(j["agent"], j["agent"][:8]), j["state"], hold_s, error[:160]))
         return None
 
     def close_stale(self):
@@ -1286,13 +1290,21 @@ class Dispatcher:
         row = self.store.db.execute("SELECT tokens_in, tokens_out, cache_read FROM fires WHERE run_id=?", (run_id,)).fetchone()
         return {"tokens_in": row[0], "tokens_out": row[1], "cache_read": row[2]} if row else {}
 
+    def limit_until(self, j, error, now):
+        own = self.runs_on.get(j.get("agent"))
+        at = renewal.limited_until(self.connections, now, [own], with_default=False) if own else \
+            renewal.limited_until(self.connections, now)
+        at = at or renewal.resets_in_text(error, now)
+        return at if at and at > now else now + holds.PLAN_LIMIT_HOLD_S
+
     def plan_limit(self, j, why, error):
-        self.store.close_run(j["run"], "error", error=why[:200], **self.kept_tokens(j["run"]))
+        self.store.close_run(j["run"], "held", error=why[:200], **self.kept_tokens(j["run"]))
         now = self.now()
-        holds.arm(self.store, "plan limit", now + holds.PLAN_LIMIT_HOLD_S)
+        until = self.limit_until(j, error, now)
+        holds.arm(self.store, "plan limit", until)
         j.update(state=BACK[j["state"]], retry_attempt=j.get("attempt", 1), sending=None)
         self.save(j, "plan limit: %s" % error[:160])
-        log(j["issue"], "plan limit, back to %s; all sending held for %d s: %s" % (j["state"], holds.PLAN_LIMIT_HOLD_S, error[:160]))
+        log(j["issue"], "plan limit, back to %s; all sending held for %d s: %s" % (j["state"], until - now, error[:160]))
         return None
 
     def failed_attempt(self, j, why, how):
@@ -2014,12 +2026,30 @@ class Dispatcher:
             log("-", "heartbeat: %s" % type(e).__name__)
         inboxsort.beat(self, log)
 
+    def used_connections(self):
+        now = self.now()
+        if self.runs_on_at is not None and now - self.runs_on_at < RUNS_ON_TTL_S:
+            return set(self.runs_on.values())
+        found = {}
+        for t in pools.types(self.cfg).values():
+            for c in t.get("coworkers", []):
+                try:
+                    runs_on = (self.account("get_agent", {"agentId": c["id"]}) or {}).get("runsOn")
+                except (Error, KeyError, TypeError, ValueError):
+                    continue
+                conn = runs_on.get("connectionId") if isinstance(runs_on, dict) else None
+                if isinstance(conn, str) and conn:
+                    found[c["id"]] = conn
+        self.runs_on, self.runs_on_at = found, now
+        return set(found.values())
+
     def renewal_hold(self):
         try:
             self.connections = None
             answer = self.connections = self.account("list_ai_connections", {})
+            used = self.used_connections()
             limit = int((self.cfg.get("clocks") or {}).get("run_limit_s", 2700)) // 60 + 5
-            is_due = renewal.due(answer, limit)
+            is_due = renewal.due(answer, limit, used)
         except (Error, ValueError, KeyError, TypeError):
             if not self.renewal_unreadable:
                 self.renewal_unreadable = True
@@ -2028,17 +2058,21 @@ class Dispatcher:
             return
         self.renewal_unreadable = False
         now = self.now()
-        week = renewal.plan(answer, now) or {}
-        used, mark = week.get("weekUsedPercent"), self.cfg.get("plan_week_hold_percent")
+        limited = renewal.limited_until(answer, now, used)
+        if limited and holds.until(self.store, "plan limit") < limited:
+            log("-", "a connection the coworkers run on is at its plan limit: holding new sends until it resets at %s" % iso(limited))
+            holds.arm(self.store, "plan limit", limited)
+        week = renewal.plan(answer, now, used) or {}
+        week_used, mark = week.get("weekUsedPercent"), self.cfg.get("plan_week_hold_percent")
         resets = limits.ts(week["weekResetsAt"]) if week.get("weekResetsAt") else None
-        pace = renewal.pace(used, mark, resets, now)
+        pace = renewal.pace(week_used, mark, resets, now)
         if pace < 1 and self.cfg.get("slots") and round(pace, 1) != round(self.pace, 1):
-            log("-", "pacing the plan week: %d %% used, %.1f days left, %d of %d slots" % (used, (resets - now) / 86400, self.pace_slots(self.cfg["slots"], pace), self.cfg["slots"]))
+            log("-", "pacing the plan week: %d %% used, %.1f days left, %d of %d slots" % (week_used, (resets - now) / 86400, self.pace_slots(self.cfg["slots"], pace), self.cfg["slots"]))
         self.pace = pace
-        full = mark is not None and used is not None and used >= mark
+        full = mark is not None and week_used is not None and week_used >= mark
         if full:
             if not self.plan_week_full:
-                log("-", "plan week is %d %% used (hold mark %d %%): holding new sends until it resets or the mark is raised" % (used, mark))
+                log("-", "plan week is %d %% used (hold mark %d %%): holding new sends until it resets or the mark is raised" % (week_used, mark))
             holds.arm(self.store, "plan week", now + 2 * self.cfg.get("poll_s", 30))
         self.plan_week_full = full
         try:
@@ -2048,7 +2082,7 @@ class Dispatcher:
             was = kept = False
         if is_due and self.running():
             if not was:
-                log("-", "sign-in has %s min left: holding new sends until it is renewed" % renewal.left(answer))
+                log("-", "sign-in has %s min left: holding new sends until it is renewed" % renewal.left(answer, used))
             holds.arm(self.store, "sign-in renewal", now + 2 * self.cfg.get("poll_s", 30))
         elif kept:
             holds.clear(self.store, "sign-in renewal")
@@ -2341,7 +2375,7 @@ class Dispatcher:
         try:
             snap = snapshot.build_snapshot(self.store, self.cfg, now, held, beat=self.beats,
                                            read_epic=self.read_epic, planning=self.planners.read(self.beats),
-                                           plan=renewal.plan(self.connections, now), machine=self.machine)
+                                           plan=renewal.plan(self.connections, now, set(self.runs_on.values())), machine=self.machine)
             digest.alarm(self.store, snap.get("digest"), now)
             snap.update(self.extra())
             status = self.status(snap)
