@@ -34,9 +34,12 @@ describe('factory projects: owner only', () => {
         expect(selectMaybeSingle).not.toHaveBeenCalled()
     })
 
-    it('refuses to remove the active project, even to the owner, and deletes nothing', async () => {
-        vi.mocked(selectMaybeSingle).mockResolvedValue({ data: { id: 7, repo: 'acme/app', host_path: null, active: true, activated_at: '2026-11-23T18:00:00Z', created_at: '2026-11-23T17:00:00Z' }, error: null } as never)
+    it('refuses to remove the active project, even to the owner, and refuses a founder who is no longer an admin', async () => {
+        const row = { id: 7, repo: 'acme/app', host_path: null, active: true, activated_at: '2026-11-23T18:00:00Z', created_at: '2026-11-23T17:00:00Z' }
+        vi.mocked(selectMaybeSingle).mockImplementation(((_c: unknown, table: string) => Promise.resolve({ data: table === 'workspace_members' ? { role: 'admin' } : row, error: null })) as never)
         await expect(removeProject(202, OWNER, 7)).rejects.toMatchObject({ code: 'factoryProjectActive', params: { repo: 'acme/app' } })
+        vi.mocked(selectMaybeSingle).mockImplementation(((_c: unknown, table: string) => Promise.resolve({ data: table === 'workspace_members' ? { role: 'member' } : row, error: null })) as never)
+        await expect(removeProject(202, OWNER, 7)).rejects.toMatchObject({ code: 'factoryOwnerOnly' })
         expect(from).not.toHaveBeenCalled()
     })
 })
