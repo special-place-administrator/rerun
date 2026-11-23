@@ -32,14 +32,26 @@ class Pair(Base):
             return L.Lines(self.cfg, None, None, now=clock, make=lambda c: D.Dispatcher(
                 c, self.worlds[c["repo"]].account, self.worlds[c["repo"]].gh, now=clock))
 
+    def seed(self, control=True, repo="o/r"):
+        s = S.Store(self.cfg["ledger_file"])
+        at = "2026-11-23T00:00:00Z"
+        if control:
+            s.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": at}))
+        s.set("-", "project", json.dumps({"repo": repo, "from": None, "by": "test", "at": at}))
+        s.add_event("project", None, s.get_all("-")["project"])
+        s.set("-", "work_order", json.dumps({"id": "seed", "repo": repo, "kind": "all_issues", "issues": [5, 6, 7, 8], "text": "", "by": "test", "at": at}))
+        s.close()
+
     def start(self, passed=True):
+        self.seed()
         self.d = self.new()
-        self.d.kv.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
         if passed:
             self.d.kv.set("-", "ready:p/q", json.dumps({"passed": True}))
 
-    def select(self, repo, by="rob"):
+    def select(self, repo, by="rob", order=True):
         self.answer["project"] = {"repo": repo, "by": by}
+        if order:
+            self.answer["work_order"] = {"id": "seed-" + repo.replace("/", "-"), "repo": repo, "kind": "all_issues", "issues": [5, 6, 7, 8], "by": by, "at": "2026-11-23T00:00:00Z"}
 
     def lines_said(self, text):
         return [x for x in self.out.getvalue().split("\n") if text in x]
@@ -72,7 +84,7 @@ class Two(Pair):
         self.start(passed=False)
         after = dump()
         self.assertEqual(self.w.rows("SELECT v FROM kv WHERE job='-' AND k='project_of'"), [("o/r",)])
-        after["kv"] = [r for r in after["kv"] if r[1] not in ("project_of", "control")]
+        after["kv"] = [r for r in after["kv"] if r[1] not in ("project_of", "control", "project", "work_order")]
         self.assertEqual(after, before)
         db.close()
         self.w.finish("b1", PR_LINE)
@@ -121,24 +133,23 @@ class Two(Pair):
         self.assertEqual(self.p.rows("SELECT v FROM kv WHERE job='-' AND k='project_of'"), [("p/q",)])
         self.assertEqual(self.p.sends[0][0], "b1")
 
-    def test_a_switch_with_jobs_in_every_state_ends_each_or_keeps_it_moving_and_none_twice(self):
+    def test_a_switch_lets_the_job_of_the_work_order_finish_and_sends_none_twice(self):
         self.w.issues += [issue(6, "Six"), issue(7, "Seven", deps="#6")]
         self.w.open_numbers.add(6)
         self.start()
         self.to_review()
-        self.assertEqual([r[0] for r in self.w.rows("SELECT state FROM jobs ORDER BY job")], ["reviewing", "building", "waiting"])
+        self.assertEqual([r[0] for r in self.w.rows("SELECT state FROM jobs ORDER BY job")], ["reviewing"])
         self.select("p/q")
         self.tick()
         self.w.issues.append(issue(8, "Eight"))
         self.tick()
         self.assertEqual(self.p.reports[-1]["repo"], "p/q")
-        self.assertEqual(self.p.reports[-1]["finishing"], [{"repo": "o/r", "jobs": 2}])
+        self.assertEqual(self.p.reports[-1]["finishing"], [{"repo": "o/r", "jobs": 1}])
         self.w.finish("r1", "ok\nVERDICT: ACCEPT @abcdef1")
-        self.w.finish("b2", "tried\nBLOCKED: the issue names no file")
         self.tick(2)
         self.w.workflows[HEAD] = [wf("ci", "success")]
         self.tick(4)
-        self.assertEqual(self.w.rows("SELECT job, state FROM jobs ORDER BY job"), [("5", "merged"), ("6", "blocked"), ("7", "waiting")])
+        self.assertEqual(self.w.rows("SELECT job, state FROM jobs ORDER BY job"), [("5", "merged")])
         self.assertEqual(len(self.w.merges), 1)
         self.assertEqual(self.w.cancels + self.p.cancels, [])
         firsts = [(a, m.split("\n")[0]) for a, m, _ in self.w.sends + self.p.sends]
@@ -151,7 +162,7 @@ class Two(Pair):
         self.select("o/r")
         self.tick(3)
         self.assertEqual(self.d.active, "o/r")
-        self.assertIn("8", self.job_ids())
+        self.assertIn("6", self.job_ids())
 
     def test_two_lines_never_use_the_same_coworker_at_once(self):
         self.start()
@@ -183,7 +194,7 @@ class Two(Pair):
             self.assertEqual(self.d.active, "o/r")
         self.assertEqual(len(self.lines_said("project answer not understood: the factory stays on o/r")), 1)
         self.assertEqual(self.p.sends, [])
-        self.assertEqual(self.w.rows("SELECT COUNT(*) FROM events WHERE key='project'"), [(0,)])
+        self.assertEqual(self.w.rows("SELECT COUNT(*) FROM events WHERE key='project' AND old != 'null'"), [(0,)])
 
     def test_a_project_whose_readiness_did_not_pass_here_is_refused_whatever_the_app_says(self):
         self.start(passed=False)
@@ -202,7 +213,7 @@ class Two(Pair):
         self.tick(3)
         self.select("o/r", by="rob@example.com")
         self.tick(3)
-        rows = self.w.rows("SELECT old, new FROM events WHERE key='project' ORDER BY id")
+        rows = self.w.rows("SELECT old, new FROM events WHERE key='project' AND old != 'null' ORDER BY id")
         self.assertEqual([json.loads(r[0]) for r in rows], ["o/r", "p/q"])
         first = json.loads(json.loads(rows[0][1]))
         self.assertEqual((first["repo"], first["from"], first["by"]), ("p/q", "o/r", "rob@example.com"))
@@ -240,7 +251,7 @@ class Two(Pair):
 
     def test_who_made_the_switch_is_one_printable_line_of_at_most_100_characters(self):
         self.start()
-        self.select("p/q", by="rob\n2026-11-19T00:00:00Z #- forged\x00" + "x" * 200)
+        self.select("p/q", by="rob\n2026-11-19T00:00:00Z #- forged\x00" + "x" * 200, order=False)
         self.tick(3)
         saved = json.loads(self.w.rows("SELECT v FROM kv WHERE job='-' AND k='project'")[0][0])
         self.assertEqual(saved["by"], ("rob 2026-11-19T00:00:00Z #- forged " + "x" * 200)[:100])
@@ -256,9 +267,7 @@ class Two(Pair):
             setattr(D, name, fake)
         self.addCleanup(setattr, L, "Lines", real)
         L.Lines = lambda *a, **k: seen.append(k) or real(*a, **k)
-        s = S.Store(self.cfg["ledger_file"])
-        s.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
-        s.close()
+        self.seed()
         with unittest.mock.patch.dict(os.environ, {"DISPATCH_ACCOUNT_URL": "http://account.invalid"}), contextlib.redirect_stdout(self.out):
             self.assertEqual(D.main(["once"]), 0)
         self.assertIs(seen[0]["mod"], D)
@@ -292,6 +301,7 @@ class Drain(Pair):
         del self.answer["check"]
         self.w.clock += 5
         self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(self.w.clock - 1)}
+        self.answer["work_order"] = {"id": "pq", "repo": "p/q", "kind": "all_issues", "issues": [5], "by": "rob", "at": D.iso(self.w.clock)}
         self.tick(3)
         self.assertEqual(self.d.active, "p/q")
         self.assertEqual(self.p.sends, [])
@@ -345,6 +355,10 @@ class Rechecks(Pair):
 
 
 class Controls(Pair):
+    def new(self):
+        self.seed(control=False)
+        return super().new()
+
     def run_on(self, conns, off=()):
         inner = self.w.account
 
@@ -485,7 +499,7 @@ class WorkOrders(Pair):
         self.tick(3)
         self.assertEqual((self.w.sends, self.d.lines["o/r"].store.jobs()), ([], []))
         self.assertEqual(self.w.reports[-1]["work_order"]["wait"], "no project chosen")
-        self.select("o/r")
+        self.select("o/r", order=False)
         self.tick(3)
         self.assertEqual((self.w.sends, self.d.lines["o/r"].store.jobs()), ([], []))
         self.assertEqual(self.w.reports[-1]["work_order"]["wait"], "no work order")

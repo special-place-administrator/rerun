@@ -21,6 +21,9 @@ CONTROL_STATES = ("RUNNING", "PAUSED", "DRAINING", "STOPPED")
 CONTROL_DEFAULT = "PAUSED"
 CONNECTION_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 CONNECTIONS_OFF_MAX = 50
+ORDER_KINDS = ("feature", "bug", "issue", "all_issues")
+ORDER_ISSUES_MAX = 200
+ORDER_TEXT_MAX = 4000
 
 
 def ledger_path(cfg, repo):
@@ -107,7 +110,68 @@ class Lines:
     def apply_controls(self):
         state, off = self.control(), frozenset(self.off())
         for d in self.lines.values():
-            d.run_state, d.off_connections = state, off
+            d.run_state, d.off_connections, d.work = state, off, None
+        self.lines[self.active].work = self.work()
+
+    def chosen(self):
+        return bool(self.last) and self.last.get("repo") == self.active
+
+    def order(self):
+        saved = self.read("work_order", {})
+        return saved if saved.get("kind") in ORDER_KINDS else None
+
+    def work(self):
+        order = self.order()
+        if not self.chosen():
+            return {"wait": "no project chosen", "issues": [], "order": []}
+        if order is None or order.get("repo") != self.active:
+            return {"wait": "no work order", "issues": [], "order": []}
+        issues = order.get("issues") or []
+        if order["kind"] in ("feature", "bug"):
+            return {"wait": "the %s work order has no issue to run yet" % order["kind"], "issues": [], "order": issues}
+        store = self.lines[self.active].store
+        done = [n for n in issues if (store.get_job(str(n)) or {}).get("state") in states.END or store.get_all(str(n)).get("closed_unstarted")]
+        left = [n for n in issues if n not in done]
+        if not left:
+            return {"wait": "the work order is done", "issues": [], "order": issues, "done": done}
+        label = store.get_all(str(left[0])).get("order_unlabelled")
+        wait = "issue #%d does not carry the %s label" % (left[0], label) if label and not store.get_job(str(left[0])) else None
+        return {"wait": wait, "issues": left[:1], "order": issues, "done": done}
+
+    def learn_order(self, ask):
+        if ask is None:
+            return
+        fingerprint = json.dumps(ask, sort_keys=True, default=str)[:20000]
+        if self.read("work_order_asked", {}).get("raw") == fingerprint:
+            return
+        kind = ask.get("kind") if isinstance(ask, dict) else None
+        if kind == "none":
+            self.kv.set("-", "work_order_asked", json.dumps({"raw": fingerprint}))
+            if self.order() is not None:
+                old = self.order()
+                self.change("work_order", {"kind": "none", "by": printable(ask.get("by")), "at": self.mod.iso(self.now())},
+                            "work order %s cancelled" % old.get("id"))
+            return
+        order = self.valid_order(ask)
+        if order is None:
+            return self.problem("work order answer not understood: the work order stays %s" % ((self.order() or {}).get("id") or "none"))
+        self.kv.set("-", "work_order_asked", json.dumps({"raw": fingerprint}))
+        self.change("work_order", dict(order, by=printable(ask.get("by")), at=self.mod.iso(self.now())),
+                    "work order %s: %s %s in %s" % (order["id"], order["kind"], ", ".join("#%d" % n for n in order["issues"]) or "-", order["repo"]))
+
+    def valid_order(self, ask):
+        kind, issues, text = ask.get("kind"), ask.get("issues", []), ask.get("text", "")
+        if kind not in ORDER_KINDS or not isinstance(ask.get("id"), str) or not CONNECTION_ID.match(ask["id"]):
+            return None
+        if not isinstance(ask.get("repo"), str) or not REPO.match(ask["repo"]) or not isinstance(text, str) or len(text) > ORDER_TEXT_MAX:
+            return None
+        if not isinstance(issues, list) or len(issues) > ORDER_ISSUES_MAX or len(set(issues)) != len(issues):
+            return None
+        if not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in issues):
+            return None
+        if (kind == "issue" and len(issues) != 1) or (kind == "all_issues" and not issues) or (kind in ("feature", "bug") and not text.strip()):
+            return None
+        return {"id": ask["id"], "repo": ask["repo"], "kind": kind, "issues": issues, "text": text}
 
     def change(self, key, value, said):
         old = self.kv.get_all("-").get(key)
@@ -155,6 +219,10 @@ class Lines:
         listed = (self.lines[self.active].connections or {}).get("connections") if isinstance(self.lines[self.active].connections, dict) else None
         ids = sorted(c["id"] for c in listed or [] if isinstance(c, dict) and isinstance(c.get("id"), str))
         out["providers"] = {"off": self.off(), "enabled": [c for c in ids if c not in self.off()]}
+        order, work = self.order() or {}, self.work()
+        out["work_order"] = {"id": order.get("id"), "repo": order.get("repo"), "kind": order.get("kind"), "issues": order.get("issues", []),
+                             "text": order.get("text"), "by": order.get("by"), "at": order.get("at"), "current": (work["issues"] or [None])[0],
+                             "done": work.get("done", []), "wait": work["wait"]}
         if self.last:
             out["switch"] = self.last
         ready = self.readiness()
@@ -289,6 +357,7 @@ class Lines:
         if isinstance(answer, dict):
             self.learn_control(answer.get("control"))
             self.learn_providers(answer.get("providers"))
+            self.learn_order(answer.get("work_order"))
             self.check(answer.get("check"))
             if answer.get("repos"):
                 self.list_repos()
@@ -298,9 +367,14 @@ class Lines:
         repo = p.get("repo") if isinstance(p, dict) else None
         if not isinstance(repo, str) or not REPO.match(repo):
             return self.problem("project answer not understood: the factory stays on %s" % self.active)
-        if repo == self.active:
-            return
         by = printable(p.get("by"))
+        if repo == self.active:
+            if not self.chosen():
+                self.last = {"repo": repo, "from": None, "by": by, "at": self.mod.iso(self.now())}
+                self.kv.set("-", "project", json.dumps(self.last))
+                self.kv.add_event("project", None, json.dumps(self.last))
+                self.mod.log("project", "%s chosen by %s" % (repo, by or "?"))
+            return
         if not self.ready(repo, self.asked_at(p.get("at")), by):
             return self.problem("project %s not taken: its readiness is not recorded as passed here; the factory stays on %s (picked by %s)" % (repo, self.active, by or "?"))
         try:

@@ -2,7 +2,7 @@ import json
 
 PLAN_LIMIT_HOLD_S = 30 * 60
 
-KINDS = ("stopped", "draining", "paused", "update", "plan limit", "plan week", "sign-in renewal", "disk", "load", "checkout")
+KINDS = ("stopped", "draining", "paused", "no work", "update", "plan limit", "plan week", "sign-in renewal", "disk", "load", "checkout")
 SUBSCRIPTION_KINDS = ("plan limit", "plan week", "sign-in renewal")
 
 _JOB = "-"

@@ -575,7 +575,7 @@ class Dispatcher:
         self.connections = None
         self.plan_week_full = False
         self.runs_on, self.runs_on_at = {}, None
-        self.run_state, self.off_connections = "RUNNING", frozenset()
+        self.run_state, self.off_connections, self.work = "RUNNING", frozenset(), None
         self.pace = 1.0
         self.draining = False
         self.report_logged = set()
@@ -623,7 +623,7 @@ class Dispatcher:
         now = self.now()
         why = waits.reason(j, now, holds.active(self.store, now), [
             "%s (%s)" % (self.names.get(a, a[:8]), row["why"]) for a, row in sorted(strikes.held(self.store, now).items())],
-            no_provider=self.no_provider(j))
+            no_provider=self.no_provider(j), work=self.work)
         if why and why != j.get("wait_reason"):
             j["wait_reason"] = why
             self.save(j, "waits: " + why)
@@ -683,6 +683,10 @@ class Dispatcher:
 
     def control_hold(self):
         now = self.now()
+        if self.work is not None and self.work.get("wait"):
+            holds.arm(self.store, "no work", now + 2 * self.cfg.get("poll_s", 30))
+        elif holds.until(self.store, "no work") > now:
+            holds.clear(self.store, "no work")
         for kind in ("paused", "draining", "stopped"):
             if kind == self.run_state.lower():
                 holds.arm(self.store, kind, now + 2 * self.cfg.get("poll_s", 30))
@@ -696,6 +700,22 @@ class Dispatcher:
             self.stop_running()
         elif self.run_state == "DRAINING":
             self.clear_queue()
+
+    def order_issues(self, issues):
+        mine = [i for i in issues if i["number"] in self.work["issues"]]
+        for n in [n for n in self.work["issues"] if n not in {i["number"] for i in mine} and not self.store.get_job(str(n))]:
+            try:
+                state = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "state"]) or "{}").get("state")
+            except (Error, ValueError) as e:
+                log(n, "work order: issue state not read: %s" % e)
+                continue
+            if state == "CLOSED":
+                self.store.set(str(n), "closed_unstarted", "1")
+                log(n, "work order: issue closed before it started, skipped")
+            elif self.store.get_all(str(n)).get("order_unlabelled") != self.label:
+                self.store.set(str(n), "order_unlabelled", self.label)
+                log(n, "work order: the issue does not carry the %s label, so it cannot start" % self.label)
+        return mine
 
     def cancel_job(self, j):
         self.to(j, "cancelled", "cancelled: the factory was %s by the owner" % ("stopped" if self.run_state == "STOPPED" else "drained"),
@@ -869,6 +889,8 @@ class Dispatcher:
             return
         issues = json.loads(self.gh(["issue", "list", "-R", self.repo, "--label", self.label, "--state", "open",
                                      "--json", "number,title,labels,body,author", "--limit", "100"]))
+        if self.work is not None:
+            issues = self.order_issues(issues)
         paused = {i["number"] for i in issues if PAUSED in {x.get("name") for x in i.get("labels") or [] if isinstance(x, dict)}}
         issues = [i for i in issues if i["number"] not in paused and (authors.trusted_author(i) or "author" not in i)]
         for i in issues:
@@ -1591,6 +1613,8 @@ class Dispatcher:
             if self.cfg.get("held") or holds.blocks_all(self.store, self.now()):
                 return
         if st in states.QUEUE and j.get("not_before") and self.now() < j["not_before"]:
+            return
+        if st in states.QUEUE and self.work is not None and j["issue"] not in self.work["issues"]:
             return
         if st == "queued" and not self.taking:
             return
