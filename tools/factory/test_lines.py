@@ -762,5 +762,45 @@ class Throttle(Pair):
         self.assertEqual((got["control"]["state"], got["work_order"]["id"], got["work_order"]["kind"]), ("RUNNING", "wo-new", "issue"))
 
 
+
+class Report(Pair):
+    order = WorkOrders.order
+    running_factory = WorkOrders.running_factory
+
+    def test_an_oversize_report_is_trimmed_under_the_cap_and_sent(self):
+        import snapshot
+        self.running_factory()
+        self.select("o/r", order=False)
+        self.order("all_issues", list(range(1, 201)))
+        store = self.d.lines["o/r"].store
+        live = []
+        for n in range(1000, 1300):
+            title = ("Überprüfung – 修正 der Fabrik %d " % n) * 12 if n == 1002 else "T%d " % n + "t" * 250
+            data = {"issue": n, "title": title, "body": "**Depends on**: none\n", "reason": "r" * 300, "wait_reason": "w" * 300}
+            for i in range(30):
+                store.put_job(str(n), "building" if i % 2 == 0 else "review_wait", data, "h" * 300, at="2026-11-23T00:%02d:%02dZ" % (n % 60, i))
+            if n % 3:
+                store.put_job(str(n), "merged", data, "m" * 300, at="2026-11-23T01:%02d:00Z" % (n % 60))
+            else:
+                live.append(n)
+            for k in range(12):
+                fid = store.intent(str(n), "", "build", coworker="B1")
+                store.fired(fid, "run-%d-%d-%s" % (n, k, "a" * 40))
+                store.close_run("run-%d-%d-%s" % (n, k, "a" * 40), "done", tokens_in=1, tokens_out=1)
+        self.d.repos = ["special-place-ai-heaven/repo-%03d-%s" % (i, "q" * 150) for i in range(300)]
+        self.d.repos_at = self.w.clock
+        line = {"name": "n" * 40, "ok": False, "why": "y" * 500}
+        for i in range(20):
+            self.d.kv.set("-", "ready:special-place-ai-heaven/r%02d" % i, json.dumps({"passed": False, "lines": [line] * 20, "at": "2026-11-23T00:00:00.000Z"}))
+        sent = len(self.w.reports)
+        self.tick(2)
+        self.assertGreater(len(self.w.reports), sent)
+        got = self.w.reports[-1]
+        self.assertEqual(snapshot.MAX_BYTES, 200 * 1024)
+        self.assertLessEqual(len(json.dumps(got, separators=(",", ":"), ensure_ascii=False).encode("utf-8")), snapshot.MAX_BYTES)
+        self.assertEqual(sorted(j["issue"] for j in got["jobs"] if j["state"] != "merged"), live)
+        for key in ("version", "madeAt", "beat", "repo", "jobs", "holds", "pools", "endedToday", "control"):
+            self.assertIn(key, got)
+
 if __name__ == "__main__":
     unittest.main()
