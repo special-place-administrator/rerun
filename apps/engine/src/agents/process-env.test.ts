@@ -96,4 +96,26 @@ describe('agentProcessEnv', () => {
         expect(env.GIT_CONFIG_VALUE_0).toBe('own')
         expect(env.GIT_CONFIG_KEY_1).toBeUndefined()
     })
+
+    it('does not spread shared secrets into the process env, and keeps only the non-secret shared keys', async () => {
+        await writeSharedEnv({
+            GH_TOKEN: 'tok-shared-12345',
+            EVEROS_TOKEN: 'everos-shared-12345',
+            EVEROS_URL: 'https://everos.example',
+            EVEROS_USER_ID: 'default',
+            EVEROS_APP: 'rerun',
+            GH_PROMPT_DISABLED: '1',
+        })
+        const { env } = agentProcessEnv(agent({ sharedDb: false }, { OWN_KEY: 'own' }))
+        expect(env.EVEROS_TOKEN).toBeUndefined()
+        expect(env.GH_TOKEN).toBeUndefined()
+        expect(env.EVEROS_URL).toBe('https://everos.example')
+        expect(env.EVEROS_USER_ID).toBe('default')
+        expect(env.EVEROS_APP).toBe('rerun')
+        expect(env.GH_PROMPT_DISABLED).toBe('1')
+        expect(env.OWN_KEY).toBe('own')
+        const { env: own } = agentProcessEnv(agent({ sharedDb: false }, { GH_TOKEN: 'own-token-123456', EVEROS_TOKEN: 'own-everos-123456' }))
+        expect(own.GH_TOKEN).toBe('own-token-123456')
+        expect(own.EVEROS_TOKEN).toBe('own-everos-123456')
+    })
 })

@@ -97,3 +97,24 @@ describe('shell_exec output', () => {
         expect(await runShell({}, run)).toBe('Command failed: exit 1\n\nbad credentials [redacted]')
     })
 })
+
+describe('shell_exec allowlist', () => {
+    it('refuses shell_exec for an unconfirmed agent', async () => {
+        const run = vi.fn<Runner>(async () => ({ stdout: 'ran', stderr: '' }))
+        const ctx = { agent: { id: 'imported-shell', env: {}, config: agentConfigSchema.parse({ name: 'env', tools: {} }) }, sessionId: 's', logger: { warn() {} }, hostBreaker: new HostBreaker() } as any
+        const result = await (shellTools(ctx, run).shell_exec as any).execute({ command: 'echo hi', timeoutMs: 1000 }, { toolCallId: 'c', messages: [] })
+        expect(result).toContain('needs operator confirm')
+        expect(run).not.toHaveBeenCalled()
+    })
+
+    it('an allowlisted shell env has no EVEROS_TOKEN from shared variables', async () => {
+        const { allowAgent } = await import('../../agents/everos-allowlist.js')
+        await writeSharedEnv({ EVEROS_TOKEN: 'shared-everos-token', GH_TOKEN: 'shared-gh-token', EVEROS_URL: 'https://everos.example.com' })
+        await allowAgent('env-agent', 'confirm')
+        const options = await optionsSeenBy({})
+        expect(options.env?.EVEROS_TOKEN).toBeUndefined()
+        expect(options.env?.GH_TOKEN).toBeUndefined()
+        expect(options.env?.EVEROS_URL).toBe('https://everos.example.com')
+    })
+})
+
