@@ -32,6 +32,7 @@ alter table public.factory_projects enable row level security;
 create policy factory_projects_select_workspace_members on public.factory_projects for select to authenticated
     using (workspace_id in (select public.current_workspace_ids()));
 
-revoke insert, update, delete, truncate on table public.factory_projects from anon, authenticated;
+revoke all on table public.factory_projects from anon, authenticated;
+grant select on table public.factory_projects to authenticated;
 
 commit;

@@ -25,7 +25,9 @@ const MAX_PATH = 4096
 const UNIQUE_VIOLATION = '23505'
 
 async function isFactoryOwner(workspaceId: number, userId: string): Promise<boolean> {
-    return (await workspaceFounderUserId(workspaceId)) === userId
+    if ((await workspaceFounderUserId(workspaceId)) !== userId) return false
+    const { data } = await selectMaybeSingle(createServiceRoleClient(), 'workspace_members', ['role'] as const, { workspace_id: workspaceId, user_id: userId })
+    return data?.role === 'admin'
 }
 
 async function assertFactoryOwner(workspaceId: number, userId: string): Promise<void> {
