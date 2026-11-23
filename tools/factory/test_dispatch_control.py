@@ -50,26 +50,11 @@ class DispatchControl(unittest.TestCase):
     def sent(self):
         return [s[0] for s in self.w.sends]
 
-    def test_without_a_control_issue_the_pool_keeps_the_copies_of_the_settings(self):
-        self.make()
+    def test_a_control_block_never_changes_the_copies(self):
+        self.make('```json\n{"copies": {"code": 3}, "wip": {"building": 1}}\n```')
         self.beat(2)
         self.assertEqual(self.sent(), ["b1"])
-        self.assertEqual(self.d.store.events(), [])
-
-    def test_the_effective_copies_of_the_control_block_fill_the_pool(self):
-        self.make('```json\n{"copies": {"code": 3}}\n```')
-        self.beat(2)
-        self.assertEqual(self.sent(), ["b1", "b1", "b1"])
-        events = self.d.store.events()
-        self.assertEqual([(e["key"], e["from"], e["to"]) for e in events], [("copies.code", 1, 3)])
-
-    def test_a_value_above_the_bound_leaves_the_pool_as_it_was_and_gets_one_comment(self):
-        self.make('```json\n{"copies": {"code": 9}}\n```')
-        self.beat(6)
-        self.assertEqual(self.sent(), ["b1"])
-        self.assertEqual(self.d.store.events(), [])
-        self.assertEqual(len(self.w.control_comments), 1)
-        self.assertEqual(len([c for c in self.w.gh_calls if c[:3] == ["issue", "comment", "99"]]), 1)
+        self.assertEqual((self.w.control_comments, self.d.store.events()), ([], []))
 
 
 if __name__ == "__main__":

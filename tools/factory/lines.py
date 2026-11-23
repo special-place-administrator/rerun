@@ -374,8 +374,8 @@ class Lines:
                              "text": order.get("text"), "by": order.get("by"), "at": order.get("at"), "current": (work["issues"] or [None])[0],
                              "done": work.get("done", []), "skipped": order.get("skipped", []), "halted": work.get("halted"), "wait": work["wait"]}
         pool, ghosts, wanted = self.lines[self.active].cfg.get("pool") or self.pool(self.lines[self.active]), self.ghosts(), self.throttle()
-        out["throttle"] = {"max_ghosts": pool["max"], "running": len(ghosts), "ceiling": ceiling(), "by": wanted["by"], "at": wanted["at"],
-                           "stations": {s: {"seats": pool["seats"][s], "running": sum(1 for a, _ in ghosts if a in m)} for s, m in sorted(pool["members"].items())}}
+        out["throttle"] = {"max_ghosts": pool["max"], "ghosts_running": len(ghosts), "max_ghosts_ceiling": ceiling(), "by": wanted["by"], "at": wanted["at"],
+                           "stations": {s: {"max": pool["seats"][s], "running": sum(1 for a, _ in ghosts if a in m)} for s, m in sorted(pool["members"].items())}}
         if self.last:
             out["switch"] = self.last
         ready = self.readiness()

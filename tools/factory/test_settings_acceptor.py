@@ -4,7 +4,6 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import control
 import pools
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,24 +23,6 @@ class SettingsAcceptor(unittest.TestCase):
         self.assertNotIn("max_jobs", acceptor)
         pool = pools.types({"types": {"acceptor": acceptor}})["acceptor"]
         self.assertEqual([(c["name"], c["runs"]) for c in pool["coworkers"]], [("BARBARA", 1)])
-
-    def test_barbara_has_a_bound_of_three_copies(self):
-        self.assertEqual(load("control-bounds.json")["copies"]["BARBARA"], 3)
-
-    def test_the_control_block_may_set_her_copies_up_to_the_bound(self):
-        bounds = load("control-bounds.json")
-        base = {"copies": {"BARBARA": 2}, "wip": {}}
-        effective, errors = control.validate({"copies": {"BARBARA": 3}}, bounds, base, None)
-        self.assertEqual(effective["copies"]["BARBARA"], 3)
-        self.assertEqual(errors, [])
-        effective, errors = control.validate({"copies": {"BARBARA": 4}}, bounds, base, None)
-        self.assertEqual(effective["copies"]["BARBARA"], 2)
-        self.assertEqual(len(errors), 1)
-
-    def test_every_coworker_of_the_settings_has_a_bound(self):
-        bounds = load("control-bounds.json")["copies"]
-        names = [c["name"] for g in load("dispatch.json")["types"].values() for c in g["coworkers"]]
-        self.assertEqual([n for n in names if n not in bounds], [])
 
 
 if __name__ == "__main__":

@@ -10,7 +10,6 @@ import causes
 import ciwait
 import classify
 import clocks
-import control
 import cutshape
 import digest
 import drift
@@ -589,7 +588,6 @@ class Dispatcher:
         self.acceptance = acceptance.Station(cfg, self.store, account, gh, now, log)
         self.instructions = instructions.Station(cfg, self.store, account, gh, now, log)
         self.causes = causes.Station(cfg, self.store, account, gh, now, log)
-        self.control = control.Control(cfg if self.home == self.repo else dict(cfg, repo=self.home), gh, self.store)
         self.quota = None
         self.refresh_to, self.refresh_logged = None, set()
 
@@ -2255,8 +2253,6 @@ class Dispatcher:
         self.control_hold()
         self.cfg["held"] = holds.blocks_all(self.store, self.now())
         self.cfg["held_plan"] = holds.blocks_subscription(self.store, self.now())
-        if self.reporting:
-            self.control.tick(self.beats)
         clean = True
         try:
             if self.taking:

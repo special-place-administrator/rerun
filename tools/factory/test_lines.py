@@ -680,7 +680,7 @@ class Throttle(Pair):
         pool = self.d.lines["o/r"].cfg["pool"]
         self.assertEqual((pool["max"], pool["seats"]), (12, {"B1": 5, "B2": 1, "R1": 12, "R2": 1}))
         got = self.w.reports[-1]["throttle"]
-        self.assertEqual((got["max_ghosts"], got["ceiling"], got["running"], got["stations"]["B1"]), (12, 12, 0, {"seats": 5, "running": 0}))
+        self.assertEqual((got["max_ghosts"], got["max_ghosts_ceiling"], got["ghosts_running"], got["stations"]["B1"]), (12, 12, 0, {"max": 5, "running": 0}))
         self.assertEqual(len(self.lines_said("pool 12")), 1)
 
     def test_a_feature_order_files_its_issue_once_and_then_runs_it(self):
