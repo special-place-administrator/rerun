@@ -12,6 +12,7 @@ import { FactoryWorld } from '@/components/factory/FactoryWorld'
 import { type Bucket } from '@/components/factory/factory-bucket'
 import { LOADER_TILE } from '@/components/factory/factory-state'
 import { sceneFromSnapshot } from '@/components/factory/from-snapshot'
+import { useFactoryControls } from '@/components/factory/use-factory-controls'
 import { WorkspaceSwitcher } from '@/components/layout/WorkspaceSwitcher'
 import { SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
 import { useBoardStore } from '@/stores/board.store'
@@ -76,6 +77,7 @@ export function FactoryPage() {
         return () => window.removeEventListener('keydown', onKey)
     }, [])
 
+    const controls = useFactoryControls(snapshot?.repo)
     const coworkers = useMemo(() => snapshot?.pools.flatMap(p => p.coworkers) ?? [], [snapshot])
     const names = useMemo(() => Object.fromEntries(coworkers.flatMap(c => (c.id ? [[c.id, c.name]] : []))), [coworkers])
     const openCoworker = useCallback((id: string) => {
@@ -103,7 +105,7 @@ export function FactoryPage() {
                 snapshot={snapshot ?? null}
                 rightInset={rightInset}
                 theme={resolvedTheme === 'light' ? 'light' : 'dark'}
-                topBar={<FactoryTopBar snapshot={snapshot ?? null} selected={selected} onSelect={setSelected} names={names} onOpenCoworker={openCoworker} bucket={bucket} onBucket={setBucket} />}
+                topBar={<FactoryTopBar snapshot={snapshot ?? null} controls={controls} selected={selected} onSelect={setSelected} names={names} onOpenCoworker={openCoworker} bucket={bucket} onBucket={setBucket} />}
             />
             <WorkspaceSwitcher />
             <div className="absolute left-4 top-16 z-30">
@@ -120,7 +122,7 @@ export function FactoryPage() {
                         <button type="button" data-loader-close aria-label="Close the Loader panel" onClick={() => setLoaderOpen(false)}
                             className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent">×</button>
                     </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto"><FactoryLoader snapshot={snapshot ?? null} /></div>
+                    <div className="min-h-0 flex-1 overflow-y-auto"><FactoryLoader snapshot={snapshot ?? null} controls={controls} /></div>
                 </aside>
             )}
             <AgentPanel />
