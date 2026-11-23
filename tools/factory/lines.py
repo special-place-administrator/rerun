@@ -12,6 +12,8 @@ REPO = projects.REPO
 UNPUSHED = ("building", "fixing")
 NOT_STARTED = ("waiting", "queued")
 CHECK_AGAIN_S = 10 * 60
+RECHECK_FLOOR_S = 60
+READINESS_PER_HOUR = 20
 REPOS_AGAIN_S = 5 * 60
 PROBES_KEPT = 10
 
@@ -33,6 +35,10 @@ def live(d):
     return [j for j in d.jobs() if j["state"] not in NOT_STARTED and (j["state"] not in END or not j.get("relabelled"))]
 
 
+def printable(text):
+    return "".join(c if c.isprintable() else " " for c in str(text or ""))[:100]
+
+
 def unpushed(d):
     return [j for j in d.jobs() if j["state"] in UNPUSHED]
 
@@ -44,6 +50,7 @@ class Lines:
         self.make = make or (lambda c: self.mod.Dispatcher(c, account, gh, now))
         self.lines, self.said, self.last = {}, set(), None
         self.gh, self.repos, self.repos_at, self.probes, self.draining = gh, [], None, {}, []
+        self.checks_run, self.future_asks = [], {}
         self.kv = self.open(self.home).store
         self.active = self.home
         saved = self.read("project", {})
@@ -93,6 +100,9 @@ class Lines:
             out["projects"] = projects.report(self.repos, ready, list(self.probes.values()))
         return out
 
+    def owners(self):
+        return tuple(self.cfg.get("project_owners") or factory.OWNERS)
+
     def github(self, args):
         return (self.gh or self.lines[self.home].gh)(args)
 
@@ -108,14 +118,22 @@ class Lines:
                 continue
         return out[:20]
 
-    def record(self, repo):
+    def record(self, repo, by=""):
+        now = self.now()
+        done = self.checked_at(repo)
+        if done is not None and now - done < RECHECK_FLOOR_S:
+            return
+        self.checks_run = [t for t in self.checks_run if now - t < 3600]
+        if len(self.checks_run) >= READINESS_PER_HOUR:
+            return self.problem("project %s not checked: %d readiness checks per hour is the cap" % (repo, READINESS_PER_HOUR))
+        self.checks_run.append(now)
         try:
-            got = projects.readiness(self.github, repo, self.now(), owners=tuple(self.cfg.get("project_owners") or factory.OWNERS))
+            got = projects.readiness(self.github, repo, self.now(), owners=self.owners())
         except Exception as e:
             return self.problem("project %s not checked: %s" % (repo, type(e).__name__))
         self.kv.set("-", "ready:" + repo, json.dumps(projects.serialize(got)))
         failed = [x.name for x in got.lines if not x.ok]
-        self.mod.log("project", "readiness of %s: %s" % (repo, "passed" if got.passed else "failed at %s" % ", ".join(failed)))
+        self.mod.log("project", "readiness of %s%s: %s" % (repo, " asked by %s" % by if by else "", "passed" if got.passed else "failed at %s" % ", ".join(failed)))
 
     def checked_at(self, repo):
         at = self.read("ready:" + repo, {}).get("at")
@@ -126,9 +144,19 @@ class Lines:
 
     def asked_at(self, asked):
         try:
-            return limits.ts(asked) if isinstance(asked, str) else None
+            at = limits.ts(asked) if isinstance(asked, str) else None
         except ValueError:
             return None
+        if at is None or at <= self.now():
+            return at
+        if asked not in self.future_asks:
+            while len(self.future_asks) >= PROBES_KEPT:
+                self.future_asks.pop(next(iter(self.future_asks)))
+            self.future_asks[asked] = self.now()
+        return self.future_asks[asked]
+
+    def fresh(self, done, asked):
+        return done is not None and (asked is None or done >= asked - RECHECK_FLOOR_S)
 
     def check(self, ask):
         if not isinstance(ask, dict):
@@ -145,14 +173,14 @@ class Lines:
             return self.problem("project check not understood: nothing is checked")
         done, asked = self.checked_at(repo), self.asked_at(ask.get("at"))
         if done is None or (asked is not None and done < asked) or (asked is None and self.now() - done >= CHECK_AGAIN_S):
-            self.record(repo)
+            self.record(repo, printable(ask.get("by")))
 
     def list_repos(self):
         if self.repos_at is not None and self.now() - self.repos_at < REPOS_AGAIN_S:
             return
         self.repos_at = self.now()
         try:
-            self.repos = projects.accessible(self.github)
+            self.repos = projects.accessible(self.github, self.owners())
         except Exception as e:
             self.problem("repositories the factory can reach not read: %s" % type(e).__name__)
 
@@ -161,14 +189,12 @@ class Lines:
             self.said.add(text)
             self.mod.log("-", text)
 
-    def ready(self, repo, asked=None):
+    def ready(self, repo, asked=None, by=""):
         if repo == self.home:
             return True
-        done = self.checked_at(repo)
-        if asked is not None and (done is None or done < asked):
-            self.record(repo)
-            done = self.checked_at(repo)
-        fresh = asked is None or (done is not None and done >= asked)
+        if asked is not None and not self.fresh(self.checked_at(repo), asked):
+            self.record(repo, by)
+        fresh = asked is None or self.fresh(self.checked_at(repo), asked)
         return fresh and self.read("ready:" + repo, {}).get("passed") is True
 
     def drain(self):
@@ -204,15 +230,16 @@ class Lines:
             return self.problem("project answer not understood: the factory stays on %s" % self.active)
         if repo == self.active:
             return
-        if not self.ready(repo, self.asked_at(p.get("at"))):
-            return self.problem("project %s not taken: its readiness is not recorded as passed here; the factory stays on %s" % (repo, self.active))
+        by = printable(p.get("by"))
+        if not self.ready(repo, self.asked_at(p.get("at")), by):
+            return self.problem("project %s not taken: its readiness is not recorded as passed here; the factory stays on %s (picked by %s)" % (repo, self.active, by or "?"))
         try:
             if repo not in self.lines:
                 self.open(repo)
         except Exception as e:
-            return self.problem("project %s not taken: %s; the factory stays on %s" % (repo, e if isinstance(e, RuntimeError) else type(e).__name__, self.active))
+            return self.problem("project %s not taken: %s; the factory stays on %s (picked by %s)" % (repo, e if isinstance(e, RuntimeError) else type(e).__name__, self.active, by or "?"))
         old, self.active = self.active, repo
-        self.last = {"repo": repo, "from": old, "by": "".join(c if c.isprintable() else " " for c in str(p.get("by") or ""))[:100], "at": self.mod.iso(self.now())}
+        self.last = {"repo": repo, "from": old, "by": by, "at": self.mod.iso(self.now())}
         self.roles()
         self.kv.set("-", "project", json.dumps(self.last))
         self.kv.add_event("project", old, json.dumps(self.last))
