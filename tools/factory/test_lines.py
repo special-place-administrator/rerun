@@ -602,12 +602,35 @@ class OrderRules(Pair):
         self.assertEqual(self.order_jobs(), [(6, "building")])
 
     def test_a_second_pick_of_an_issue_with_an_open_pull_request_takes_that_pull_request_up_again(self):
-        self.w.open_prs = [{"number": 42, "title": "Fix x (#5)", "headRefName": "chunk/5-a", "body": ""}]
+        self.w.open_prs = [{"number": 42, "title": "Fix x (#5)", "headRefName": "chunk/5-a", "author": {"login": "app/moldwright-factory"}, "isCrossRepository": False}]
         self.ready_order("issue", [5])
         self.tick(3)
         line = self.d.lines["o/r"]
         self.assertEqual([(j["issue"], j.get("pr")) for j in line.store.jobs()], [(5, 42)])
         self.assertFalse([a for a, _, _ in self.w.sends if a.startswith("b")])
+
+    def test_only_a_factory_pull_request_on_its_chunk_branch_in_this_repo_is_taken_up(self):
+        me = {"login": "app/moldwright-factory"}
+        self.w.open_prs = [
+            {"number": 41, "title": "Fix x (#5)", "headRefName": "chunk/5-a", "author": me, "isCrossRepository": True, "body": "fixes #5"},
+            {"number": 42, "title": "Fix x (#5)", "headRefName": "chunk/5-b", "author": {"login": "stranger"}, "isCrossRepository": False, "body": "fixes #5"},
+            {"number": 43, "title": "Fix x (#5)", "headRefName": "fix-5", "author": me, "isCrossRepository": False, "body": "fixes #5"},
+            {"number": 44, "title": "Other", "headRefName": "chunk/5-c", "author": me, "isCrossRepository": False, "body": ""}]
+        self.ready_order("issue", [5])
+        self.tick(3)
+        self.assertEqual([(j["issue"], j.get("pr")) for j in self.d.lines["o/r"].store.jobs()], [(5, 44)])
+
+    def test_a_long_order_views_only_its_current_issue_and_at_most_once_in_five_minutes(self):
+        self.w.unlabelled.add(5)
+        self.ready_order("all_issues", list(range(5, 205)))
+        views = lambda: sum(1 for a in self.w.gh_calls if a[:2] == ["issue", "view"] and "number,title,labels,body,author,state" in a)
+        for _ in range(8):
+            self.tick()
+            self.w.clock += 30
+        self.assertEqual((views(), self.order_jobs()), (1, [(5, "building")]))
+        self.w.clock += 300
+        self.tick()
+        self.assertEqual(views(), 2)
 
 
 if __name__ == "__main__":
