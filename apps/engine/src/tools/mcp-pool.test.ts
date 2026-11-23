@@ -505,4 +505,20 @@ describe('stdio env refs', () => {
         const agent = { id: 'a-cli-ref', env: {}, config: { tools: {}, mcpServers: servers } } as unknown as Parameters<typeof preparedMcpServers>[0]
         expect((await preparedMcpServers(agent)).map(prepared => prepared.name)).toEqual(['ok'])
     })
+
+    it('refuses a stdio spawn for an unconfirmed imported agent', async () => {
+        const { SHELL_NEEDS_CONFIRM } = await import('../agents/everos-allowlist.js')
+        const { preparedMcpServers } = await import('./mcp-pool.js')
+        const stdio = server('archive-npx', { url: undefined, command: 'npx', args: ['-y', 'some-mcp-pkg@1.2.3'] })
+        const http = server('remote')
+        const agent = { id: 'imported-unconfirmed', env: {}, config: { tools: {}, mcpServers: [stdio, http] } } as unknown as Parameters<typeof pooledMcpServers>[0]
+        expect((await preparedMcpServers(agent)).map(prepared => prepared.name)).toEqual(['remote'])
+        const pooled = await pooledMcpServers(agent)
+        expect(pooled.map(p => p.name)).toEqual(['remote'])
+        expect(mcp.connects).not.toContain('npx')
+        expect(mcp.stdioEnv['npx']).toBeUndefined()
+        const statuses = await probeMcpStatuses(agent.id, [stdio, http], agent.env, spawn)
+        expect(statuses.find(s => s.name === 'archive-npx')).toMatchObject({ status: 'config_error', error: SHELL_NEEDS_CONFIRM, transport: 'stdio' })
+        expect(statuses.find(s => s.name === 'remote')?.status).toBe('connected')
+    })
 })
