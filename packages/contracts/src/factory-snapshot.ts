@@ -201,6 +201,27 @@ export const factoryPlanSchema = z.object({
     signInMinutes: z.number().min(0).nullable(),
 }).strict()
 
+export const FACTORY_REPO_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9_.-]{1,100}$/
+
+export const factoryProbeCodeSchema = z.enum(['bad_path', 'no_root', 'outside_root', 'not_found', 'not_git', 'no_github_remote', 'bad_root', 'unknown'])
+
+export const factoryProjectsSchema = z.object({
+    repos: z.array(z.string().max(201)).max(300),
+    ready: z.array(z.object({
+        repo: z.string().max(201),
+        passed: z.boolean(),
+        lines: z.array(z.object({ name: z.string().max(40), ok: z.boolean(), why: z.string().max(500) })).max(20),
+        at: isoTime,
+    })).max(20),
+    probes: z.array(z.object({
+        path: z.string().max(4096),
+        ok: z.boolean(),
+        code: z.union([factoryProbeCodeSchema, z.literal('')]).catch('unknown'),
+        message: z.string().max(200),
+        repo: z.string().max(201),
+    })).max(10),
+})
+
 export const factorySnapshotSchema = z.object({
     version: z.literal(1),
     madeAt: isoTime,
@@ -216,6 +237,8 @@ export const factorySnapshotSchema = z.object({
     holds: z.array(factoryHoldSchema).max(10),
     pools: z.array(factoryPoolSchema).max(8),
     endedToday: z.object({ merged: count, rejected: count, blocked: count, failed: count, returned: count }),
+    finishing: z.array(z.object({ repo: z.string().max(201), jobs: count })).max(10).optional().catch(undefined),
+    projects: factoryProjectsSchema.optional().catch(undefined),
 })
 
 export const FACTORY_SNAPSHOT_MAX_BYTES = 256 * 1024
@@ -234,3 +257,5 @@ export type FactoryPlan = z.infer<typeof factoryPlanSchema>
 export type FactoryMachineReading = z.infer<typeof factoryMachineReadingSchema>
 export type FactoryMachine = z.infer<typeof factoryMachineSchema>
 export type FactorySnapshot = z.infer<typeof factorySnapshotSchema>
+export type FactoryProjects = z.infer<typeof factoryProjectsSchema>
+export type FactoryProbeCode = z.infer<typeof factoryProbeCodeSchema>

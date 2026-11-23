@@ -53,6 +53,7 @@ export const boxPlanPath = () => resolve(dataDir(), 'plan.json')
 
 export const mcpPackagesDir = () => resolve(dataDir(), 'mcp-packages')
 
+
 export const mcpCwdDir = (id: string) => resolve(dataDir(), 'mcp-cwd', pathSegment(id, 'agent id'))
 
 export const soulPath = (id: string) => resolve(agentDir(id), 'SOUL.md')

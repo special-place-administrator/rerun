@@ -3,6 +3,7 @@ import { MCP_SERVER_NAME_RE, connectorSkillReadOnlyError, contextSizeSchema, FAC
 import { AccessDeniedError, assertAgentInWorkspace, callableEngineAgentIds, isAdminActor, keepVisible, manageableSpaceIds, spaceAccessMap, visibleAgentIds, visibleSpaceIds, type Actor } from '@/app/api/_auth/access'
 import type { Database } from '@/app/api/database.types'
 import { putFactorySnapshot } from '@/lib/factory/snapshot-store'
+import { factoryReportAnswer } from './factory-projects.service'
 import {
     chat as engineChat,
     createSchedule as engineCreateSchedule,
@@ -1094,7 +1095,8 @@ export async function dispatchAccountTool(actor: Actor, name: string, args: Reco
             const parsed = factorySnapshotSchema.safeParse(args.snapshot)
             if (!parsed.success) throw new Error('factory_report: the snapshot does not match the schema')
             if (Date.parse(parsed.data.madeAt) > Date.now() + FACTORY_SNAPSHOT_MAX_SKEW_MS) throw new Error('factory_report: the snapshot is dated in the future')
-            return { kept: putFactorySnapshot(workspaceId, parsed.data) }
+            const kept = putFactorySnapshot(workspaceId, parsed.data)
+            return { kept, ...await factoryReportAnswer(workspaceId).catch(() => ({})) }
         }
 
         default:

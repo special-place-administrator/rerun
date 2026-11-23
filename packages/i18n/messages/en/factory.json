@@ -1,0 +1,51 @@
+{
+    "_context": {
+        "projects.trigger": "Accessible name of the button that opens the project list; {repo} is a GitHub owner/name.",
+        "projects.probe.no_github_remote": "A git remote named origin that points at GitHub."
+    },
+    "projects": {
+        "trigger": "Factory project: {repo}. Open the projects",
+        "heading": "Projects",
+        "active": "Active",
+        "hostPath": "On the factory host: {path}",
+        "empty": "No project yet.",
+        "add": "Add a project",
+        "back": "Back to the projects",
+        "reposHeading": "Repositories the factory can reach",
+        "reposSearch": "Search repositories",
+        "reposWaiting": "Waiting for the factory to send the repositories it can reach.",
+        "reposEmpty": "No repository left to add.",
+        "pathLabel": "Folder on the factory host",
+        "pathPlaceholder": "/srv/projects/app",
+        "pathAdd": "Check and add",
+        "checkingPath": "Checking the folder on the factory host. This takes up to a minute.",
+        "checkingReady": "Checking that {repo} is ready. This takes up to a minute.",
+        "added": "{repo} added.",
+        "removed": "{repo} removed.",
+        "selected": "The factory moves to {repo}.",
+        "notReady": "{repo} is not ready, nothing changed. Failed checks:",
+        "timedOut": "The factory did not answer in time. Nothing changed, try again.",
+        "probe": {
+            "bad_path": "Type a plain folder path.",
+            "no_root": "The factory has no folder set for host projects.",
+            "bad_root": "The folder set for host projects is not usable on the factory host.",
+            "outside_root": "The path is outside the folder the factory may read.",
+            "not_found": "Path not found on the factory host.",
+            "not_git": "Not a git repository.",
+            "no_github_remote": "Needs a GitHub remote.",
+            "unknown": "The factory refused this folder."
+        },
+        "ownerOnly": "Only the workspace owner can add, remove or switch projects.",
+        "removeHeading": "Remove a project",
+        "remove": "Remove {repo}",
+        "loadFailed": "The projects could not be loaded.",
+        "retry": "Try again",
+        "finishing": "Finishing {count, plural, one {# job} other {# jobs}} of {repo}",
+        "confirmSelectTitle": "Move the factory to {repo}?",
+        "confirmSelectBody": "{count, plural, =0 {{old} has no job in flight.} one {{old} first finishes its # job in flight and takes no new work.} other {{old} first finishes its # jobs in flight and takes no new work.}}",
+        "confirmSelect": "Move the factory",
+        "confirmRemoveTitle": "Remove {repo} from the projects?",
+        "confirmRemoveBody": "Only the entry goes: the repository and the factory's records of its jobs stay.",
+        "confirmRemove": "Remove"
+    }
+}

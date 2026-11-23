@@ -14,6 +14,7 @@ import { rebaselineSchedules, reindexMemories, rotateTriggers } from './import.j
 import { writeAgentConfig } from './config-write.js'
 import { parseEnvFile, writeAgentEnv } from './env.js'
 import { loadAgentFromDisk } from './loader.js'
+import { inheritAllowlist } from './everos-allowlist.js'
 import { defaultSoul } from './soul.js'
 
 const DUPLICATE_ROOTS = [...ARCHIVE_ROOTS, 'mcp'] as const
@@ -115,6 +116,7 @@ export async function duplicateAgent(sourceId: string, input: DuplicateAgentInpu
         })
 
         await insertAgentIndex(id, agent.config.name)
+        await inheritAllowlist(sourceId, id)
         return result
     } catch (err) {
         await deleteAgentIndex(id).catch(() => {})

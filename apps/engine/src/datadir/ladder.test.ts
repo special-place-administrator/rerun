@@ -290,6 +290,19 @@ describe('v5 to v6: everos-direct', () => {
     })
 })
 
+describe('v6 to v7: everos-shared-allowlist', () => {
+    it('creates the allowlist table with no rows', async () => {
+        await writeDataVersion(6)
+        await migrateDataDir()
+        expect(readDataVersion()).toBe(DATA_DIR_VERSION)
+        expect(DATA_DIR_MIGRATIONS.some(s => s.id === 'everos-shared-allowlist' && s.version === 7)).toBe(true)
+        const names = (await raw().execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'everos_shared_allowlist'")).rows
+        expect(names).toHaveLength(1)
+        const rows = (await raw().execute('SELECT agent_id FROM everos_shared_allowlist')).rows
+        expect(rows).toHaveLength(0)
+    })
+})
+
 describe('data-dir ladder', () => {
     it('numbers its steps from 1 without gaps', () => {
         expect(DATA_DIR_MIGRATIONS.map(s => s.version)).toEqual(DATA_DIR_MIGRATIONS.map((_, i) => i + 1))
@@ -322,6 +335,10 @@ describe('data-dir ladder', () => {
             [
               6,
               "everos-direct",
+            ],
+            [
+              7,
+              "everos-shared-allowlist",
             ],
           ]
         `)

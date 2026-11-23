@@ -18,6 +18,8 @@ import { McpEnvRefError, resolveServerSecrets, unsetEnvRefs } from './mcp-resolv
 import { toToolInputSchema } from './mcp-schema.js'
 import { logger } from '../lib/logger.js'
 import { readSharedEnvSync } from '../agents/shared-env.js'
+import { EVEROS_MCP_SERVER } from './mcp-everos.js'
+import { isAllowlisted, trustRefusal, SHELL_NEEDS_CONFIRM } from '../agents/everos-allowlist.js'
 
 export type McpSpawn = { cwd: string; env: Record<string, string> }
 export type McpTool = Awaited<ReturnType<Client['listTools']>>['tools'][number]
@@ -121,14 +123,49 @@ export class McpServerDisabledError extends Error {
     }
 }
 
+export class McpNeedsConfirmError extends Error {
+    constructor(message = SHELL_NEEDS_CONFIRM) {
+        super(message)
+        this.name = 'McpNeedsConfirmError'
+    }
+}
+
 const AGENT_ONLY_ENV_KEYS = new Set(['EVEROS_TOKEN'])
 
-const sharedEnvForMcp = (): Record<string, string> => Object.fromEntries(Object.entries(readSharedEnvSync()).filter(([key]) => !AGENT_ONLY_ENV_KEYS.has(key)))
+const EVEROS_SHARED_KEYS = ['EVEROS_URL', 'EVEROS_USER_ID', 'EVEROS_APP', 'EVEROS_TOKEN']
+
+const isBlank = (value: string | undefined): boolean => value === undefined || value.trim() === ''
+
+const withoutBlankAgentOnly = (env: Record<string, string>): Record<string, string> =>
+    Object.fromEntries(Object.entries(env).filter(([key, value]) => !(AGENT_ONLY_ENV_KEYS.has(key) && isBlank(value))))
+
+const isEverosServer = (server: McpServer): boolean =>
+    resolveTransport(server) === 'stdio' && server.url === undefined && server.command === EVEROS_MCP_SERVER.command && JSON.stringify(server.args) === JSON.stringify(EVEROS_MCP_SERVER.args)
+
+async function mcpInputs(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<{ server: McpServer; resolvable: Record<string, string> }> {
+    const shared = readSharedEnvSync()
+    const own = withoutBlankAgentOnly(env)
+    const resolvable = { ...withoutBlankAgentOnly(Object.fromEntries(Object.entries(shared).filter(([key]) => !AGENT_ONLY_ENV_KEYS.has(key)))), ...own, RERUN_WORKSPACE: workspaceDir(agentId) }
+    if (own.EVEROS_TOKEN !== undefined || isBlank(shared.EVEROS_TOKEN) || !isEverosServer(server) || !(await isAllowlisted(hubAgentId))) return { server, resolvable }
+    const kept = Object.fromEntries(Object.entries(resolvable).filter(([key]) => !EVEROS_SHARED_KEYS.includes(key)))
+    const fromShared = Object.fromEntries(EVEROS_SHARED_KEYS.flatMap(key => (shared[key] === undefined ? [] : [[key, shared[key]!]])))
+    return { server: { ...server, env: { ...EVEROS_MCP_SERVER.env }, headers: {} }, resolvable: { ...kept, ...fromShared } }
+}
+
+export async function missingMcpEnv(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<string[]> {
+    const inputs = await mcpInputs(agentId, server, env, hubAgentId)
+    return unsetEnvRefs(Object.values(withKnownEnvRefs(inputs.server, inputs.resolvable).env), inputs.resolvable)
+}
 
 export async function prepareMcpServer(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<McpServer> {
     if (!isEnabledMcpServer(server)) throw new McpServerDisabledError(server.name)
-    const resolvable = { ...sharedEnvForMcp(), ...env, RERUN_WORKSPACE: workspaceDir(agentId) }
-    const known = withKnownEnvRefs(await withAuth(agentId, server), resolvable)
+    if (resolveTransport(server) === 'stdio') {
+        const blocked = await trustRefusal({ id: agentId, hubAgentId })
+        if (blocked) throw new McpNeedsConfirmError(blocked)
+    }
+    const inputs = await mcpInputs(agentId, server, env, hubAgentId)
+    const resolvable = inputs.resolvable
+    const known = withKnownEnvRefs(await withAuth(agentId, inputs.server), resolvable)
     const declared = { ...known, env: spawnSafeEnv(known.env) }
     const refused = templateRefusedEnvKeys(known.env)
     if (refused.length) throw new McpEnvRefError(server.name, unsetEnvRefs([...refused.map(key => known.env[key]!), ...Object.values(declared.env)], resolvable), refused)
@@ -165,17 +202,18 @@ function probeErrorMessage(e: unknown): string {
     return typeof code === 'number' && code >= 400 && !message.includes(String(code)) ? `${message.trimEnd()} (HTTP ${code})` : message
 }
 
-export async function probeMcp(agentId: string, server: McpServer, env: Record<string, string>, opts: { spawn: McpSpawn; timeoutMs?: number }): Promise<McpProbe> {
+export async function probeMcp(agentId: string, server: McpServer, env: Record<string, string>, opts: { spawn: McpSpawn; timeoutMs?: number; hubAgentId?: string }): Promise<McpProbe> {
     const transport = resolveTransport(server)
     if (!isEnabledMcpServer(server)) return { ok: false, transport, toolNames: [], error: new McpServerDisabledError(server.name).message }
     try {
-        const opening = prepareMcpServer(agentId, server, env).then(prepared => openMcpClient(prepared, opts.spawn))
+        const opening = prepareMcpServer(agentId, server, env, opts.hubAgentId ?? agentId).then(prepared => openMcpClient(prepared, opts.spawn))
         const { client, tools } = await withDeadline(opening, opts.timeoutMs)
         const toolNames = tools.map(t => t.name)
         await client.close().catch(() => {})
         return { ok: true, transport, toolNames }
     } catch (e) {
         if (e instanceof McpEnvRefError) return { ok: false, transport, toolNames: [], error: e.message, code: e.code, missingEnv: e.refs }
+        if (e instanceof McpNeedsConfirmError) return { ok: false, transport, toolNames: [], error: e.message }
         return { ok: false, transport, toolNames: [], error: probeErrorMessage(e) }
     }
 }

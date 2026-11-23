@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-mcp-index-'))
 process.env.RERUN_API_KEY = ''
 
-const { describe, expect, it } = await import('vitest')
+const { beforeAll, describe, expect, it } = await import('vitest')
 const { buildMcpIndex, describeConnectorState } = await import('./mcp-index.js')
 const { saveToken } = await import('./mcp-auth.js')
 const { mcpDir, mcpTokenPath, workspaceDir } = await import('../config/paths.js')
@@ -24,6 +24,11 @@ async function writeRegistry(id: string, services: Record<string, unknown>): Pro
 }
 
 const HUB_HEADERS = { 'x-rerun-key': '${RERUN_API_KEY}', 'x-rerun-agent': 'agent' }
+
+beforeAll(async () => {
+    const { allowAgent } = await import('../agents/everos-allowlist.js')
+    for (const id of ['idx-agent', 'idx-config-error', 'idx-format']) await allowAgent(id, 'create')
+})
 
 describe('buildMcpIndex', () => {
     it('is empty for an agent without MCP servers', async () => {
@@ -52,6 +57,13 @@ describe('buildMcpIndex', () => {
         const servers = [{ name: 'getmcp', url: 'https://g.example/mcp' }]
         expect(await buildMcpIndex(agentWith('idx-signin', servers))).toContain('- getmcp (http): not signed in — if its tools answer that sign-in is required, call request_mcp_sign_in with its name and end your turn')
         expect(await buildMcpIndex(agentWith('idx-signin-off', servers, true, false))).toContain('- getmcp (http): not signed in — if its tools answer that sign-in is required, ask the user to connect it from the Apps panel of this coworker')
+    })
+
+    it('marks a server whose env cannot be resolved as config_error with the missing key name, never its value', async () => {
+        const index = await buildMcpIndex(agentWith('idx-config-error', [{ name: 'everos', command: '/data/tools/bin/uv', env: { EVEROS_TOKEN: '${EVEROS_TOKEN}', EVEROS_APP: 'app-secret' } }, { name: 'local', command: 'npx' }]))
+        expect(index.split('\n\n')[1].split('\n')).toEqual(['- everos (stdio): config_error, missing EVEROS_TOKEN', '- local (stdio): local command'])
+        expect(index).toContain('config_error')
+        expect(index).not.toContain('app-secret')
     })
 
     it('does not send a server dialed with a key in its url to the Connect card', async () => {

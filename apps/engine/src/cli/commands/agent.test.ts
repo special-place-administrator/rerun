@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
     events: [] as unknown[][],
     existing: new Set<string>(),
     index: [] as { id: string; status: string; name: string }[],
+    pending: [] as { id: string; name: string; reason: string }[],
 }))
 
 vi.mock('../../datadir/ladder.js', () => ({ prepareDataDir: async () => void state.events.push(['prepareDataDir']) }))
@@ -25,6 +26,10 @@ vi.mock('../../db/repos/agents.js', () => ({
 }))
 vi.mock('../../agents/loader.js', () => ({ agentExists: (id: string) => state.existing.has(id) }))
 vi.mock('../../agents/registry.js', () => ({ unloadAgent: (id: string) => void state.events.push(['unloadAgent', id]) }))
+vi.mock('../../agents/everos-allowlist.js', () => ({
+    allowAgent: async (id: string, source: string) => void state.events.push(['allowAgent', id, source]),
+    listPendingEveros: async () => state.pending,
+}))
 
 const { afterEach, beforeEach, describe, expect, it } = await import('vitest')
 const { existsSync } = await import('node:fs')
@@ -42,6 +47,7 @@ beforeEach(() => {
     state.events = []
     state.existing = new Set()
     state.index = []
+    state.pending = []
     out = ''
     vi.spyOn(process.stdout, 'write').mockImplementation(chunk => {
         out += String(chunk)
@@ -59,6 +65,7 @@ describe('rerun agent create', () => {
 
         expect(state.events.slice(0, 1)).toEqual([['prepareDataDir']])
         expect(created()).toEqual({ config: { name: 'Scout', provider: 'anthropic', model: 'claude-opus-4-8' }, keys: { ANTHROPIC_API_KEY: 'sk=with=equals' } })
+        expect(state.events.some(event => event[0] === 'allowAgent' && event[1] === 'newid' && event[2] === 'create')).toBe(true)
         expect(out).toBe('Created agent newid (Scout)\n')
     })
 
@@ -135,7 +142,34 @@ describe('rerun agent delete', () => {
 
 describe('rerun agent', () => {
     it('prints the usage for an unknown or missing subcommand', async () => {
-        await expect(agentCommand([])).rejects.toThrow('Usage: rerun agent <create|list|delete>')
-        await expect(agentCommand(['rename'])).rejects.toThrow('Usage: rerun agent <create|list|delete>')
+        await expect(agentCommand([])).rejects.toThrow('Usage: rerun agent <create|list|delete|everos-pending|everos-allow>')
+        await expect(agentCommand(['rename'])).rejects.toThrow('Usage: rerun agent <create|list|delete|everos-pending|everos-allow>')
     })
 })
+
+describe('rerun agent everos-pending', () => {
+    it('prints one tab-separated line per pending agent', async () => {
+        state.pending = [
+            { id: 'a1', name: 'Legacy', reason: 'pre_version' },
+            { id: 'a2', name: 'Imported', reason: 'import_manifest' },
+        ]
+        await agentCommand(['everos-pending'])
+        expect(out).toBe('a1\tpre_version\tLegacy\na2\timport_manifest\tImported\n')
+    })
+})
+
+describe('rerun agent everos-allow', () => {
+    it('confirms an existing agent', async () => {
+        state.existing.add('legacy')
+        await agentCommand(['everos-allow', 'legacy'])
+        expect(state.events.slice(1)).toEqual([['allowAgent', 'legacy', 'confirm']])
+        expect(out).toBe('Allowed shared EverOS and shell for legacy\n')
+    })
+
+    it('refuses a missing or unknown id', async () => {
+        await expect(agentCommand(['everos-allow'])).rejects.toThrow('Usage: rerun agent everos-allow <id>')
+        await expect(agentCommand(['everos-allow', 'ghost'])).rejects.toThrow('Usage: rerun agent everos-allow <id>')
+        expect(state.events.some(([name]) => name === 'allowAgent')).toBe(false)
+    })
+})
+
