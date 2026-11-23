@@ -134,6 +134,7 @@ export type PodView = {
     verdict?: 'pass' | 'fail'
     scan: number
     since?: number
+    asOf?: number
     holder?: string
     pr?: number
     repo?: string
@@ -155,6 +156,8 @@ export type FactoryFrame = {
     held: boolean
     holdLeftMs: number
     holdKind?: string
+    notAnswering?: boolean
+    lastBeatMs?: number
     counts: { queued: number; building: number; review: number; checks: number; merged: number; runs: number }
 }
 
