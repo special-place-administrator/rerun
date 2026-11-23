@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 
 import projects as P
 
@@ -115,6 +116,52 @@ class Accessible(unittest.TestCase):
         token = GitHub(repos=names, app=False)
         self.assertEqual(P.accessible(token), ["someone/c", "special-place-ai-heaven/a", "special-place-ai-heaven/b"])
         self.assertEqual(token.writes(), [])
+
+
+class Hardening(unittest.TestCase):
+    def test_repo_names_dot_and_dot_dot_are_refused(self):
+        for bad in ("special-place-ai-heaven/..", "special-place-ai-heaven/."):
+            self.assertIsNone(P.REPO.match(bad))
+            gh = GitHub()
+            self.assertEqual([(x.name, x.ok) for x in P.readiness(gh, bad, 1000.0).lines], [("owner", False)])
+            self.assertEqual(gh.calls, [])
+        self.assertTrue(P.REPO.match("special-place-ai-heaven/.github"))
+
+    def test_the_fallback_list_names_only_repositories_of_the_allowed_owners(self):
+        names = ["special-place-ai-heaven/a", "someone-else/private-x", "special-place-administrator/b"]
+        for app in (True, False):
+            self.assertEqual(P.accessible(GitHub(repos=names, app=app)), ["special-place-administrator/b", "special-place-ai-heaven/a"])
+        self.assertEqual(P.accessible(GitHub(repos=names, app=False), owners=("someone-else",)), ["someone-else/private-x"])
+
+    def test_the_whole_disk_or_the_home_folder_is_never_a_project_root(self):
+        home = os.path.expanduser("~")
+        for root in ("/", home, home + "/", "//"):
+            self.assertEqual(P.probe("x", root).code, "bad_root")
+
+    def test_a_config_swapped_for_a_symlink_after_the_check_is_not_followed(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root, outside = os.path.join(tmp.name, "root"), os.path.join(tmp.name, "outside")
+        os.makedirs(os.path.join(root, "race", ".git"))
+        os.makedirs(outside)
+        with open(os.path.join(outside, "config"), "w") as f:
+            f.write('[remote "origin"]\n\turl = https://github.com/attacker/outside.git\n')
+        config = os.path.join(root, "race", ".git", "config")
+        with open(config, "w") as f:
+            f.write('[remote "origin"]\n\turl = https://github.com/special-place-ai-heaven/inside.git\n')
+        real = os.path.isfile
+
+        def swap(path):
+            ok = real(path)
+            if path == os.path.realpath(config) and not os.path.islink(config):
+                os.remove(config)
+                os.symlink(os.path.join(outside, "config"), config)
+            return ok
+
+        with unittest.mock.patch.object(P.os.path, "isfile", swap):
+            got = P.probe("race", root)
+        self.assertNotEqual(got.repo, "attacker/outside")
+        self.assertEqual(got.code, "not_git")
 
 
 if __name__ == "__main__":

@@ -304,5 +304,39 @@ class Drain(Pair):
         self.assertGreater(said.rindex("build -> "), order[-1])
 
 
+class Rechecks(Pair):
+    def pushes(self):
+        return sum(1 for c in self.d.gh.calls if "POST" in c and any(x.endswith("/git/refs") for x in c))
+
+    def test_one_fresh_click_is_one_check_and_neither_skew_nor_repeats_drive_more_writes(self):
+        self.cfg["project_owners"] = ["o", "p"]
+        self.start(passed=False)
+        self.d.gh = Ready()
+        self.w.clock = 1000.7
+        self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(1000.5, ms=True)}
+        self.tick()
+        self.assertEqual((self.d.active, self.pushes()), ("p/q", 1))
+        self.assertEqual(len(self.lines_said("p/q picked by rob")), 1)
+        self.select("o/r")
+        self.tick()
+        self.w.clock += 10
+        self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(self.w.clock, ms=True)}
+        self.tick()
+        self.assertEqual((self.d.active, self.pushes()), ("p/q", 1))
+        self.select("o/r")
+        self.tick()
+        self.answer["check"] = {"repo": "p/q", "at": D.iso(self.w.clock + 7200, ms=True)}
+        for _ in range(6):
+            self.w.clock += 30
+            self.tick()
+        self.assertEqual(self.pushes(), 2)
+        for n in range(40):
+            self.w.clock += 61
+            self.answer["check"] = {"repo": "p/q", "at": D.iso(self.w.clock, ms=True)}
+            self.tick()
+        self.assertLessEqual(self.pushes(), 2 + L.READINESS_PER_HOUR)
+        self.assertEqual(len(self.lines_said("readiness checks per hour")), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
