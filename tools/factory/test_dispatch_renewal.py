@@ -2,6 +2,7 @@ import contextlib, datetime, io, json, os, sys, tempfile, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dispatch as D
 import holds
+import renewal
 from test_dispatch import World, ready, PR_LINE
 
 
@@ -198,6 +199,33 @@ class PlanWeek(unittest.TestCase):
         self.ahead(68, 7 * 0.694, slots=0)
         self.assertIsNone(self.d.slot_quotas())
         self.assertNotIn("pacing the plan week", self.out.getvalue())
+
+
+class UsedConnections(unittest.TestCase):
+    beat, state, hold = Renewal.beat, Renewal.state, Renewal.hold
+
+    def test_a_coworker_pinned_off_the_default_connection_is_watched_for_its_limits(self):
+        Renewal.make(self, [issue(5)])
+        self.d.cfg["plan_week_hold_percent"] = 95
+        inner = self.d.account
+
+        def account(tool, args, timeout=30):
+            if tool == "list_ai_connections":
+                return {"connections": [
+                    {"id": "open", "provider": "custom", "isDefault": True, "signIn": None, "planLimits": None},
+                    {"id": "sub", "provider": "claude", "isDefault": False, "signIn": {"minutesLeft": 50, "renewalDue": True},
+                     "planLimits": {"windows": [{"kind": "weekly", "usedPercent": 97, "resetsAt": "2099-01-01T00:00:00.000Z"}]}}]}
+            if tool == "get_agent":
+                return dict(inner(tool, args), runsOn={"connectionId": "sub"})
+            return inner(tool, args)
+
+        self.d.account = account
+        self.beat()
+        self.w.clock += 30
+        self.beat()
+        self.assertEqual(len(self.w.sends), 0)
+        self.assertEqual(self.hold()["kind"], "plan week")
+        self.assertEqual(renewal.left(self.d.connections, self.d.used_connections()), 50)
 
 
 if __name__ == "__main__":

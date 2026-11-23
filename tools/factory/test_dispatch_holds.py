@@ -1,4 +1,4 @@
-import os, sys, tempfile, unittest
+import datetime, os, sys, tempfile, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dispatch as D
 import holds
@@ -105,6 +105,42 @@ class Holds(unittest.TestCase):
         self.w.runs[rid] = {"status": "error", "output": None, "error": "Error: tool crashed"}
         self.d.once()
         self.assertEqual(self.state(6), "failed")
+
+    def fire_status(self, agent):
+        rid = [r for r, a in self.w.order if a == agent][-1]
+        return self.w.rows("SELECT status FROM fires WHERE run_id=?", rid)[0][0]
+
+    def test_spent_plans_and_refusals_close_their_fire_as_held_not_as_an_error(self):
+        self.make([issue(5), issue(6)])
+        self.d.once()
+        self.spend("b1")
+        self.w.finish("b2", None, status="error")
+        self.w.runs[[r for r, a in self.w.order if a == "b2"][-1]]["error"] = "provider_overloaded: 429 too many requests"
+        self.d.once()
+        self.assertEqual((self.fire_status("b1"), self.fire_status("b2")), ("held", "held"))
+
+    def test_a_spent_plan_holds_until_the_connection_resets_and_never_refires_into_the_limit(self):
+        self.make([issue(5)])
+        resets = self.w.clock + 3 * 86400
+        stamp = datetime.datetime.fromtimestamp(resets, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        inner, used = self.d.account, [50]
+
+        def account(tool, args, timeout=30):
+            if tool == "list_ai_connections":
+                return {"connections": [{"id": "c1", "provider": "claude", "isDefault": True, "signIn": None,
+                                         "planLimits": {"windows": [{"kind": "weekly", "usedPercent": used[0], "resetsAt": stamp}]}}]}
+            return inner(tool, args)
+
+        self.d.account = account
+        self.d.once()
+        self.assertEqual(self.state(5), "building")
+        used[0] = 100
+        self.spend("b1")
+        self.d.once()
+        self.assertEqual(self.hold_until(), ("plan limit", resets))
+        self.w.clock += 1800 + 60
+        self.d.once()
+        self.assertEqual((self.state(5), len(self.w.sends)), ("queued", 1))
 
 
 if __name__ == "__main__":
