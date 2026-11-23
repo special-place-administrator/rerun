@@ -130,6 +130,7 @@ describe('image launcher', () => {
             })
             child!.on('exit', code => fail(new Error(`exited with ${code}`)))
         })
-        expect((await fetch(`http://127.0.0.1:${port}/agents`)).status).toBe(200)
+        expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(200)
+        expect((await fetch(`http://127.0.0.1:${port}/agents`)).status).toBe(401)
     })
 })

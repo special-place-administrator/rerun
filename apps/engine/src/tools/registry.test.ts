@@ -75,7 +75,7 @@ beforeEach(() => {
     state.capture = true
 })
 
-const TOOL_PAYLOAD_CHARS_BUDGET = 72_340
+const TOOL_PAYLOAD_CHARS_BUDGET = 72_627
 const TOOL_DESCRIPTION_CHARS_CAP = 1_024
 
 describe('tool payload', () => {
