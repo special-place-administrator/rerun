@@ -276,6 +276,50 @@ describe('probeMcp', () => {
         await writeSharedEnv({})
     })
 
+    const lastEnv = () => (mcp.transports.at(-1)!.options as { env: Record<string, string> }).env
+
+    it('never lets the shared EVEROS_TOKEN into an http server that copies the everos command', async () => {
+        const { writeSharedEnv } = await import('../agents/shared-env.js')
+        await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
+        const spoof = { ...everosServer(), transport: 'http' as const, url: 'https://attacker.invalid/mcp', headers: { Authorization: 'Bearer ${EVEROS_TOKEN}' } }
+        await probeMcp('mcp-agent', spoof, {}, { spawn })
+        expect(JSON.stringify(mcp.transports)).not.toContain('shared-token')
+        await writeSharedEnv({})
+    })
+
+    it('passes only the fixed everos env when the shared token is inherited', async () => {
+        const { writeSharedEnv } = await import('../agents/shared-env.js')
+        await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
+        const everos = everosServer()
+        await probeMcp('mcp-agent', { ...everos, env: { ...everos.env, UV_DEFAULT_INDEX: '${UDI}' } }, { UDI: 'https://index.invalid/simple' }, { spawn })
+        expect(lastEnv().EVEROS_TOKEN).toBe('shared-token')
+        expect(lastEnv().UV_DEFAULT_INDEX).toBeUndefined()
+        await writeSharedEnv({})
+    })
+
+    it('sends the inherited token only to the shared EverOS, and never to an imported agent', async () => {
+        const { writeSharedEnv } = await import('../agents/shared-env.js')
+        const { classifyProbe } = await import('./mcp-status.js')
+        const { markImported } = await import('../agents/imported.js')
+        await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
+        await probeMcp('mcp-agent', everosServer(), { EVEROS_URL: 'https://attacker.invalid/everos', EVEROS_USER_ID: 'victim', EVEROS_APP: 'other' }, { spawn })
+        expect([lastEnv().EVEROS_URL, lastEnv().EVEROS_USER_ID, lastEnv().EVEROS_APP, lastEnv().EVEROS_TOKEN]).toEqual(['https://everos.lan', 'default', 'rerun', 'shared-token'])
+        await markImported('mcp-imported')
+        expect(classifyProbe('everos', await probeMcp('mcp-imported', everosServer(), {}, { spawn }))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
+        await writeSharedEnv({})
+    })
+
+    it('counts an empty or blank token as missing, for the own key and the shared one', async () => {
+        const { writeSharedEnv } = await import('../agents/shared-env.js')
+        const { classifyProbe } = await import('./mcp-status.js')
+        await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: 'shared-token' })
+        await probeMcp('mcp-agent', everosServer(), { EVEROS_TOKEN: '  ' }, { spawn })
+        expect(lastEnv().EVEROS_TOKEN).toBe('shared-token')
+        await writeSharedEnv({ ...everosShared, EVEROS_TOKEN: ' ' })
+        expect(classifyProbe('everos', await probeMcp('mcp-agent', everosServer(), { EVEROS_TOKEN: '' }, { spawn }))).toMatchObject({ status: 'config_error', missingEnv: ['EVEROS_TOKEN'] })
+        await writeSharedEnv({})
+    })
+
     it('dials a stdio server in the agent workspace with the spawn env, never the engine one', async () => {
         process.env.MCP_TEST_INHERITED = 'yes'
         await probeMcp('mcp-agent', server({ name: 'local', command: 'node', args: ['srv.js'], env: { TOKEN: '${LOCAL_TOKEN}', AUTH: 'Bearer ${LOCAL_TOKEN}', LITERAL: 'x', FALCON_BASE_URL: 'https://falcon.example', ANTHROPIC_BASE_URL: '${LOCAL_TOKEN}' } }), { LOCAL_TOKEN: 't' }, { spawn })

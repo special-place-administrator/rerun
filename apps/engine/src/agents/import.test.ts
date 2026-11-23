@@ -117,6 +117,7 @@ describe('importAgent', () => {
         expect(await readFile(resolve(agentDir(result.id), 'schedules/daily.md'), 'utf8')).toContain('cron: 0 9 * * *')
         expect(await readFile(resolve(agentDir(result.id), 'workspace/brief.md'), 'utf8')).toBe('A reference brief.')
         expect((await listAgentIndex()).some(row => row.id === result.id && row.name === 'source_2')).toBe(true)
+        expect((await import('./imported.js')).isImported(result.id)).toBe(true)
     })
 
     it('rebinds the agent id the capture turned into a token', async () => {
