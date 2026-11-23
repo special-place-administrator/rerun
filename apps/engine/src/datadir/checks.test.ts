@@ -15,6 +15,7 @@ const { getSystemDb, closeSystemDb } = await import('../db/systemDb.js')
 const { prepareDataDir } = await import('./ladder.js')
 const { runDataDirChecks } = await import('./checks.js')
 const { DATA_DIR_VERSION } = await import('./migrations.js')
+const { SHARED_DB_VERSION } = await import('../db/sharedDb.js')
 const { createServer } = await import('../http/server.js')
 
 async function seedAgent(id: string, { indexed = true } = {}) {
@@ -85,7 +86,7 @@ describe('runDataDirChecks', () => {
         client.close()
 
         const check = (await runDataDirChecks()).checks.find(c => c.name === 'shared-db')
-        expect(check).toEqual({ name: 'shared-db', ok: false, detail: 'at v0, expected v1' })
+        expect(check).toEqual({ name: 'shared-db', ok: false, detail: `at v0, expected v${SHARED_DB_VERSION}` })
         await rm(sharedDbDir(), { recursive: true, force: true })
     })
 
