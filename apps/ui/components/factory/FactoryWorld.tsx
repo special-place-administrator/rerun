@@ -1,8 +1,10 @@
 'use client'
 
 import type { FactorySnapshot } from '@moldwright/contracts'
+import { formatDate } from '@moldwright/i18n/format'
 import { IsoGrid, frameTemplateBoard, routeTileLinks, useRenderedFrame, type AxisPoint, type Tile } from '@moldwright/ui/iso-grid'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { useLocale, useTranslations } from 'next-intl'
 
 import { fireMoldwrightConfetti } from '@/lib/confetti'
 import { Button } from '@/components/ui/button'
@@ -42,6 +44,8 @@ function LiveOverlay({ start, tiles, routes, scene, selectedIssue, onSelectJob, 
 }
 
 export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace = 'sample', selectedIssue = null, onSelectJob, onOpenBucket, onOpenCoworker, rightInset = 0, snapshot = null, topBar }: { theme?: 'light' | 'dark'; scene?: SceneFn; workspace?: string; selectedIssue?: number | null; onSelectJob?: (issue: number) => void; onOpenBucket?: (bucket: Bucket) => void; onOpenCoworker?: (name: string) => void; rightInset?: number; snapshot?: FactorySnapshot | null; topBar?: ReactNode }) {
+    const t = useTranslations('factory.floor')
+    const locale = useLocale()
     const [clock, setClock] = useState(() => ({ start: Date.now(), now: Date.now() }))
     const [expired, setExpired] = useState<Set<string>>(() => new Set())
     useEffect(() => {
@@ -49,8 +53,8 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
         return () => clearInterval(id)
     }, [])
 
-    const t = (clock.now - clock.start) % LOOP_MS
-    const frame = useMemo(() => scene(t, clock.now), [scene, t, clock.now])
+    const loopAt = (clock.now - clock.start) % LOOP_MS
+    const frame = useMemo(() => scene(loopAt, clock.now), [scene, loopAt, clock.now])
     const loop = Math.floor((clock.now - clock.start) / LOOP_MS)
     const toasts = useStable(frame.toasts.map(toast => ({ ...toast, id: `${toast.id}#${loop}` })).filter(toast => !expired.has(toast.id)).slice(-2))
     const sceneTiles = useStable(frame.tiles)
@@ -98,11 +102,14 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
         return { zoom: c.zoom, pan: { x: c.pan.x + shiftX / c.zoom, y: c.pan.y + shiftY / c.zoom } }
     }, [size, corners, rightInset, barSpace, topSpace])
 
+    const stale = frame.notAnswering === true && snapshot !== null
+    const asOf = stale ? t('asOf', { time: formatDate(snapshot.madeAt, locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) }) : undefined
     const { sample, values } = barModel({ snapshot, counts: frame.counts, held: frame.held, now: clock.now, start: clock.start })
 
     return (
         <div ref={ref} className={`${theme} relative h-dvh w-full overflow-hidden bg-background text-foreground`} style={{ '--factory-drop-max': `${size ? size.height - topSpace - barSpace : 0}px` } as CSSProperties}>
             <IsoGrid
+                {...(stale ? { className: 'opacity-50' } : {})}
                 tiles={gridTiles}
                 containers={frame.containers}
                 liveLinks={tree}
@@ -121,13 +128,14 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
 
             <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef}>
                 <div className="flex items-center gap-2 pr-1">
-                    <span className={`size-2 rounded-full ${frame.held ? 'bg-red-500' : 'animate-pulse bg-emerald-500 motion-reduce:animate-none'}`} />
+                    <span className={`size-2 rounded-full ${stale ? 'bg-amber-500' : frame.held ? 'bg-red-500' : 'animate-pulse bg-emerald-500 motion-reduce:animate-none'}`} />
                     <span className="text-sm font-semibold tracking-tight">Factory</span>
+                    {stale && <span data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{t('lastBeat', { minutes: Math.max(1, Math.floor((frame.lastBeatMs ?? 0) / 60_000)) })}</span>}
                     {sample && <span className="text-[10px] text-muted-foreground">sample</span>}
                 </div>
                 {(['jobs', 'runs', 'plan'] as const).map(group => (
                     <div key={group} className="flex flex-wrap items-center justify-center gap-4 border-l border-border/70 pl-4">
-                        {METRICS.filter(m => m.group === group).map(m => <Metric key={m.key} def={m} value={values[m.key]} />)}
+                        {METRICS.filter(m => m.group === group).map(m => <Metric key={m.key} def={m} value={values[m.key]} {...(m.key === 'building' && asOf ? { asOf } : {})} />)}
                     </div>
                 ))}
                 {moved && (
@@ -160,7 +168,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
 
 const TONES: Partial<Record<MetricKey, string>> = { building: 'text-amber-500', review: 'text-emerald-500', checks: 'text-sky-500', solvedGreen: 'text-green-500' }
 
-function Metric({ def, value }: { def: MetricDef; value: MetricValues[MetricKey] }) {
+function Metric({ def, value, asOf }: { def: MetricDef; value: MetricValues[MetricKey]; asOf?: string }) {
     return (
         <Tooltip>
             <TooltipTrigger asChild>
@@ -172,6 +180,7 @@ function Metric({ def, value }: { def: MetricDef; value: MetricValues[MetricKey]
                         </span>
                     )}
                     <span className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{def.label}</span>
+                    {asOf && <span data-as-of className="mt-0.5 text-[10px] text-muted-foreground">{asOf}</span>}
                 </div>
             </TooltipTrigger>
             <TooltipContent className="max-w-64">

@@ -1,10 +1,10 @@
 import { agentTileStyle, buddyColor, buddyEyes, buddyMouth, type BuddyLook, type Tile, type TileLink } from '@moldwright/ui/iso-grid'
 import type { FactoryJob, FactorySnapshot } from '@moldwright/contracts'
+import { isAnswering } from './factory-loader'
 import { BAY, BOSS, BOSS_ID, type CabinetView, copySeat, FEATURE_CELLS, type FactoryFrame, PLANNER_CELLS, PLAN_TANK, type PlanView, type PodView, type SlotView, STATUS_COLOR, factoryScene } from './factory-scene'
 
 export type SnapshotFrame = FactoryFrame & { blocked: { issue: number; reason: string }[]; cracked: number[]; notAnswering: boolean; lastBeatMs: number }
 
-const BEAT_MS = 30_000
 const KEEP = ['Delegator', 'code', 'LARRY', 'LINUS', 'BRUCE', 'search', 'DIETER', 'rejects']
 const QUIET = '#8ea2ff'
 const RIDE_MS = 1_800
@@ -33,8 +33,10 @@ export function sceneFromSnapshot(snapshot: FactorySnapshot, now: number): Snaps
     const held = live.length > 0
     const last = live.reduce<(typeof live)[number] | undefined>((a, h) => (!a || Date.parse(h.until) > Date.parse(a.until) ? h : a), undefined)
     const holdLeftMs = last ? Date.parse(last.until) - now : 0
-    const lastBeatMs = now - Date.parse(snapshot.madeAt)
-    const notAnswering = lastBeatMs > 2 * BEAT_MS
+    const madeAt = Date.parse(snapshot.madeAt)
+    const lastBeatMs = now - madeAt
+    const notAnswering = !isAnswering(snapshot.madeAt, now)
+    const asOf = notAnswering ? madeAt : now
 
     const jobs = snapshot.jobs
     const blocked: { issue: number; reason: string }[] = []
@@ -60,10 +62,10 @@ export function sceneFromSnapshot(snapshot: FactorySnapshot, now: number): Snaps
 
     let queue = 0
     for (const job of jobs) {
-        const since = now - Date.parse(job.enteredAt)
+        const since = asOf - Date.parse(job.enteredAt)
         const steps = job.steps ?? 0
         const pod = (path: string[], travel: number, band: PodView['band'], state: PodView['state'], level: number, extra: Partial<PodView> = {}) =>
-            pods.push({ id: `pod-${job.issue}`, issue: job.issue, title: job.title, path, travel, queue: 0, level, band, state, scan: 0, since: Date.parse(job.enteredAt), holder: job.coworker ? (job.copy ? `${job.coworker} · ${job.copy}` : job.coworker) : undefined, pr: job.pr ?? undefined, repo: snapshot.repo, ...extra })
+            pods.push({ id: `pod-${job.issue}`, issue: job.issue, title: job.title, path, travel, queue: 0, level, band, state, scan: 0, since: Date.parse(job.enteredAt), holder: job.coworker ? (job.copy ? `${job.coworker} · ${job.copy}` : job.coworker) : undefined, pr: job.pr ?? undefined, repo: snapshot.repo, ...(notAnswering ? { asOf } : {}), ...extra })
         switch (job.state) {
             case 'waiting':
             case 'queued':

@@ -17,6 +17,7 @@ const job = (issue: number, over: Partial<FactoryJob> = {}): FactoryJob => ({
 })
 const snapshot = (): FactorySnapshot => ({
     ...sample(),
+    madeAt: new Date().toISOString(),
     epics: [{ issue: 1, title: 'Epic one', kind: 'feature' }],
     jobs: [
         job(11, { state: 'building', department: 'engine' }),

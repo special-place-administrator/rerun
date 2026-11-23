@@ -2105,6 +2105,8 @@ class Dispatcher:
                 self.gh(["issue", "close", n, "-R", self.repo, "--comment", text])
             else:
                 self.gh(["issue", "comment", n, "-R", self.repo, "--body", text])
+                if j["state"] == "merged":
+                    self.gh(["issue", "close", n, "-R", self.repo])
             j["commented"] = True
             self.save(j, "commented")
         if not j.get("relabelled"):

@@ -107,5 +107,9 @@
         "offBadge": "Coupé pour l'usine",
         "note": "Coupe une connexion et l'usine ne l'utilise jamais. Une tâche déjà en cours dessus se termine.",
         "noteReadOnly": "Seul le propriétaire du workspace peut activer ou couper des connexions pour l'usine"
+    },
+    "floor": {
+        "lastBeat": "Dernier battement il y a {minutes} min",
+        "asOf": "à {time}"
     }
 }

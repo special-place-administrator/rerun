@@ -107,5 +107,9 @@
         "offBadge": "Desligada para a fábrica",
         "note": "Desligue uma conexão e a fábrica nunca a usa. Um trabalho que já roda nela termina.",
         "noteReadOnly": "Só o proprietário do workspace pode ligar ou desligar conexões para a fábrica"
+    },
+    "floor": {
+        "lastBeat": "Último batimento há {minutes} min",
+        "asOf": "às {time}"
     }
 }

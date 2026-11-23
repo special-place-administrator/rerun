@@ -5,7 +5,9 @@
         "controls.state": "Short label of the factory state. DRAINING is the normal stop: the factory finishes what runs, then stops.",
         "controls.hardStop": "Stops the factory at once and cancels everything that runs.",
         "orders.ask": "The foreman's question once a project is chosen; {repo} is a GitHub owner/name.",
-        "providers.label": "Short caption next to the on/off switch of a connection: whether the factory may use it."
+        "providers.label": "Short caption next to the on/off switch of a connection: whether the factory may use it.",
+        "floor.lastBeat": "Shown next to the factory status dot when the factory stopped reporting; {minutes} is the whole minutes since its last report.",
+        "floor.asOf": "Shown under a live count when the factory stopped reporting: the count is the one of its last report; {time} is that report's local time, HH:MM."
     },
     "projects": {
         "trigger": "Factory project: {repo}. Open the projects",
@@ -115,5 +117,9 @@
         "offBadge": "Off for the factory",
         "note": "Switch a connection off and the factory never uses it. A job already running on it finishes.",
         "noteReadOnly": "Only the workspace owner can switch connections on or off for the factory"
+    },
+    "floor": {
+        "lastBeat": "Last beat {minutes} min ago",
+        "asOf": "as of {time}"
     }
 }
