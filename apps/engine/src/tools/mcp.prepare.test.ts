@@ -60,7 +60,7 @@ describe('prepareMcpServer', () => {
     })
 
     it('resolves a shared variable the coworker env does not hold, under the coworker value', async () => {
-        await writeSharedEnv({ EVEROS_URL: 'https://everos.lan', HOST: 'shared.example' })
+        await writeSharedEnv({ EVEROS_URL: 'https://everos.lan', EVEROS_TOKEN: 'ev-shared-123456', HOST: 'shared.example' })
         await prepareMcpServer('agent-3', { name: 'x', url: 'https://${HOST}/api/mcp/x', args: [], env: {}, headers: {} }, { HOST: 'own.example' })
         expect(resolvedWith.at(-1)).toEqual({ EVEROS_URL: 'https://everos.lan', HOST: 'own.example', RERUN_WORKSPACE: workspaceDir('agent-3') })
     })

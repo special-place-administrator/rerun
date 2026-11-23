@@ -85,9 +85,12 @@ describe('runDataDirChecks', () => {
         await client.execute('CREATE TABLE leads (id TEXT PRIMARY KEY)')
         client.close()
 
-        const check = (await runDataDirChecks()).checks.find(c => c.name === 'shared-db')
-        expect(check).toEqual({ name: 'shared-db', ok: false, detail: `at v0, expected v${SHARED_DB_VERSION}` })
-        await rm(sharedDbDir(), { recursive: true, force: true })
+        try {
+            const check = (await runDataDirChecks()).checks.find(c => c.name === 'shared-db')
+            expect(check).toEqual({ name: 'shared-db', ok: false, detail: `at v0, expected v${SHARED_DB_VERSION}` })
+        } finally {
+            await rm(sharedDbDir(), { recursive: true, force: true })
+        }
     })
 
     it('flags a connection this build cannot read', async () => {
