@@ -441,10 +441,19 @@
     "saveThisFileFailed": "Diese Datei konnte nicht gespeichert werden",
     "templateSubscriptionEnded": "Dieser Coworker stammt aus einem beendeten Vorlagenabo. Kauf die Vorlage erneut, um ihn zurückzuholen.",
     "noFreeCoworkerSlot": "Kein freier Coworker-Slot in deinem Tarif. Starte Pro für unbegrenzt viele Coworker oder lösche einen Coworker, um Platz zu schaffen.",
-    "factoryOwnerOnly": "Nur der Inhaber des Workspace kann die Projekte der Factory ändern",
+    "factoryOwnerOnly": "Nur der Inhaber des Workspace kann die Fabrik ändern",
     "factoryProjectNotFound": "Projekt nicht gefunden",
     "factoryProjectExists": "{repo} ist bereits ein Projekt",
     "factoryRepoNotReachable": "Die Factory erreicht {repo} nicht",
     "factoryPathInvalid": "Gib einen einfachen Ordnerpfad ein",
-    "factoryProjectActive": "{repo} ist das Projekt, an dem die Factory arbeitet: Wähle zuerst ein anderes aus"
+    "factoryProjectActive": "{repo} ist das Projekt, an dem die Factory arbeitet: Wähle zuerst ein anderes aus",
+    "factoryInputInvalid": "Diese Anfrage ist nicht gültig",
+    "factoryTooManyOff": "Höchstens {max} Verbindungen können für die Fabrik aus sein",
+    "factoryOrderIssuesInvalid": "Jede Issue-Nummer nur einmal: eine für ein Issue, 1 bis {max} für alle Issues",
+    "factoryOrderTextTooLong": "Die Beschreibung darf höchstens {max} Zeichen haben",
+    "factoryOrderTextMissing": "Beschreibe das Feature oder den Fehler",
+    "factoryOrderNotActiveProject": "{repo} ist nicht das Projekt, an dem die Fabrik arbeitet",
+    "factoryWorkOrderActive": "{repo} hat schon einen Arbeitsauftrag: brich ihn zuerst ab",
+    "factoryWorkOrderNotFound": "Dieser Arbeitsauftrag wurde nicht gefunden oder ist beendet",
+    "factoryWorkOrderNotHalted": "Job #{issue} wartet nicht auf Wiederholen oder Überspringen"
 }

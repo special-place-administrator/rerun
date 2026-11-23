@@ -443,10 +443,19 @@
     "saveThisFileFailed": "Impossible d'enregistrer ce fichier",
     "templateSubscriptionEnded": "Ce coworker vient d'un abonnement à un template qui a pris fin. Rachetez le template pour le récupérer.",
     "noFreeCoworkerSlot": "Plus d'emplacement de coworker libre sur votre plan. Passez à Pro pour des coworkers illimités, ou supprimez un coworker pour faire de la place.",
-    "factoryOwnerOnly": "Seul le propriétaire du workspace peut modifier les projets de la factory",
+    "factoryOwnerOnly": "Seul le propriétaire du workspace peut modifier l'usine",
     "factoryProjectNotFound": "Projet introuvable",
     "factoryProjectExists": "{repo} est déjà un projet",
     "factoryRepoNotReachable": "La factory ne peut pas accéder à {repo}",
     "factoryPathInvalid": "Saisissez un simple chemin de dossier",
-    "factoryProjectActive": "{repo} est le projet sur lequel travaille la factory : sélectionnez-en d'abord un autre"
+    "factoryProjectActive": "{repo} est le projet sur lequel travaille la factory : sélectionnez-en d'abord un autre",
+    "factoryInputInvalid": "Cette demande n'est pas valide",
+    "factoryTooManyOff": "Au plus {max} connexions peuvent être coupées pour l'usine",
+    "factoryOrderIssuesInvalid": "Chaque numéro d'issue une seule fois : un pour une issue, de 1 à {max} pour toutes",
+    "factoryOrderTextTooLong": "La description doit faire moins de {max} caractères",
+    "factoryOrderTextMissing": "Décris la fonctionnalité ou le bug",
+    "factoryOrderNotActiveProject": "{repo} n'est pas le projet sur lequel travaille l'usine",
+    "factoryWorkOrderActive": "{repo} a déjà un ordre de travail : annule-le d'abord",
+    "factoryWorkOrderNotFound": "Cet ordre de travail est introuvable ou terminé",
+    "factoryWorkOrderNotHalted": "La tâche #{issue} n'attend ni relance ni saut"
 }

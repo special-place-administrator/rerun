@@ -441,10 +441,19 @@
     "saveThisFileFailed": "Falha ao salvar este arquivo",
     "templateSubscriptionEnded": "Este coworker veio de uma assinatura de template que terminou. Compre o template de novo para recuperá-lo.",
     "noFreeCoworkerSlot": "Nenhuma vaga de coworker livre no seu plano. Assine o Pro para ter coworkers ilimitados ou exclua um coworker para liberar espaço.",
-    "factoryOwnerOnly": "Somente o proprietário do workspace pode alterar os projetos da factory",
+    "factoryOwnerOnly": "Só o proprietário do workspace pode mudar a fábrica",
     "factoryProjectNotFound": "Projeto não encontrado",
     "factoryProjectExists": "{repo} já é um projeto",
     "factoryRepoNotReachable": "A factory não alcança {repo}",
     "factoryPathInvalid": "Digite um caminho de pasta simples",
-    "factoryProjectActive": "{repo} é o projeto em que a factory trabalha: selecione outro primeiro"
+    "factoryProjectActive": "{repo} é o projeto em que a factory trabalha: selecione outro primeiro",
+    "factoryInputInvalid": "Este pedido não é válido",
+    "factoryTooManyOff": "No máximo {max} conexões podem estar desligadas para a fábrica",
+    "factoryOrderIssuesInvalid": "Cada número de issue uma só vez: um para uma issue, de 1 a {max} para todas",
+    "factoryOrderTextTooLong": "A descrição deve ter menos de {max} caracteres",
+    "factoryOrderTextMissing": "Descreva a funcionalidade ou o erro",
+    "factoryOrderNotActiveProject": "{repo} não é o projeto em que a fábrica trabalha",
+    "factoryWorkOrderActive": "{repo} já tem uma ordem de trabalho: cancele-a primeiro",
+    "factoryWorkOrderNotFound": "Esta ordem de trabalho não existe ou terminou",
+    "factoryWorkOrderNotHalted": "O trabalho #{issue} não espera repetição nem salto"
 }
