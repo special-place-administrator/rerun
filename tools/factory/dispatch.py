@@ -739,7 +739,8 @@ class Dispatcher:
         except (Error, ValueError) as e:
             log(n, "work order: issue not read: %s" % e)
             return None
-        self.order_views = {n: (self.now(), seen)}
+        self.order_views = {k: v for k, v in self.order_views.items() if k in self.work["issues"]}
+        self.order_views[n] = (self.now(), seen)
         return seen
 
     def open_pr_for(self, n):
