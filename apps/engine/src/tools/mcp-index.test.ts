@@ -54,6 +54,13 @@ describe('buildMcpIndex', () => {
         expect(await buildMcpIndex(agentWith('idx-signin-off', servers, true, false))).toContain('- getmcp (http): not signed in — if its tools answer that sign-in is required, ask the user to connect it from the Apps panel of this coworker')
     })
 
+    it('marks a server whose env cannot be resolved as config_error with the missing key name, never its value', async () => {
+        const index = await buildMcpIndex(agentWith('idx-config-error', [{ name: 'everos', command: '/data/tools/bin/uv', env: { EVEROS_TOKEN: '${EVEROS_TOKEN}', EVEROS_APP: 'app-secret' } }, { name: 'local', command: 'npx' }]))
+        expect(index.split('\n\n')[1].split('\n')).toEqual(['- everos (stdio): config_error, missing EVEROS_TOKEN', '- local (stdio): local command'])
+        expect(index).toContain('config_error')
+        expect(index).not.toContain('app-secret')
+    })
+
     it('does not send a server dialed with a key in its url to the Connect card', async () => {
         const index = await buildMcpIndex(agentWith('idx-keyed-url', [{ name: 'keyed', url: 'https://k.example/mcp?key=${KEY}' }]))
         expect(index).toContain('- keyed (http): authenticated with a key in its url')
