@@ -9,7 +9,7 @@ export const thrown = (err: unknown) => ({ ok: false as const, error: err instan
 
 export type FactoryControlsState = { view: FactoryControlsView | null; loadError: string | null; reload: () => Promise<void> }
 
-export function useFactoryControls(): FactoryControlsState {
+export function useFactoryControls(reloadOn?: string): FactoryControlsState {
     const errorText = useErrorText()
     const [view, setView] = useState<FactoryControlsView | null>(null)
     const [loadError, setLoadError] = useState<string | null>(null)
@@ -26,6 +26,6 @@ export function useFactoryControls(): FactoryControlsState {
         setView(res.controls)
     }, [errorText])
     const reload = useCallback(() => readFactoryControlsAction().catch(thrown).then(apply), [apply])
-    useEffect(() => { readFactoryControlsAction().catch(thrown).then(apply) }, [apply])
+    useEffect(() => { readFactoryControlsAction().catch(thrown).then(apply) }, [apply, reloadOn])
     return { view, loadError, reload }
 }

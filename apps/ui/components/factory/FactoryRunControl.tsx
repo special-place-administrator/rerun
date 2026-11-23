@@ -7,6 +7,7 @@ import { Badge, type BadgeTone } from '@moldwright/ui/primitives'
 import { setFactoryStateAction } from '@/app/api/_actions/factory.actions'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useErrorText } from '@/hooks/useErrorText'
 import { cn } from '@/lib/utils'
 import { thrown, type FactoryControlsState } from './use-factory-controls'
@@ -31,6 +32,7 @@ export function FactoryRunControl({ snapshot, controls }: { snapshot: FactorySna
 
     const reported = snapshot.control?.state ?? FACTORY_CONTROL_DEFAULT
     const asked = view?.state ?? null
+    const settled = asked === null || asked === reported || (asked === 'DRAINING' && reported === 'STOPPED')
     const waiting = snapshot.jobs.filter(j => j.reason === NO_PROVIDER).length
 
     const send = async (state: FactoryControlState) => {
@@ -57,12 +59,14 @@ export function FactoryRunControl({ snapshot, controls }: { snapshot: FactorySna
                         </Button>
                     ))}
                 </div>
+            ) : view === null && loadError === null ? (
+                <Skeleton className="h-6 w-40 rounded-full" aria-hidden />
             ) : (
                 <Badge size="xs" tone={TONE[reported]} glow={false} data-run-state={reported}>{t('state', { state: reported })}</Badge>
             )}
             <div role="status" aria-live="polite" className="flex max-w-[min(28rem,calc(100vw-2rem))] flex-col items-center text-center text-xs text-muted-foreground">
                 <span data-run-now>{t('now', { state: reported })}</span>
-                {asked !== null && asked !== reported && busy === null && <span data-run-asked>{t('asked', { state: asked })}</span>}
+                {!settled && asked !== null && busy === null && <span data-run-asked>{t('asked', { state: asked })}</span>}
                 {view && !view.isOwner && <span>{t('readOnly')}</span>}
                 {waiting > 0 && <span data-no-provider>{t('noProvider', { count: waiting })}</span>}
                 {error && <span data-run-error className="text-destructive">{error}</span>}

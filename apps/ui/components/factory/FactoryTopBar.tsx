@@ -56,7 +56,7 @@ export function FactoryTopBar({ snapshot, selected, onSelect, names, onOpenCowor
         return () => clearInterval(id)
     }, [])
     const [filter, setFilter] = useState<LedgerFilter | null>(null)
-    const controls = useFactoryControls()
+    const controls = useFactoryControls(snapshot?.repo)
     const open = snapshot !== null && (filter !== null || selected !== null || bucket !== null)
     const rootRef = useRef<HTMLDivElement>(null)
 
