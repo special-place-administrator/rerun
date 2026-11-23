@@ -379,6 +379,24 @@ class Controls(Pair):
         self.assertIn("control PAUSED", self.d.lines["o/r"].beat_line)
         self.assertEqual(self.w.reports[-1]["control"]["state"], "PAUSED")
 
+    def test_a_drain_lets_running_work_finish_then_the_factory_is_stopped(self):
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(2)
+        self.assertEqual(self.state(), "building")
+        self.control("DRAINING")
+        self.tick(2)
+        self.assertEqual((len(self.w.sends), self.d.read("control", {})["state"]), (1, "DRAINING"))
+        self.w.finish("b1", PR_LINE)
+        self.tick(3)
+        self.assertEqual((self.state(), len(self.w.sends), self.w.cancels), ("review_wait", 1, []))
+        self.assertEqual(self.w.rows("SELECT status FROM fires"), [("done",)])
+        self.assertEqual(self.d.read("control", {})["state"], "STOPPED")
+        self.assertEqual(len(self.lines_said("#control DRAINING -> STOPPED by factory")), 1)
+        self.assertEqual(self.w.reports[-1]["control"]["state"], "STOPPED")
+        self.tick(3)
+        self.assertEqual((self.d.read("control", {})["state"], len(self.w.sends)), ("STOPPED", 1))
+
     def test_a_stop_cancels_running_jobs_back_to_their_queue_without_an_error(self):
         self.d = self.new()
         self.control("RUNNING")
