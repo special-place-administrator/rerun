@@ -37,6 +37,7 @@ TABLE = {
     "returned": _end(True, ("merged", "unsolvable")),
     "superseded": _end(False, ("unsolvable",)),
     "unsolvable": _end(True),
+    "cancelled": _end(False, ("unsolvable",)),
 }
 
 APP_STATE = {"unsolvable": "rejected"}

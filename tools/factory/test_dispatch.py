@@ -1217,15 +1217,16 @@ class Heartbeat(Base):
                                "fix_wait 0, fixing 0, checks 0, proof_wait 0, proving 0 | ended today: merged 1, blocked 0, failed 0, returned 0,"
                                " rejected 0 | by type: coder ready 0 running 1 waiting 1, reviewer ready 0 running 0 waiting 0, "
                                "researcher ready 0 running 0 waiting 0, designer ready 0 running 0 waiting 0, security ready 0 running 0 waiting 0, data ready 0 running 0 waiting 0, contracts ready 0 running 0 waiting 0 | features: none | "
-                               "unreadable 0, dead waits 0 | problems 0 open, 0 owner")
+                               "unreadable 0, dead waits 0 | problems 0 open, 0 owner | control RUNNING")
         self.assertIn(line, self.out.getvalue().splitlines())
         
         self.assertFalse([f for f in os.listdir(self.dir.name) if f.startswith("heartbeat") and f != "heartbeat"])
 
 
 class Final(Base):
-    def build_out(self, out):
+    def build_out(self, out, prs=()):
         self.tick()
+        self.w.open_prs = list(prs) or self.w.open_prs
         self.w.finish("b1", out)
         self.tick()
 
@@ -1256,8 +1257,7 @@ class Final(Base):
         self.assertIn("Pull request: #171", self.w.issue(5)["comments"][-1])
 
     def test_open_pr_found_by_title_and_other_issue_ignored(self):
-        self.w.open_prs = [{"number": 9, "title": "Y (#6)"}, {"number": 8, "title": "X (#5)"}]
-        self.build_out("BLOCKED: stuck")
+        self.build_out("BLOCKED: stuck", [{"number": 9, "title": "Y (#6)"}, {"number": 8, "title": "X (#5)"}])
         self.assertIn("Pull request: #8", self.w.issue(5)["comments"][-1])
 
     def test_other_issue_title_alone_is_ignored(self):

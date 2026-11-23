@@ -24,7 +24,7 @@ describe('factorySnapshotSchema', () => {
 
     it('refuses a state the ledger does not have', () => {
         const s = sample()
-        s.jobs[0].state = 'cancelled'
+        s.jobs[0].state = 'abandoned'
         expect(factorySnapshotSchema.safeParse(s).success).toBe(false)
     })
 
@@ -131,7 +131,7 @@ describe('factorySnapshotSchema', () => {
 
     it('refuses a history state the ledger does not have', () => {
         const s = sample()
-        s.jobs[0].history[0].state = 'cancelled'
+        s.jobs[0].history[0].state = 'abandoned'
         expect(factorySnapshotSchema.safeParse(s).success).toBe(false)
     })
 

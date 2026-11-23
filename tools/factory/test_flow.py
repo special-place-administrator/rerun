@@ -53,7 +53,7 @@ class Beat(test_dispatch.Base):
     def test_the_beat_line_carries_the_new_segments_in_the_middle(self):
         self.tick()
         parts = open(self.cfg["heartbeat_file"], encoding="utf-8").read().strip().split(" | ")
-        self.assertEqual(len(parts), 7)
+        self.assertEqual(len(parts), 8)
         self.assertTrue(parts[3].startswith("by type: coder "))
         self.assertEqual(parts[4], "features: none")
 

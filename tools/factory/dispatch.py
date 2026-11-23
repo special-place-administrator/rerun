@@ -73,7 +73,9 @@ WT_NEW_FAULT = re.compile(r"(?is)(?=.*\bwt new\b)(?!.*\bplan marker\b).*\b(?:can
 CHECKOUT_ROW, CHECKOUT_HOLD_S = 3, 60 * 60
 MERGE_TRIES = 5
 STALE_RUN_S, STALE_RUNS_A_BEAT = 2 * 3600, 15
+RUNS_ON_TTL_S = 10 * 60
 DRAIN_SEND_S = 300
+ORDER_VIEW_S = 300
 DRAIN_MAX_S = 3 * 3600
 MAX_TAKES = 3
 INBOX = "Factory follow-ups inbox"
@@ -280,7 +282,7 @@ def replan_brief(j, repo, n):
         '',
         'Do three things:',
         '1. Read the issue against today\'s dev in a throwaway checkout.',
-        '2. Rewrite each bullet of **Change**, **Files**, **Done-test** and **Run** that no longer holds where it stands, so no bullet a correction voids is left: the prover gets every **Change** and **Corrections** bullet as an ask. Then add a `**Corrections**` block to the issue with one `- ` bullet per rewrite, and run each changed Run line once. A new or changed Run line is written inside the `**Run**` block itself, not only in Corrections: the red-before-green check reads only that block. Before you save the body, run `python3 -I tools/factory/issuecheck.py <file>` from the root of the throwaway checkout and save only when it prints OK.',
+        '2. Rewrite each bullet of **Change**, **Files**, **Done-test** and **Run** that no longer holds where it stands, so no bullet a correction voids is left: the prover gets every **Change** and **Corrections** bullet as an ask. Then add a `**Corrections**` block to the issue with one `- ` bullet per rewrite, and run each changed Run line once. A new or changed Run line is written inside the `**Run**` block itself, not only in Corrections: the red-before-green check reads only that block. Before you save the body, run `python3 -I tools/factory/issuecheck.py <file>` from the root of the throwaway checkout and save only when it prints OK. When the issue has a **Proven branch** line and you change Files or Change, take that line out: you cannot push the branch again, and the builder starts from today\'s dev.',
         '3. Put the issue back in the queue: `/data/tools/bin/gh issue edit %s -R %s --add-label factory --remove-label factory-blocked`' % (j["issue"], repo),
         '',
         'If the reason is not true on today\'s dev, say so in a comment and relabel unchanged.',
@@ -573,6 +575,8 @@ class Dispatcher:
         self.renewal_unreadable = False
         self.connections = None
         self.plan_week_full = False
+        self.runs_on, self.runs_on_at = {}, None
+        self.run_state, self.off_connections, self.work, self.order_views = "RUNNING", frozenset(), None, {}
         self.pace = 1.0
         self.draining = False
         self.report_logged = set()
@@ -619,7 +623,8 @@ class Dispatcher:
             return
         now = self.now()
         why = waits.reason(j, now, holds.active(self.store, now), [
-            "%s (%s)" % (self.names.get(a, a[:8]), row["why"]) for a, row in sorted(strikes.held(self.store, now).items())])
+            "%s (%s)" % (self.names.get(a, a[:8]), row["why"]) for a, row in sorted(strikes.held(self.store, now).items())],
+            no_provider=self.no_provider(j), work=self.work)
         if why and why != j.get("wait_reason"):
             j["wait_reason"] = why
             self.save(j, "waits: " + why)
@@ -669,7 +674,112 @@ class Dispatcher:
         return {j["agent"] for j in self.jobs() if j["state"] not in END and j.get("agent") and j.get("sending") and not j.get("run")}
 
     def held_ids(self):
-        return set(strikes.held(self.store, self.now()))
+        return set(strikes.held(self.store, self.now())) | set(self.cfg.get("off_agents") or ())
+
+    def no_provider(self, j):
+        worker = j.get("worker", "coder") if j["state"] == "queued" else None
+        kinds = [t for w, t in pools.types(self.cfg).items() if worker is None or w == worker]
+        coworkers = [c["id"] for t in kinds for c in t["coworkers"]]
+        return bool(coworkers) and set(coworkers) <= set(self.cfg.get("off_agents") or ())
+
+    def control_hold(self):
+        now = self.now()
+        if self.work is not None and self.work.get("wait"):
+            holds.arm(self.store, "no work", now + 2 * self.cfg.get("poll_s", 30))
+        elif holds.until(self.store, "no work") > now:
+            holds.clear(self.store, "no work")
+        for kind in ("paused", "draining", "stopped"):
+            if kind == self.run_state.lower():
+                holds.arm(self.store, kind, now + 2 * self.cfg.get("poll_s", 30))
+            elif holds.until(self.store, kind) > now:
+                holds.clear(self.store, kind)
+        listed = (self.connections or {}).get("connections") if isinstance(self.connections, dict) else None
+        default = next((c.get("id") for c in listed or [] if isinstance(c, dict) and c.get("isDefault") is True), None)
+        self.cfg["off_agents"] = sorted(c["id"] for t in pools.types(self.cfg).values() for c in t["coworkers"]
+                                        if self.runs_on.get(c["id"], default) in self.off_connections)
+        if self.run_state == "STOPPED":
+            self.stop_running()
+        elif self.run_state == "DRAINING":
+            self.clear_queue()
+
+    def order_issues(self, issues):
+        listed, mine = {i["number"]: i for i in issues}, []
+        for n in self.work["issues"]:
+            i = listed.get(n)
+            if i is None:
+                i = self.order_view(n)
+                if i is None:
+                    continue
+                if i.get("state") == "CLOSED":
+                    if not self.store.get_job(str(n)):
+                        self.store.set(str(n), "closed_unstarted", "1")
+                        log(n, "work order: issue closed before it started, skipped")
+                    continue
+                i = dict(i, number=n, title=i.get("title") or "", body=i.get("body") or "", labels=i.get("labels") or [])
+            names = {x.get("name") if isinstance(x, dict) else x for x in i.get("labels") or []}
+            kv = self.store.get_all(str(n))
+            if PAUSED in names:
+                if not kv.get("order_paused"):
+                    self.store.set(str(n), "order_paused", "1")
+                    log(n, "work order: the issue is labelled %s, so it is skipped" % PAUSED)
+                continue
+            if kv.get("order_paused"):
+                self.store.set(str(n), "order_paused", "")
+            if not kv.get("order_consent"):
+                self.store.set(str(n), "order_consent", "1")
+            mine.append(i)
+        return mine
+
+    def order_view(self, n):
+        at, seen = self.order_views.get(n, (None, None))
+        if at is not None and self.now() - at < ORDER_VIEW_S:
+            return seen
+        try:
+            seen = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "number,title,labels,body,author,state"]) or "{}")
+        except (Error, ValueError) as e:
+            log(n, "work order: issue not read: %s" % e)
+            return None
+        self.order_views = {n: (self.now(), seen)}
+        return seen
+
+    def open_pr_for(self, n):
+        listed = json.loads(self.gh(["pr", "list", "-R", self.repo, "--state", "open", "--json", "number,headRefName,author,isCrossRepository", "--limit", "200"]) or "[]")
+        hits = [p["number"] for p in listed if isinstance(p, dict) and isinstance(p.get("number"), int) and p.get("isCrossRepository") is False
+                and str(p.get("headRefName") or "").startswith("chunk/%d-" % n) and authors.is_factory(p)]
+        return min(hits) if hits else None
+
+    def cancel_job(self, j):
+        self.to(j, "cancelled", "cancelled: the factory was %s by the owner" % ("stopped" if self.run_state == "STOPPED" else "drained"),
+                reason="cancelled by the owner", sending=None, ended_at=ledger_store.now())
+
+    def clear_queue(self):
+        for j in self.jobs():
+            if j["state"] not in END and j["state"] not in RUNNING and not j.get("sending"):
+                self.cancel_job(j)
+
+    def stop_running(self):
+        for j in self.jobs():
+            if j["state"] not in RUNNING or not j.get("run"):
+                continue
+            run = j["run"]
+            try:
+                c = self.account("cancel_run", {"agentId": j["agent"], "runId": run}) or {}
+            except Error as e:
+                log(j["issue"], "stop: run %s not cancelled yet, tried again next beat: %s" % (run, e))
+                continue
+            self.store.close_run(run, "cancelled", error="stopped by the owner", **self.kept_tokens(run))
+            log(j["issue"], "stopped by the owner: run %s cancelled (wasRunning %s)" % (run, c.get("wasRunning")))
+            self.cancel_job(j)
+        self.clear_queue()
+        for station in (self.station, self.acceptance, self.instructions, self.causes, self.classifier):
+            try:
+                station.owner_stop(log)
+            except Exception as e:
+                log("-", "stop: %s not stopped yet, tried again next beat: %s" % (type(station).__module__, str(e)[:200]))
+        try:
+            self.resolver.owner_stop(self, log)
+        except Exception as e:
+            log("-", "stop: resolver not stopped yet, tried again next beat: %s" % str(e)[:200])
 
     def strike(self, j, ran_ok):
         agent = j.get("agent")
@@ -810,6 +920,8 @@ class Dispatcher:
             return
         issues = json.loads(self.gh(["issue", "list", "-R", self.repo, "--label", self.label, "--state", "open",
                                      "--json", "number,title,labels,body,author", "--limit", "100"]))
+        if self.work is not None:
+            issues = self.order_issues(issues)
         paused = {i["number"] for i in issues if PAUSED in {x.get("name") for x in i.get("labels") or [] if isinstance(x, dict)}}
         issues = [i for i in issues if i["number"] not in paused and (authors.trusted_author(i) or "author" not in i)]
         for i in issues:
@@ -946,6 +1058,8 @@ class Dispatcher:
                     job["rechecks"] = old["rechecks"]
                 if old and old.get("pr") and json.loads(self.gh(["pr", "view", str(old["pr"]), "-R", self.repo, "--json", "state"])).get("state") == "OPEN":
                     job.update(state="review_wait", pr=old["pr"], builder=old.get("builder"))
+                elif (pr := self.open_pr_for(i["number"])) is not None:
+                    job.update(state="review_wait", pr=pr, builder=(old or {}).get("builder"))
                 rooms[parsed["worker"]] -= 1
                 self.save(job, "queued")
                 log(i["number"], ("back in at the review of #%s: " % job["pr"] if job.get("pr") else "queued: ") + i["title"][:120])
@@ -1020,7 +1134,7 @@ class Dispatcher:
                         state, why = "merged", "merged outside the delegator"
                     elif pr == "CLOSED":
                         state, why = "blocked", "pull request #%s closed without merge" % j["pr"]
-                if state is None and j["issue"] not in labelled:
+                if state is None and j["issue"] not in labelled and not self.store.get_all(str(j["issue"])).get("order_consent"):
                     state, why = "returned", "issue closed or the %s label removed" % self.label
                 if state is None:
                     continue
@@ -1213,7 +1327,7 @@ class Dispatcher:
         row = dict(r, runId=r.get("runId") or j["run"], startedAt=r.get("startedAt") or "1970-01-01T00:00:00Z")
         kind, _ = clocks.outcome(row, None, self.now(), self.cfg.get("clocks"))
         if clocks.klass(kind, row) == "transient":
-            self.store.close_run(j["run"], "error", error=why[:200], **self.kept_tokens(j["run"]))
+            self.store.close_run(j["run"], "held", error=why[:200], **self.kept_tokens(j["run"]))
             return self.transient(j, why)
         if clocks.klass(kind, row) == "plan_limit":
             return self.plan_limit_or_fail(j, why, str(r.get("error") or "-"))
@@ -1222,12 +1336,14 @@ class Dispatcher:
     def plan_limit_or_fail(self, j, why, error):
         if pools.provider_of(self.cfg, j.get("agent")) == "claude":
             return self.plan_limit(j, why, error)
-        self.store.close_run(j["run"], "error", error=why[:200], **self.kept_tokens(j["run"]))
-        strikes.fail(self.store, j["agent"], self.now(), 1, holds.PLAN_LIMIT_HOLD_S)
+        self.store.close_run(j["run"], "held", error=why[:200], **self.kept_tokens(j["run"]))
+        now = self.now()
+        hold_s = self.limit_until(j, error, now) - now
+        strikes.fail(self.store, j["agent"], now, 1, hold_s)
         j.update(state=BACK[j["state"]], retry_attempt=j.get("attempt", 1), sending=None)
         self.save(j, "spent key: %s" % error[:160])
         log(j["issue"], "spent key on %s, back to %s; that coworker held for %d s: %s" % (
-            self.names.get(j["agent"], j["agent"][:8]), j["state"], holds.PLAN_LIMIT_HOLD_S, error[:160]))
+            self.names.get(j["agent"], j["agent"][:8]), j["state"], hold_s, error[:160]))
         return None
 
     def close_stale(self):
@@ -1286,13 +1402,21 @@ class Dispatcher:
         row = self.store.db.execute("SELECT tokens_in, tokens_out, cache_read FROM fires WHERE run_id=?", (run_id,)).fetchone()
         return {"tokens_in": row[0], "tokens_out": row[1], "cache_read": row[2]} if row else {}
 
+    def limit_until(self, j, error, now):
+        own = self.runs_on.get(j.get("agent"))
+        at = renewal.limited_until(self.connections, now, [own], with_default=False) if own else \
+            renewal.limited_until(self.connections, now)
+        at = at or renewal.resets_in_text(error, now)
+        return at if at and at > now else now + holds.PLAN_LIMIT_HOLD_S
+
     def plan_limit(self, j, why, error):
-        self.store.close_run(j["run"], "error", error=why[:200], **self.kept_tokens(j["run"]))
+        self.store.close_run(j["run"], "held", error=why[:200], **self.kept_tokens(j["run"]))
         now = self.now()
-        holds.arm(self.store, "plan limit", now + holds.PLAN_LIMIT_HOLD_S)
+        until = self.limit_until(j, error, now)
+        holds.arm(self.store, "plan limit", until)
         j.update(state=BACK[j["state"]], retry_attempt=j.get("attempt", 1), sending=None)
         self.save(j, "plan limit: %s" % error[:160])
-        log(j["issue"], "plan limit, back to %s; all sending held for %d s: %s" % (j["state"], holds.PLAN_LIMIT_HOLD_S, error[:160]))
+        log(j["issue"], "plan limit, back to %s; all sending held for %d s: %s" % (j["state"], until - now, error[:160]))
         return None
 
     def failed_attempt(self, j, why, how):
@@ -1522,6 +1646,8 @@ class Dispatcher:
             if self.cfg.get("held") or holds.blocks_all(self.store, self.now()):
                 return
         if st in states.QUEUE and j.get("not_before") and self.now() < j["not_before"]:
+            return
+        if st in states.QUEUE and self.work is not None and j["issue"] not in self.work["issues"]:
             return
         if st == "queued" and not self.taking:
             return
@@ -2001,9 +2127,9 @@ class Dispatcher:
         except Exception as e:
             counts = "by type: unreadable | features: unreadable"
             log("-", "heartbeat counts: %s" % type(e).__name__)
-        line = "%s beat %d | %s | ended today: %s | %s | unreadable %d, dead waits %d | problems %d open, %d owner" % (
+        line = "%s beat %d | %s | ended today: %s | %s | unreadable %d, dead waits %d | problems %d open, %d owner | control %s" % (
             iso(self.now()), self.beats, ", ".join("%s %d" % (s, count.get(s, 0)) for s in stages),
-            ", ".join("%s %d" % (s, n) for s, n in ended.items()), counts, self.unreadable, dead, *self.resolver.counts(self))
+            ", ".join("%s %d" % (s, n) for s, n in ended.items()), counts, self.unreadable, dead, *self.resolver.counts(self), self.run_state)
         self.beat_line = line
         print(line, flush=True)
         path = self.cfg.get("heartbeat_file", "/state/heartbeat")
@@ -2016,12 +2142,30 @@ class Dispatcher:
             log("-", "heartbeat: %s" % type(e).__name__)
         inboxsort.beat(self, log)
 
+    def used_connections(self):
+        now = self.now()
+        if self.runs_on_at is not None and now - self.runs_on_at < RUNS_ON_TTL_S:
+            return set(self.runs_on.values())
+        found = {}
+        for t in pools.types(self.cfg).values():
+            for c in t.get("coworkers", []):
+                try:
+                    runs_on = (self.account("get_agent", {"agentId": c["id"]}) or {}).get("runsOn")
+                except (Error, KeyError, TypeError, ValueError):
+                    continue
+                conn = runs_on.get("connectionId") if isinstance(runs_on, dict) else None
+                if isinstance(conn, str) and conn:
+                    found[c["id"]] = conn
+        self.runs_on, self.runs_on_at = found, now
+        return set(found.values())
+
     def renewal_hold(self):
         try:
             self.connections = None
             answer = self.connections = self.account("list_ai_connections", {})
+            used = self.used_connections()
             limit = int((self.cfg.get("clocks") or {}).get("run_limit_s", 2700)) // 60 + 5
-            is_due = renewal.due(answer, limit)
+            is_due = renewal.due(answer, limit, used)
         except (Error, ValueError, KeyError, TypeError):
             if not self.renewal_unreadable:
                 self.renewal_unreadable = True
@@ -2030,17 +2174,21 @@ class Dispatcher:
             return
         self.renewal_unreadable = False
         now = self.now()
-        week = renewal.plan(answer, now) or {}
-        used, mark = week.get("weekUsedPercent"), self.cfg.get("plan_week_hold_percent")
+        limited = renewal.limited_until(answer, now, used)
+        if limited and holds.until(self.store, "plan limit") < limited:
+            log("-", "a connection the coworkers run on is at its plan limit: holding new sends until it resets at %s" % iso(limited))
+            holds.arm(self.store, "plan limit", limited)
+        week = renewal.plan(answer, now, used) or {}
+        week_used, mark = week.get("weekUsedPercent"), self.cfg.get("plan_week_hold_percent")
         resets = limits.ts(week["weekResetsAt"]) if week.get("weekResetsAt") else None
-        pace = renewal.pace(used, mark, resets, now)
+        pace = renewal.pace(week_used, mark, resets, now)
         if pace < 1 and self.cfg.get("slots") and round(pace, 1) != round(self.pace, 1):
-            log("-", "pacing the plan week: %d %% used, %.1f days left, %d of %d slots" % (used, (resets - now) / 86400, self.pace_slots(self.cfg["slots"], pace), self.cfg["slots"]))
+            log("-", "pacing the plan week: %d %% used, %.1f days left, %d of %d slots" % (week_used, (resets - now) / 86400, self.pace_slots(self.cfg["slots"], pace), self.cfg["slots"]))
         self.pace = pace
-        full = mark is not None and used is not None and used >= mark
+        full = mark is not None and week_used is not None and week_used >= mark
         if full:
             if not self.plan_week_full:
-                log("-", "plan week is %d %% used (hold mark %d %%): holding new sends until it resets or the mark is raised" % (used, mark))
+                log("-", "plan week is %d %% used (hold mark %d %%): holding new sends until it resets or the mark is raised" % (week_used, mark))
             holds.arm(self.store, "plan week", now + 2 * self.cfg.get("poll_s", 30))
         self.plan_week_full = full
         try:
@@ -2050,7 +2198,7 @@ class Dispatcher:
             was = kept = False
         if is_due and self.running():
             if not was:
-                log("-", "sign-in has %s min left: holding new sends until it is renewed" % renewal.left(answer))
+                log("-", "sign-in has %s min left: holding new sends until it is renewed" % renewal.left(answer, used))
             holds.arm(self.store, "sign-in renewal", now + 2 * self.cfg.get("poll_s", 30))
         elif kept:
             holds.clear(self.store, "sign-in renewal")
@@ -2095,6 +2243,7 @@ class Dispatcher:
         self.heartbeat()
         self.renewal_hold()
         self.drain_hold()
+        self.control_hold()
         self.cfg["held"] = holds.blocks_all(self.store, self.now())
         self.cfg["held_plan"] = holds.blocks_subscription(self.store, self.now())
         if self.reporting:
@@ -2169,7 +2318,7 @@ class Dispatcher:
                     stepped += 1
                     self.step(j)
                     self.note_wait(j)
-                if j["state"] in END and not j.get("relabelled"):
+                if j["state"] in END and j["state"] != "cancelled" and not j.get("relabelled"):
                     self.report(j)
                 if j["state"] == "returned" and j.get("relabelled"):
                     self.replan(j)
@@ -2343,7 +2492,7 @@ class Dispatcher:
         try:
             snap = snapshot.build_snapshot(self.store, self.cfg, now, held, beat=self.beats,
                                            read_epic=self.read_epic, planning=self.planners.read(self.beats),
-                                           plan=renewal.plan(self.connections, now), machine=self.machine)
+                                           plan=renewal.plan(self.connections, now, set(self.runs_on.values())), machine=self.machine)
             digest.alarm(self.store, snap.get("digest"), now)
             snap.update(self.extra())
             status = self.status(snap)

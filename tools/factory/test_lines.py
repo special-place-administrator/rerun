@@ -8,6 +8,7 @@ import unittest.mock
 
 import dispatch as D
 import lines as L
+import resolver as R
 import store as S
 from test_dispatch import HEAD, PR_LINE, Base, World, ready, wf
 
@@ -31,13 +32,26 @@ class Pair(Base):
             return L.Lines(self.cfg, None, None, now=clock, make=lambda c: D.Dispatcher(
                 c, self.worlds[c["repo"]].account, self.worlds[c["repo"]].gh, now=clock))
 
+    def seed(self, control=True, repo="o/r"):
+        s = S.Store(self.cfg["ledger_file"])
+        at = "2026-11-23T00:00:00Z"
+        if control:
+            s.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": at}))
+        s.set("-", "project", json.dumps({"repo": repo, "from": None, "by": "test", "at": at}))
+        s.add_event("project", None, s.get_all("-")["project"])
+        s.set("-", "work_order", json.dumps({"id": "seed", "repo": repo, "kind": "all_issues", "issues": [5, 6, 7, 8], "text": "", "by": "test", "at": at}))
+        s.close()
+
     def start(self, passed=True):
+        self.seed()
         self.d = self.new()
         if passed:
             self.d.kv.set("-", "ready:p/q", json.dumps({"passed": True}))
 
-    def select(self, repo, by="rob"):
+    def select(self, repo, by="rob", order=True):
         self.answer["project"] = {"repo": repo, "by": by}
+        if order:
+            self.answer["work_order"] = {"id": "seed-" + repo.replace("/", "-"), "repo": repo, "kind": "all_issues", "issues": [5, 6, 7, 8], "by": by, "at": "2026-11-23T00:00:00Z"}
 
     def lines_said(self, text):
         return [x for x in self.out.getvalue().split("\n") if text in x]
@@ -70,7 +84,7 @@ class Two(Pair):
         self.start(passed=False)
         after = dump()
         self.assertEqual(self.w.rows("SELECT v FROM kv WHERE job='-' AND k='project_of'"), [("o/r",)])
-        after["kv"] = [r for r in after["kv"] if r[1] != "project_of"]
+        after["kv"] = [r for r in after["kv"] if r[1] not in ("project_of", "control", "project", "work_order")]
         self.assertEqual(after, before)
         db.close()
         self.w.finish("b1", PR_LINE)
@@ -119,24 +133,23 @@ class Two(Pair):
         self.assertEqual(self.p.rows("SELECT v FROM kv WHERE job='-' AND k='project_of'"), [("p/q",)])
         self.assertEqual(self.p.sends[0][0], "b1")
 
-    def test_a_switch_with_jobs_in_every_state_ends_each_or_keeps_it_moving_and_none_twice(self):
+    def test_a_switch_lets_the_job_of_the_work_order_finish_and_sends_none_twice(self):
         self.w.issues += [issue(6, "Six"), issue(7, "Seven", deps="#6")]
         self.w.open_numbers.add(6)
         self.start()
         self.to_review()
-        self.assertEqual([r[0] for r in self.w.rows("SELECT state FROM jobs ORDER BY job")], ["reviewing", "building", "waiting"])
+        self.assertEqual([r[0] for r in self.w.rows("SELECT state FROM jobs ORDER BY job")], ["reviewing"])
         self.select("p/q")
         self.tick()
         self.w.issues.append(issue(8, "Eight"))
         self.tick()
         self.assertEqual(self.p.reports[-1]["repo"], "p/q")
-        self.assertEqual(self.p.reports[-1]["finishing"], [{"repo": "o/r", "jobs": 2}])
+        self.assertEqual(self.p.reports[-1]["finishing"], [{"repo": "o/r", "jobs": 1}])
         self.w.finish("r1", "ok\nVERDICT: ACCEPT @abcdef1")
-        self.w.finish("b2", "tried\nBLOCKED: the issue names no file")
         self.tick(2)
         self.w.workflows[HEAD] = [wf("ci", "success")]
         self.tick(4)
-        self.assertEqual(self.w.rows("SELECT job, state FROM jobs ORDER BY job"), [("5", "merged"), ("6", "blocked"), ("7", "waiting")])
+        self.assertEqual(self.w.rows("SELECT job, state FROM jobs ORDER BY job"), [("5", "merged")])
         self.assertEqual(len(self.w.merges), 1)
         self.assertEqual(self.w.cancels + self.p.cancels, [])
         firsts = [(a, m.split("\n")[0]) for a, m, _ in self.w.sends + self.p.sends]
@@ -149,7 +162,7 @@ class Two(Pair):
         self.select("o/r")
         self.tick(3)
         self.assertEqual(self.d.active, "o/r")
-        self.assertIn("8", self.job_ids())
+        self.assertIn("6", self.job_ids())
 
     def test_two_lines_never_use_the_same_coworker_at_once(self):
         self.start()
@@ -181,7 +194,7 @@ class Two(Pair):
             self.assertEqual(self.d.active, "o/r")
         self.assertEqual(len(self.lines_said("project answer not understood: the factory stays on o/r")), 1)
         self.assertEqual(self.p.sends, [])
-        self.assertEqual(self.w.rows("SELECT COUNT(*) FROM events WHERE key='project'"), [(0,)])
+        self.assertEqual(self.w.rows("SELECT COUNT(*) FROM events WHERE key='project' AND old != 'null'"), [(0,)])
 
     def test_a_project_whose_readiness_did_not_pass_here_is_refused_whatever_the_app_says(self):
         self.start(passed=False)
@@ -200,7 +213,7 @@ class Two(Pair):
         self.tick(3)
         self.select("o/r", by="rob@example.com")
         self.tick(3)
-        rows = self.w.rows("SELECT old, new FROM events WHERE key='project' ORDER BY id")
+        rows = self.w.rows("SELECT old, new FROM events WHERE key='project' AND old != 'null' ORDER BY id")
         self.assertEqual([json.loads(r[0]) for r in rows], ["o/r", "p/q"])
         first = json.loads(json.loads(rows[0][1]))
         self.assertEqual((first["repo"], first["from"], first["by"]), ("p/q", "o/r", "rob@example.com"))
@@ -238,7 +251,7 @@ class Two(Pair):
 
     def test_who_made_the_switch_is_one_printable_line_of_at_most_100_characters(self):
         self.start()
-        self.select("p/q", by="rob\n2026-11-19T00:00:00Z #- forged\x00" + "x" * 200)
+        self.select("p/q", by="rob\n2026-11-19T00:00:00Z #- forged\x00" + "x" * 200, order=False)
         self.tick(3)
         saved = json.loads(self.w.rows("SELECT v FROM kv WHERE job='-' AND k='project'")[0][0])
         self.assertEqual(saved["by"], ("rob 2026-11-19T00:00:00Z #- forged " + "x" * 200)[:100])
@@ -254,6 +267,7 @@ class Two(Pair):
             setattr(D, name, fake)
         self.addCleanup(setattr, L, "Lines", real)
         L.Lines = lambda *a, **k: seen.append(k) or real(*a, **k)
+        self.seed()
         with unittest.mock.patch.dict(os.environ, {"DISPATCH_ACCOUNT_URL": "http://account.invalid"}), contextlib.redirect_stdout(self.out):
             self.assertEqual(D.main(["once"]), 0)
         self.assertIs(seen[0]["mod"], D)
@@ -287,6 +301,7 @@ class Drain(Pair):
         del self.answer["check"]
         self.w.clock += 5
         self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(self.w.clock - 1)}
+        self.answer["work_order"] = {"id": "pq", "repo": "p/q", "kind": "all_issues", "issues": [5], "by": "rob", "at": D.iso(self.w.clock)}
         self.tick(3)
         self.assertEqual(self.d.active, "p/q")
         self.assertEqual(self.p.sends, [])
@@ -302,6 +317,320 @@ class Drain(Pair):
         order = [said.index(x) for x in ("#project o/r -> p/q", "pull request #", "#project p/q starts")]
         self.assertEqual(order, sorted(order))
         self.assertGreater(said.rindex("build -> "), order[-1])
+
+
+class Rechecks(Pair):
+    def pushes(self):
+        return sum(1 for c in self.d.gh.calls if "POST" in c and any(x.endswith("/git/refs") for x in c))
+
+    def test_one_fresh_click_is_one_check_and_neither_skew_nor_repeats_drive_more_writes(self):
+        self.cfg["project_owners"] = ["o", "p"]
+        self.start(passed=False)
+        self.d.gh = Ready()
+        self.w.clock = 1000.7
+        self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(1000.5, ms=True)}
+        self.tick()
+        self.assertEqual((self.d.active, self.pushes()), ("p/q", 1))
+        self.assertEqual(len(self.lines_said("#project o/r -> p/q by rob")), 1)
+        self.assertEqual(len(self.lines_said("readiness of p/q asked by rob: passed")), 1)
+        self.select("o/r")
+        self.tick()
+        self.w.clock += 10
+        self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(self.w.clock, ms=True)}
+        self.tick()
+        self.assertEqual((self.d.active, self.pushes()), ("p/q", 1))
+        self.select("o/r")
+        self.tick()
+        self.answer["check"] = {"repo": "p/q", "at": D.iso(self.w.clock + 7200, ms=True)}
+        for _ in range(6):
+            self.w.clock += 30
+            self.tick()
+        self.assertEqual(self.pushes(), 2)
+        for n in range(40):
+            self.w.clock += 61
+            self.answer["check"] = {"repo": "p/q", "at": D.iso(self.w.clock, ms=True)}
+            self.tick()
+        self.assertLessEqual(self.pushes(), 2 + L.READINESS_PER_HOUR)
+        self.assertEqual(len(self.lines_said("readiness checks per hour")), 1)
+
+
+class Controls(Pair):
+    def new(self):
+        self.seed(control=False)
+        return super().new()
+
+    def run_on(self, conns, off=()):
+        inner = self.w.account
+
+        def account(tool, args, timeout=30):
+            if tool == "list_ai_connections":
+                return {"connections": [{"id": c, "provider": "claude", "isDefault": c == "c1", "signIn": None, "planLimits": None} for c in sorted(set(conns.values()))]}
+            if tool == "get_agent":
+                return dict(inner(tool, args), runsOn={"connectionId": conns.get(args["agentId"], "c1")})
+            return inner(tool, args)
+
+        self.w.account = account
+        if off:
+            self.answer["providers"] = {"off": list(off), "by": "rob", "at": D.iso(self.w.clock)}
+
+    def control(self, state):
+        self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock)}
+
+    def test_a_fresh_factory_is_paused_and_a_pause_starts_nothing_new_while_running_work_finishes(self):
+        self.d = self.new()
+        self.tick(3)
+        self.assertEqual(self.w.sends, [])
+        self.assertEqual(self.d.lines["o/r"].run_state, "PAUSED")
+        self.control("RUNNING")
+        self.tick(2)
+        self.assertEqual((self.state(), len(self.w.sends)), ("building", 1))
+        self.control("PAUSED")
+        self.tick()
+        self.w.finish("b1", PR_LINE)
+        self.tick(3)
+        self.assertEqual((self.state(), len(self.w.sends)), ("review_wait", 1))
+        self.assertEqual(len(self.lines_said("#control RUNNING -> PAUSED by rob")), 1)
+        self.assertIn("control PAUSED", self.d.lines["o/r"].beat_line)
+        self.assertEqual(self.w.reports[-1]["control"]["state"], "PAUSED")
+
+    def jobs_by_state(self):
+        return sorted((j["issue"], j["state"]) for j in self.d.lines["o/r"].store.jobs())
+
+    def waiting_job(self):
+        self.d.lines["o/r"].store.put_job("6", "waiting", {"issue": 6, "title": "Six", "recheck": True, "rechecks": 1})
+
+    def test_a_normal_stop_lets_the_running_step_finish_starts_no_follow_up_cancels_the_queue_and_ends_stopped(self):
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(2)
+        self.assertEqual(self.state(), "building")
+        self.waiting_job()
+        self.control("DRAINING")
+        self.tick(2)
+        self.assertEqual(self.jobs_by_state(), [(5, "building"), (6, "cancelled")])
+        self.assertEqual((len(self.w.sends), self.d.read("control", {})["state"]), (1, "DRAINING"))
+        self.w.finish("b1", PR_LINE)
+        self.tick(3)
+        self.assertEqual((self.jobs_by_state(), len(self.w.sends), self.w.cancels), ([(5, "cancelled"), (6, "cancelled")], 1, []))
+        self.assertEqual(self.w.rows("SELECT status FROM fires"), [("done",)])
+        self.assertEqual(self.d.read("control", {})["state"], "STOPPED")
+        self.assertEqual(len(self.lines_said("#control DRAINING -> STOPPED by factory")), 1)
+        self.assertEqual(self.w.reports[-1]["control"]["state"], "STOPPED")
+        self.assertEqual(self.d.lines["o/r"].store.failures(), [])
+        self.control("RUNNING")
+        self.tick(3)
+        self.assertEqual((self.jobs_by_state(), len(self.w.sends)), ([(5, "cancelled"), (6, "cancelled")], 1))
+
+    def test_a_hard_stop_leaves_nothing_in_flight_and_nothing_queued_without_an_error(self):
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(2)
+        self.assertEqual(self.state(), "building")
+        self.waiting_job()
+        self.control("STOPPED")
+        self.tick()
+        line = self.d.lines["o/r"]
+        self.assertEqual(self.w.cancels, [(self.w.order[-1][1], self.w.order[-1][0])])
+        self.assertEqual(self.jobs_by_state(), [(5, "cancelled"), (6, "cancelled")])
+        self.assertEqual((self.w.rows("SELECT status FROM fires"), line.store.running(), line.store.pending()), ([("cancelled",)], [], []))
+        self.assertEqual(line.store.failures(), [])
+        self.control("RUNNING")
+        self.tick(3)
+        self.assertEqual((self.jobs_by_state(), len(self.w.sends)), ([(5, "cancelled"), (6, "cancelled")], 1))
+
+    def test_a_hard_stop_ends_planner_and_station_work_cancelled_and_running_again_does_not_resume_it(self):
+        self.d = self.new()
+        line = self.d.lines["o/r"]
+        for job, stage, agent, run in (("plan:7", "review", "p1", "pr1"), ("accept:8", "accept", "r1", "ar1"), ("9", "resolve", "x1", "rr1")):
+            line.store.fired(line.store.intent(job, "", stage, coworker=agent), run)
+            self.w.runs[run] = {"status": "running"}
+        line.store.set_many("plan:7", (("state", "reviewing"), ("agent", "p1"), ("copy", "1"), ("run", "pr1"), ("lens", "0"), ("started", "2026-11-23T00:00:00Z")))
+        line.store.set_many("plan:10", (("state", "unsent"),))
+        line.store.set_many("accept:8", (("state", "running"), ("agent", "r1"), ("copy", 1), ("run", "ar1"), ("sends", 1), ("started", self.w.clock)))
+        line.store.set_many("accept:11", (("state", "unsent"),))
+        line.store.set(R.KV, "dev red", json.dumps({"state": "resolving", "issue": 9, "agent": "x1", "copy": 1, "run": "rr1", "sends": 1, "sent_at": self.w.clock}))
+        line.store.set(R.KV, "disk", json.dumps({"state": "resolve_wait", "issue": 12, "sends": 0}))
+        self.control("STOPPED")
+        self.tick()
+        self.assertEqual(sorted(self.w.cancels), [("p1", "pr1"), ("r1", "ar1"), ("x1", "rr1")])
+        self.assertEqual(self.w.rows("SELECT DISTINCT status FROM fires"), [("cancelled",)])
+
+        def ended():
+            problems = line.store.get_all(R.KV)
+            return ([line.store.get_all(k)["state"] for k in ("plan:7", "plan:10", "accept:8", "accept:11")]
+                    + [json.loads(problems[k])["state"] for k in ("dev red", "disk")])
+
+        self.assertEqual(ended(), ["cancelled"] * 6)
+        self.assertEqual(line.store.failures(), [])
+        self.control("RUNNING")
+        self.tick(3)
+        self.assertEqual((ended(), len(self.w.sends)), (["cancelled"] * 6, 0))
+
+    def test_an_off_connection_is_never_fired_and_its_work_goes_to_a_coworker_on_an_enabled_one(self):
+        self.w.issues.append(issue(6, "Six"))
+        self.w.open_numbers.add(6)
+        self.run_on({"b1": "c1", "b2": "c2", "r1": "c2", "r2": "c2"}, off=["c1"])
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(4)
+        self.assertEqual([a for a, _, _ in self.w.sends], ["b2"])
+        self.assertEqual(self.w.reports[-1]["providers"]["off"], ["c1"])
+
+    def test_with_every_connection_off_jobs_wait_for_an_enabled_provider(self):
+        self.run_on({"b1": "c1", "b2": "c2"}, off=["c1", "c2"])
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(4)
+        self.assertEqual(self.w.sends, [])
+        self.assertEqual(self.state(), "queued")
+        self.assertEqual(self.d.lines["o/r"].store.get_job("5")["wait_reason"], "no enabled provider")
+
+
+class WorkOrders(Pair):
+    def order(self, kind, issues, repo="o/r"):
+        self.answer["work_order"] = {"id": "wo-%d" % len(self.w.reports), "repo": repo, "kind": kind, "issues": issues, "by": "rob", "at": D.iso(self.w.clock)}
+
+    def running_factory(self):
+        self.d = self.new()
+        self.d.kv.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
+
+    def test_nothing_is_picked_up_without_an_owner_chosen_project_and_a_work_order(self):
+        self.running_factory()
+        self.tick(3)
+        self.assertEqual((self.w.sends, self.d.lines["o/r"].store.jobs()), ([], []))
+        self.assertEqual(self.w.reports[-1]["work_order"]["wait"], "no project chosen")
+        self.select("o/r", order=False)
+        self.tick(3)
+        self.assertEqual((self.w.sends, self.d.lines["o/r"].store.jobs()), ([], []))
+        self.assertEqual(self.w.reports[-1]["work_order"]["wait"], "no work order")
+        self.order("issue", [5])
+        self.tick(3)
+        self.assertEqual((self.state(), len(self.w.sends)), ("building", 1))
+        self.assertEqual({k: self.w.reports[-1]["work_order"][k] for k in ("kind", "issues", "current", "done", "wait")},
+                         {"kind": "issue", "issues": [5], "current": 5, "done": [], "wait": None})
+
+    def test_all_issues_run_one_at_a_time_in_the_order_given(self):
+        self.w.issues.append(issue(6, "Six"))
+        self.w.open_numbers.add(6)
+        self.running_factory()
+        self.select("o/r")
+        self.order("all_issues", [6, 5])
+        self.tick(4)
+        line = self.d.lines["o/r"]
+        self.assertEqual([(j["issue"], j["state"]) for j in line.store.jobs()], [(6, "building")])
+        self.assertEqual(len(self.w.sends), 1)
+        six = line.store.get_job("6")
+        line.store.put_job("6", "merged", dict(six, state="merged", relabelled=True, commented=True))
+        self.tick(4)
+        self.assertEqual(sorted((j["issue"], j["state"]) for j in line.store.jobs()), [(5, "building"), (6, "merged")])
+        self.assertEqual(len(self.w.sends), 2)
+        self.assertEqual({k: self.w.reports[-1]["work_order"][k] for k in ("current", "done")}, {"current": 5, "done": [6]})
+
+
+class OrderRules(Pair):
+    order = WorkOrders.order
+    running_factory = WorkOrders.running_factory
+
+    def ready_order(self, kind, issues):
+        self.running_factory()
+        self.select("o/r", order=False)
+        self.order(kind, issues)
+
+    def act(self, action, n):
+        self.answer["work_order_action"] = {"action": action, "order_id": self.answer["work_order"]["id"], "issue": n, "by": "rob", "at": D.iso(self.w.clock)}
+
+    def order_jobs(self):
+        return sorted((j["issue"], j["state"]) for j in self.d.lines["o/r"].store.jobs())
+
+    def block(self, n):
+        line = self.d.lines["o/r"]
+        j = line.store.get_job(str(n))
+        line.store.put_job(str(n), "blocked", dict(j, state="blocked", relabelled=True, commented=True, reason="x", sending=None))
+
+    def test_an_issue_of_the_order_needs_no_label_but_waits_while_its_body_is_not_cut_shaped(self):
+        self.w.unlabelled.add(5)
+        self.w.issues.append({"number": 6, "title": "Six", "body": "just some words", "comments": []})
+        self.ready_order("issue", [6])
+        self.tick(3)
+        self.assertEqual((self.order_jobs(), self.w.reports[-1]["work_order"]["wait"]), ([], "issue #6 body is not cut-shaped"))
+        self.assertEqual(self.w.reports[-1]["work_order"]["current"], 6)
+        self.order("issue", [5])
+        self.tick(3)
+        self.assertEqual(self.order_jobs(), [(5, "building")])
+
+    def test_both_stops_cancel_the_work_order(self):
+        self.ready_order("all_issues", [5])
+        self.tick(2)
+        self.control("DRAINING")
+        self.tick(2)
+        self.assertEqual((self.w.reports[-1]["work_order"]["kind"], self.w.reports[-1]["work_order"]["wait"]), (None, "no work order"))
+        self.order("issue", [5])
+        self.control("STOPPED")
+        self.tick(2)
+        self.assertEqual((self.w.reports[-1]["work_order"]["kind"], self.w.reports[-1]["work_order"]["wait"]), (None, "no work order"))
+        self.assertEqual(len(self.lines_said("cancelled by the stop")), 2)
+
+    def control(self, state):
+        self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock)}
+
+    def test_a_failed_job_halts_the_sequence_until_the_owner_retries_or_skips_it(self):
+        self.w.issues.append(issue(6, "Six"))
+        self.w.open_numbers.add(6)
+        self.ready_order("all_issues", [5, 6])
+        self.tick(3)
+        self.block(5)
+        self.tick(3)
+        self.assertEqual((self.order_jobs(), self.w.reports[-1]["work_order"]["wait"]), ([(5, "blocked")], "job #5 failed: retry or skip"))
+        self.act("retry", 5)
+        self.tick(3)
+        self.assertEqual(self.order_jobs(), [(5, "building")])
+        self.assertEqual(self.d.lines["o/r"].store.get_job("5")["take"], 2)
+        self.block(5)
+        self.tick(3)
+        self.assertEqual(self.w.reports[-1]["work_order"]["wait"], "job #5 failed: retry or skip")
+        self.act("skip", 5)
+        self.tick(3)
+        self.assertEqual(self.order_jobs(), [(5, "blocked"), (6, "building")])
+        self.assertEqual(self.w.reports[-1]["work_order"]["skipped"], [5])
+
+    def test_all_issues_skips_an_issue_labelled_factory_paused(self):
+        self.w.issues[0]["labels"] = ["factory", "factory-paused"]
+        self.w.issues.append(dict(issue(6, "Six"), labels=["factory"]))
+        self.w.open_numbers.add(6)
+        self.ready_order("all_issues", [5, 6])
+        self.tick(4)
+        self.assertEqual(self.order_jobs(), [(6, "building")])
+
+    def test_a_second_pick_of_an_issue_with_an_open_pull_request_takes_that_pull_request_up_again(self):
+        self.w.open_prs = [{"number": 42, "title": "Fix x (#5)", "headRefName": "chunk/5-a", "author": {"login": "app/moldwright-factory"}, "isCrossRepository": False}]
+        self.ready_order("issue", [5])
+        self.tick(3)
+        line = self.d.lines["o/r"]
+        self.assertEqual([(j["issue"], j.get("pr")) for j in line.store.jobs()], [(5, 42)])
+        self.assertFalse([a for a, _, _ in self.w.sends if a.startswith("b")])
+
+    def test_only_a_factory_pull_request_on_its_chunk_branch_in_this_repo_is_taken_up(self):
+        me = {"login": "app/moldwright-factory"}
+        self.w.open_prs = [
+            {"number": 41, "title": "Fix x (#5)", "headRefName": "chunk/5-a", "author": me, "isCrossRepository": True, "body": "fixes #5"},
+            {"number": 42, "title": "Fix x (#5)", "headRefName": "chunk/5-b", "author": {"login": "stranger"}, "isCrossRepository": False, "body": "fixes #5"},
+            {"number": 43, "title": "Fix x (#5)", "headRefName": "fix-5", "author": me, "isCrossRepository": False, "body": "fixes #5"},
+            {"number": 44, "title": "Other", "headRefName": "chunk/5-c", "author": me, "isCrossRepository": False, "body": ""}]
+        self.ready_order("issue", [5])
+        self.tick(3)
+        self.assertEqual([(j["issue"], j.get("pr")) for j in self.d.lines["o/r"].store.jobs()], [(5, 44)])
+
+    def test_a_long_order_views_only_its_current_issue_and_at_most_once_in_five_minutes(self):
+        self.w.unlabelled.add(5)
+        self.ready_order("all_issues", list(range(5, 205)))
+        views = lambda: sum(1 for a in self.w.gh_calls if a[:2] == ["issue", "view"] and "number,title,labels,body,author,state" in a)
+        for _ in range(8):
+            self.tick()
+            self.w.clock += 30
+        self.assertEqual((views(), self.order_jobs()), (1, [(5, "building")]))
+        self.w.clock += 300
+        self.tick()
+        self.assertEqual(views(), 2)
 
 
 if __name__ == "__main__":

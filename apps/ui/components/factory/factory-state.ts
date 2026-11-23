@@ -1,4 +1,4 @@
-import { CheckCheck, Clock, CircleX, GitMerge, Hammer, Hourglass, Link2, OctagonPause, OctagonX, ScanEye, ShieldCheck, TriangleAlert, Undo2, Wrench, type LucideIcon } from 'lucide-react'
+import { Ban, CheckCheck, Clock, CircleX, GitMerge, Hammer, Hourglass, Link2, OctagonPause, OctagonX, ScanEye, ShieldCheck, TriangleAlert, Undo2, Wrench, type LucideIcon } from 'lucide-react'
 import type { FactoryJobState } from '@moldwright/contracts'
 import { STATUS_COLOR } from './factory-scene'
 
@@ -22,6 +22,7 @@ export const JOB_STATE_VIEW: Record<FactoryJobState, { icon: LucideIcon; color: 
     returned: { icon: Undo2, color: GREY },
     superseded: { icon: CheckCheck, color: GREY, dim: true },
     unsolvable: { icon: OctagonX, color: STATUS_COLOR.rejected },
+    cancelled: { icon: Ban, color: GREY, dim: true },
 }
 
 export type JobGroup = 'active' | 'waiting' | 'ended'
@@ -29,7 +30,7 @@ export type JobGroup = 'active' | 'waiting' | 'ended'
 export const JOB_GROUPS: Record<JobGroup, FactoryJobState[]> = {
     active: ['building', 'review_wait', 'reviewing', 'fix_wait', 'fixing', 'checks', 'proof_wait', 'proving'],
     waiting: ['waiting', 'queued'],
-    ended: ['merged', 'rejected', 'blocked', 'failed', 'returned', 'superseded', 'unsolvable'],
+    ended: ['merged', 'rejected', 'blocked', 'failed', 'returned', 'superseded', 'unsolvable', 'cancelled'],
 }
 
 export function groupOf(state: FactoryJobState): JobGroup {

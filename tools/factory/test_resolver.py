@@ -330,7 +330,7 @@ class Station(Resolving):
         self.assertEqual(p["comments"], ["```\nESCALATE: Rob runs `gh label create x`\n```"])
         self.assertEqual(len(self.house()), 1)
         line = open(self.cfg["heartbeat_file"], encoding="utf-8").read().strip()
-        self.assertTrue(line.endswith(" | problems 1 open, 1 owner"), line)
+        self.assertTrue(line.endswith(" | problems 1 open, 1 owner | control RUNNING"), line)
         self.w.unlabel(p["number"], "owner", "special-place-administrator")
         self.tick()
         self.assertEqual(len(self.house()), 2)

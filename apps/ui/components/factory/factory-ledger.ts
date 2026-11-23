@@ -143,7 +143,14 @@ export type LedgerFilter = 'running' | 'waiting' | 'problems' | 'doneToday' | 'w
 
 const RUNNING = new Set<FactoryJobState>(['building', 'reviewing', 'proving', 'fixing', 'checks'])
 const WAITING = new Set<FactoryJobState>(['waiting', 'queued', 'review_wait', 'proof_wait', 'fix_wait'])
-const PROBLEMS = new Set<FactoryJobState>(['blocked', 'failed', 'returned', 'rejected'])
+const PROBLEMS = new Set<FactoryJobState>(['blocked', 'failed', 'rejected'])
+
+export function endedOnHold(runs: readonly { runId: string | null; status: string }[]): boolean {
+    const sent = runs.filter((r) => r.runId !== null)
+    return sent.length > 0 && sent[sent.length - 1].status === 'held'
+}
+
+const isProblem = (t: LedgerTask) => PROBLEMS.has(t.state) && !endedOnHold(t.subtasks)
 
 export function filterLedger(epics: LedgerEpic[], filter: LedgerFilter | null, now: number): LedgerEpic[] {
     if (filter === null) return epics
@@ -152,7 +159,7 @@ export function filterLedger(epics: LedgerEpic[], filter: LedgerFilter | null, n
         let match: (t: LedgerTask) => boolean
         if (filter === 'running') match = (t) => RUNNING.has(t.state)
         else if (filter === 'waiting') match = (t) => WAITING.has(t.state)
-        else if (filter === 'problems') match = (t) => PROBLEMS.has(t.state)
+        else if (filter === 'problems') match = isProblem
         else if (filter === 'doneToday') match = (t) => t.state === 'merged' && doneToday(t, now)
         else if (filter === 'wave') {
             const wave = e.layers.find((l) => l.tasks.some((t) => t.state !== 'merged'))
@@ -179,7 +186,7 @@ export function chipCounts(epics: LedgerEpic[], now: number): ChipCounts {
     for (const t of allTasks(epics)) {
         if (RUNNING.has(t.state)) c.running++
         if (WAITING.has(t.state)) c.waiting++
-        if (PROBLEMS.has(t.state)) c.problems++
+        if (isProblem(t)) c.problems++
         if (t.state === 'merged' && doneToday(t, now)) c.doneToday++
         for (const d of new Set([...(t.department ? [t.department] : []), ...t.departments])) c.byDepartment[d] = (c.byDepartment[d] ?? 0) + 1
     }

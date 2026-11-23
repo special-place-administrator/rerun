@@ -3,15 +3,17 @@ import datetime
 import json
 import os
 import re
+import stat
 
 import factory
 
-REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_.-]{1,100}$")
+REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/(?!\.\.?$)[A-Za-z0-9_.-]{1,100}$")
 READINESS_LINES = ("owner", "read", "issues", "base", "proof", "label", "push")
 PROOF_CHECK = "Done-test red before green"
 PROBE_MESSAGES = {
     "bad_path": "the path is empty or not a plain path",
     "no_root": "the factory has no folder set for host projects",
+    "bad_root": "the factory's folder for host projects may not be the whole disk or a home folder",
     "outside_root": "the path is outside the folder the factory may read",
     "not_found": "path not found on the factory host",
     "not_git": "not a git repository",
@@ -55,7 +57,7 @@ def report(repos, ready, probes):
 
 
 def stamp(now):
-    return datetime.datetime.fromtimestamp(now, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def readiness(gh, repo, now, base="dev", owners=factory.OWNERS):
@@ -125,12 +127,25 @@ def _inside(path, root):
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def _origin(config):
+def _read_inside(config, target):
     try:
-        with open(config, encoding="utf-8", errors="replace") as f:
-            text = f.read(CONFIG_MAX_BYTES)
+        fd = os.open(config, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
     except OSError:
         return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode) or not _inside(os.path.realpath("/proc/self/fd/%d" % fd), target):
+            return None
+        with os.fdopen(fd, encoding="utf-8", errors="replace") as f:
+            fd = None
+            return f.read(CONFIG_MAX_BYTES)
+    except OSError:
+        return None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+def _origin(text):
     section = None
     for raw in text.splitlines():
         line = raw.strip()
@@ -149,6 +164,8 @@ def probe(path, root):
     if not root:
         return Probe(shown, False, "no_root", PROBE_MESSAGES["no_root"])
     base = os.path.realpath(root)
+    if base in ("/", os.path.realpath(os.path.expanduser("~")), os.path.realpath(os.environ.get("HOME") or "/")):
+        return Probe(shown, False, "bad_root", PROBE_MESSAGES["bad_root"])
     target = os.path.realpath(os.path.join(base, path))
     if not _inside(target, base):
         return Probe(shown, False, "outside_root", PROBE_MESSAGES["outside_root"])
@@ -158,15 +175,18 @@ def probe(path, root):
     config = os.path.realpath(os.path.join(git, "config"))
     if os.path.islink(git) or not os.path.isdir(git) or not _inside(config, target) or not os.path.isfile(config):
         return Probe(target, False, "not_git", PROBE_MESSAGES["not_git"])
-    m = GITHUB_ORIGIN.match(_origin(config) or "")
+    text = _read_inside(config, target)
+    if text is None:
+        return Probe(target, False, "not_git", PROBE_MESSAGES["not_git"])
+    m = GITHUB_ORIGIN.match(_origin(text) or "")
     if not m or not REPO.match(m.group(1)):
         return Probe(target, False, "no_github_remote", PROBE_MESSAGES["no_github_remote"])
     return Probe(target, True, repo=m.group(1))
 
 
-def accessible(gh):
+def accessible(gh, owners=factory.OWNERS):
     try:
         out = gh(["api", "--paginate", "installation/repositories", "--jq", ".repositories[].full_name"])
     except Exception:
         out = gh(["api", "--paginate", "user/repos?per_page=100", "--jq", ".[].full_name"])
-    return sorted({n.strip() for n in out.splitlines() if REPO.match(n.strip())})[:REPOS_MAX]
+    return sorted({n.strip() for n in out.splitlines() if REPO.match(n.strip()) and n.strip().split("/")[0] in owners})[:REPOS_MAX]

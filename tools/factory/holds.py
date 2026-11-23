@@ -2,7 +2,7 @@ import json
 
 PLAN_LIMIT_HOLD_S = 30 * 60
 
-KINDS = ("update", "plan limit", "plan week", "sign-in renewal", "disk", "load", "checkout")
+KINDS = ("stopped", "draining", "paused", "no work", "update", "plan limit", "plan week", "sign-in renewal", "disk", "load", "checkout")
 SUBSCRIPTION_KINDS = ("plan limit", "plan week", "sign-in renewal")
 
 _JOB = "-"
@@ -27,6 +27,10 @@ def _rows(st):
         except (ValueError, KeyError, TypeError):
             continue
     return rows
+
+
+def until(st, kind):
+    return _rows(st).get(kind, 0)
 
 
 def active_kinds(st, now):
