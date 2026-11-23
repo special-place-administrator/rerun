@@ -18,6 +18,7 @@ import { McpEnvRefError, resolveServerSecrets, unsetEnvRefs } from './mcp-resolv
 import { toToolInputSchema } from './mcp-schema.js'
 import { logger } from '../lib/logger.js'
 import { readSharedEnvSync } from '../agents/shared-env.js'
+import { EVEROS_MCP_SERVER } from './mcp-everos.js'
 
 export type McpSpawn = { cwd: string; env: Record<string, string> }
 export type McpTool = Awaited<ReturnType<Client['listTools']>>['tools'][number]
@@ -123,11 +124,21 @@ export class McpServerDisabledError extends Error {
 
 const AGENT_ONLY_ENV_KEYS = new Set(['EVEROS_TOKEN'])
 
-const sharedEnvForMcp = (): Record<string, string> => Object.fromEntries(Object.entries(readSharedEnvSync()).filter(([key]) => !AGENT_ONLY_ENV_KEYS.has(key)))
+const isEverosServer = (server: McpServer): boolean => server.command === EVEROS_MCP_SERVER.command && JSON.stringify(server.args) === JSON.stringify(EVEROS_MCP_SERVER.args)
+
+const sharedEnvForMcp = (server: McpServer): Record<string, string> =>
+    Object.fromEntries(Object.entries(readSharedEnvSync()).filter(([key]) => !AGENT_ONLY_ENV_KEYS.has(key) || isEverosServer(server)))
+
+const resolvableEnv = (agentId: string, server: McpServer, env: Record<string, string>): Record<string, string> => ({ ...sharedEnvForMcp(server), ...env, RERUN_WORKSPACE: workspaceDir(agentId) })
+
+export function missingMcpEnv(agentId: string, server: McpServer, env: Record<string, string>): string[] {
+    const resolvable = resolvableEnv(agentId, server, env)
+    return unsetEnvRefs(Object.values(withKnownEnvRefs(server, resolvable).env), resolvable)
+}
 
 export async function prepareMcpServer(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<McpServer> {
     if (!isEnabledMcpServer(server)) throw new McpServerDisabledError(server.name)
-    const resolvable = { ...sharedEnvForMcp(), ...env, RERUN_WORKSPACE: workspaceDir(agentId) }
+    const resolvable = resolvableEnv(agentId, server, env)
     const known = withKnownEnvRefs(await withAuth(agentId, server), resolvable)
     const declared = { ...known, env: spawnSafeEnv(known.env) }
     const refused = templateRefusedEnvKeys(known.env)
