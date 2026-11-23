@@ -19,7 +19,7 @@ const ROLE: Record<string, 'building' | 'reviewing'> = { code: 'building', LARRY
 
 type Scene = { tiles: Tile[]; links: TileLink[]; containers: Container[] }
 
-const CAPS: Record<string, number> = JSON.parse(readFileSync(path.join(ROOT, 'tools/factory/control-bounds.json'), 'utf8')).copies
+const CAPS: Record<string, number> = { code: 8, LARRY: 3, LINUS: 4, BRUCE: 4, search: 4 }
 
 function live(copies: number | ((who: string) => number)): Scene {
     const count = typeof copies === 'number' ? () => copies : copies
