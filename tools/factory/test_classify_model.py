@@ -37,6 +37,7 @@ class ClassifyModel(Base):
         self.assertEqual(len(self.w.sends), 1)
 
     def test_at_most_five_runs_a_beat(self):
+        self.cfg["classify"]["model_runs"] = 5
         for n in range(300, 307):
             self.seed(n)
         self.tick()

@@ -23,7 +23,6 @@ EVERY = 5
 MAX_QUEUE = 20
 FIXED = re.compile(r"(?i)\balready\b.*\b(built|cut|merged|done|fixed)\b")
 RUN_LIMIT = 2700
-PARALLEL = 2
 OTHER_WORKERS = ", ".join("`%s`" % w for w in cutshape.WORKERS if w not in ("coder", "reviewer"))
 GOAL = [{"prefix": "CUT:", "rest": "sentence"}, {"prefix": "BLOCKED:", "rest": "sentence"}]
 PLAN_GOAL = [{"prefix": "PLAN:", "rest": "sentence"}, {"prefix": "BLOCKED:", "rest": "sentence"}]
@@ -477,7 +476,6 @@ class Station:
         self.now = now
         self.repo = cfg["repo"]
         self.auto = cfg.get("planning", {}).get("auto", True)
-        self.parallel = cfg.get("planning", {}).get("parallel", PARALLEL)
         self.pool = pools.types(cfg).get("planner")
         self.held = False
 
@@ -499,6 +497,10 @@ class Station:
             if said:
                 out.update(int(k) for k in re.findall(r"#(\d+)", said.group(1)))
         return out
+
+    @property
+    def parallel(self):
+        return pools.seats(self.cfg, "planner")
 
     def running(self):
         own = [(r["agent"], int(r["copy"])) for r in self.live().values()]
@@ -708,7 +710,7 @@ class Station:
             self.poll_recheck(n, row)
         if not self.tries("recheck"):
             return
-        room = int(self.cfg["planning"]["recheck"].get("parallel", PARALLEL)) - len(self.live_rechecks())
+        room = pools.seats(self.cfg, "planner") - len(self.live_rechecks())
         for j in self.store.jobs():
             if room <= 0:
                 return

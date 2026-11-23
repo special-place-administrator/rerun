@@ -38,9 +38,15 @@ class Slots(T.Base):
 
 
 class Shipped(unittest.TestCase):
-    def test_dispatch_json_shares_fifteen_slots(self):
+    def test_dispatch_json_carries_no_hard_coded_ghost_counts(self):
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dispatch.json")) as f:
-            self.assertEqual(json.load(f).get("slots"), 15)
+            cfg = json.load(f)
+        self.assertNotIn("slots", cfg)
+        self.assertNotIn("model_runs", cfg["classify"])
+        self.assertNotIn("parallel", cfg["planning"]["recheck"])
+        for t in cfg["types"].values():
+            self.assertNotIn("max_jobs", t)
+            self.assertEqual([c["name"] for c in t["coworkers"] if "runs" in c], [])
 
 
 if __name__ == "__main__":

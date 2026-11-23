@@ -10,7 +10,7 @@ def types(cfg):
                 for t, v in cfg["types"].items()}
     return {
         "coder": {"coworkers": _coworkers(cfg.get("builders", [])),
-                  "max_jobs": cfg.get("max_jobs", 8)},
+                  "max_jobs": cfg.get("max_jobs")},
         "reviewer": {"coworkers": _coworkers(cfg.get("reviewers", [])),
                      "max_jobs": None},
     }
@@ -40,9 +40,33 @@ def provider_of(cfg, agent):
     return "claude"
 
 
+def room(cfg, name=None):
+    pool = cfg.get("pool")
+    if not pool:
+        return None
+    ghosts = pool["ghosts"]()
+    left = pool["max"] - len(ghosts)
+    if name is None:
+        return left
+    ids = pool["members"].get(name, set())
+    return min(left, pool["seats"].get(name, 0) - sum(1 for a, _ in ghosts if a in ids))
+
+
+def copies(cfg, c):
+    return c["runs"] if not cfg.get("pool") else cfg["pool"]["seats"].get(c["name"], 0)
+
+
+def seats(cfg, worker):
+    t = types(cfg).get(worker)
+    return sum(copies(cfg, c) for c in t["coworkers"]) if t else 0
+
+
 def free_copies(cfg, worker, running, exclude=()):
     t = types(cfg).get(worker)
     if t is None or cfg.get("held"):
+        return []
+    left = room(cfg)
+    if left is not None and left <= 0:
         return []
     out = []
     off = set(cfg.get("off_agents") or ())
@@ -50,9 +74,10 @@ def free_copies(cfg, worker, running, exclude=()):
         if cfg.get("held_plan") and (c.get("provider") or "claude") == "claude":
             continue
         taken = {1 if k is None else k for i, k in running if i == c["id"]}
-        if len([1 for i, _ in running if i == c["id"]]) >= c["runs"]:
+        most = copies(cfg, c)
+        if len([1 for i, _ in running if i == c["id"]]) >= most or (left is not None and room(cfg, c["name"]) <= 0):
             continue
-        out += [(c["id"], n) for n in range(1, c["runs"] + 1) if n not in taken]
+        out += [(c["id"], n) for n in range(1, most + 1) if n not in taken]
     return out
 
 

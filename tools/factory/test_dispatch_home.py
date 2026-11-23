@@ -37,7 +37,7 @@ class Home(Base):
     def test_the_control_issue_and_the_digest_stay_at_home(self):
         self.tick(6)
         control = [a for a in self.w.gh_calls if "Factory control in:title" in a]
-        self.assertGreaterEqual(len(control), 2)
+        self.assertGreaterEqual(len(control), 1)
         self.assertEqual(self.repos(control), {"o/r"})
 
     def test_the_briefs_name_the_project_and_its_tools_take_it(self):

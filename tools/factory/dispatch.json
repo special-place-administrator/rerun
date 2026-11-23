@@ -12,7 +12,7 @@
   "auto_plan_marker": true,
   "likely_fixed_days": 7,
   "rework_threshold": 1.3,
-  "classify": {"on": true, "gh_calls": 30, "model_runs": 5, "agent": "bf9008a5-532d-47de-aa67-04c4bdde9a64", "agent_name": "Issue Triage"},
+  "classify": {"on": true, "gh_calls": 30, "agent": "bf9008a5-532d-47de-aa67-04c4bdde9a64", "agent_name": "Issue Triage"},
   "planning": {
     "max_queue": 20,
     "rules": true,
@@ -23,7 +23,7 @@
     "review": {"panel": [{"by": "LESLIE", "type": "critic", "lens": "failure"}, {"by": "ADA", "type": "critic", "lens": "structure"},
                          {"by": "BARBARA", "type": "acceptor", "lens": "goal"}], "mode": "dry", "revisions": 2},
     "repair": {"tries": 2},
-    "recheck": {"tries": 2, "parallel": 2}
+    "recheck": {"tries": 2}
   },
   "proof": true,
   "fast_checks": {"names": ["Typecheck and lint", "No comments in code", "Factory tools tests"], "start_s": 120, "wait_s": 900, "fixes": 2},
@@ -39,7 +39,6 @@
     "key": 300
   },
   "one_file_one_job": true,
-  "slots": 15,
   "check_ratio": {
     "review": 0.4,
     "proof": 0.3,
@@ -55,18 +54,15 @@
   "gh_token_file": "/run/secrets/gh_token",
   "types": {
     "coder": {
-      "max_jobs": 16,
       "coworkers": [
         {
           "id": "b5e4deb4-fd07-427a-88cf-fba69fde503b",
           "name": "code",
-          "runs": 6,
           "provider": "openrouter"
         },
         {
           "id": "53dbe014-5b95-4cf9-853f-de3a3507030a",
-          "name": "LARRY",
-          "runs": 2
+          "name": "LARRY"
         }
       ]
     },
@@ -75,32 +71,26 @@
         {
           "id": "0d0e33bb-171a-4625-bc13-80de03eb0475",
           "name": "LINUS",
-          "runs": 3,
           "provider": "openrouter"
         },
         {
           "id": "71dfdea8-3482-4f3f-b091-ed4b16a69b99",
           "name": "BRUCE",
-          "runs": 3,
           "provider": "openrouter"
         }
       ]
     },
     "researcher": {
-      "max_jobs": 8,
       "coworkers": [
         {
-          "name": "search",
-          "runs": 3
+          "name": "search"
         }
       ]
     },
     "designer": {
-      "max_jobs": 8,
       "coworkers": [
         {
-          "name": "DIETER",
-          "runs": 3
+          "name": "DIETER"
         }
       ]
     },
@@ -108,33 +98,29 @@
       "coworkers": [
         {
           "id": "39311ebf-8324-42a4-8ab4-770acd1653f2",
-          "name": "Boss",
-          "runs": 2
+          "name": "Boss"
         },
         {
           "id": "1b325848-c3fd-4e6f-9ad7-43f3adac08b6",
-          "name": "Scope Shaper",
-          "runs": 3
+          "name": "Scope Shaper"
         },
         {
           "id": "50bd7e97-bd0b-4236-be49-25fbe3f8c71f",
-          "name": "IKE",
-          "runs": 3
+          "name": "IKE"
         }
       ]
     },
     "critic": {
       "coworkers": [
-        {"id": "9eb638c7-b71e-48e6-9c89-d0c594de3c0e", "name": "LESLIE", "runs": 2},
-        {"id": "6e75f62d-4d9d-43b1-990e-816bfe064503", "name": "ADA", "runs": 2}
+        {"id": "9eb638c7-b71e-48e6-9c89-d0c594de3c0e", "name": "LESLIE"},
+        {"id": "6e75f62d-4d9d-43b1-990e-816bfe064503", "name": "ADA"}
       ]
     },
     "acceptor": {
       "coworkers": [
         {
           "id": "b0e5b39f-74e3-4dfd-9d16-8cf53934ad05",
-          "name": "BARBARA",
-          "runs": 2
+          "name": "BARBARA"
         }
       ]
     },
@@ -142,8 +128,7 @@
       "coworkers": [
         {
           "id": "a7ff1339-e891-4047-aea1-972c5ba2c5c3",
-          "name": "HOUSE",
-          "runs": 2
+          "name": "HOUSE"
         }
       ]
     }

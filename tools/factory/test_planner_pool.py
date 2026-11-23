@@ -19,15 +19,14 @@ def cw(ids):
 class PlannerPool(unittest.TestCase):
     def test_the_shipped_settings_carry_the_three_planners_and_no_job_limit(self):
         planner = D.settings()["types"]["planner"]
-        self.assertEqual([(c["id"], c["name"], c["runs"]) for c in planner["coworkers"]],
-                         [(BOSS, "Boss", 2), (SHAPER, "Scope Shaper", 3), (IKE, "IKE", 3)])
+        self.assertEqual([(c["id"], c["name"]) for c in planner["coworkers"]],
+                         [(BOSS, "Boss"), (SHAPER, "Scope Shaper"), (IKE, "IKE")])
         self.assertNotIn("max_jobs", planner)
         self.assertIsNone(pools.max_jobs({"types": {"planner": planner}}, "planner"))
 
     def test_the_other_pools_of_the_shipped_settings_are_unchanged(self):
         types = D.settings()["types"]
         self.assertEqual(list(types), ["coder", "reviewer", "researcher", "designer", "planner", "critic", "acceptor", "resolver"])
-        self.assertEqual(types["coder"]["max_jobs"], 16)
 
     def test_the_dispatcher_never_sends_work_to_the_planner_pool(self):
         sent = run({"types": {"coder": {"max_jobs": 8, "coworkers": cw(["b1"])}, "reviewer": {"coworkers": cw(["r1"])},

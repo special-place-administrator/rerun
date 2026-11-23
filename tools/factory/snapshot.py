@@ -217,7 +217,7 @@ def build_snapshot(store, cfg, now, holds_active, beat=0, read_epic=None, planni
     for t, v in pools.types(cfg).items():
         if t in TYPES and len(pool_list) < 8:
             pool_list.append({"type": t, "coworkers": [
-                {"name": c["name"][:64], "id": c["id"][:64], "runs": _clamp(c["runs"], 1, 32), "out": _clamp(out.get(c["id"], 0), 0, 32)}
+                {"name": c["name"][:64], "id": c["id"][:64], "runs": _clamp(pools.copies(cfg, c), 1, 32), "out": _clamp(out.get(c["id"], 0), 0, 32)}
                 for c in v["coworkers"][:20]]})
     today = ledger_store.now()[:10]
     ended_today = {s: 0 for s in ("merged", "rejected", "blocked", "failed", "returned")}
