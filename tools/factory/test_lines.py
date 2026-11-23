@@ -144,6 +144,8 @@ class Two(Pair):
         self.assertFalse([m for _, m, _ in self.w.sends if "#7" in m.split("\n")[0] or "#8" in m.split("\n")[0]])
         self.assertEqual(self.p.reports[-1]["finishing"], [])
         self.assertEqual(self.p.rows("SELECT state FROM jobs WHERE job='5'"), [("building",)])
+        self.p.finish(self.p.sends[0][0], PR_LINE)
+        self.tick()
         self.select("o/r")
         self.tick(3)
         self.assertEqual(self.d.active, "o/r")
@@ -151,13 +153,16 @@ class Two(Pair):
 
     def test_two_lines_never_use_the_same_coworker_at_once(self):
         self.start()
-        self.tick()
+        self.to_review()
         self.select("p/q")
         self.tick(2)
-        self.assertEqual((self.w.sends[0][0], self.p.sends[0][0]), ("b1", "b2"))
+        busy = [a for a, _ in self.d.lines["o/r"].own()]
+        self.assertTrue(busy)
+        self.assertNotIn(self.p.sends[0][0], busy)
 
     def test_the_app_away_keeps_the_last_project_also_after_a_restart(self):
         self.start()
+        self.to_review()
         self.select("p/q")
         self.tick(2)
         self.w.report_answer = self.p.report_answer = None

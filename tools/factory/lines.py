@@ -1,12 +1,19 @@
 import json
 import os
-import re
 import time
 
+import factory
+import limits
+import projects
 import states
 
 END = states.END
-REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9_.-]{1,100}$")
+REPO = projects.REPO
+UNPUSHED = ("building", "fixing")
+NOT_STARTED = ("waiting", "queued")
+CHECK_AGAIN_S = 10 * 60
+REPOS_AGAIN_S = 5 * 60
+PROBES_KEPT = 10
 
 
 def ledger_path(cfg, repo):
@@ -23,7 +30,11 @@ def line_cfg(cfg, repo):
 
 
 def live(d):
-    return [j for j in d.jobs() if j["state"] != "waiting" and (j["state"] not in END or not j.get("relabelled"))]
+    return [j for j in d.jobs() if j["state"] not in NOT_STARTED and (j["state"] not in END or not j.get("relabelled"))]
+
+
+def unpushed(d):
+    return [j for j in d.jobs() if j["state"] in UNPUSHED]
 
 
 class Lines:
@@ -32,6 +43,7 @@ class Lines:
         self.mod = mod or __import__("dispatch")
         self.make = make or (lambda c: self.mod.Dispatcher(c, account, gh, now))
         self.lines, self.said, self.last = {}, set(), None
+        self.gh, self.repos, self.repos_at, self.probes, self.draining = gh, [], None, {}, []
         self.kv = self.open(self.home).store
         self.active = self.home
         saved = self.read("project", {})
@@ -76,17 +88,100 @@ class Lines:
         out = {"home": self.home, "finishing": [{"repo": r, "jobs": n} for r, n in self.finishing()][:10]}
         if self.last:
             out["switch"] = self.last
+        ready = self.readiness()
+        if self.repos or ready or self.probes:
+            out["projects"] = projects.report(self.repos, ready, list(self.probes.values()))
         return out
+
+    def github(self, args):
+        return (self.gh or self.lines[self.home].gh)(args)
+
+    def readiness(self):
+        out = []
+        for k, v in sorted(self.kv.get_all("-").items()):
+            if not k.startswith("ready:"):
+                continue
+            try:
+                r = json.loads(v)
+                out.append(projects.Readiness(k[len("ready:"):], r["passed"] is True, tuple(projects.Line(**x) for x in r["lines"]), r["at"]))
+            except (ValueError, KeyError, TypeError):
+                continue
+        return out[:20]
+
+    def record(self, repo):
+        try:
+            got = projects.readiness(self.github, repo, self.now(), owners=tuple(self.cfg.get("project_owners") or factory.OWNERS))
+        except Exception as e:
+            return self.problem("project %s not checked: %s" % (repo, type(e).__name__))
+        self.kv.set("-", "ready:" + repo, json.dumps(projects.serialize(got)))
+        failed = [x.name for x in got.lines if not x.ok]
+        self.mod.log("project", "readiness of %s: %s" % (repo, "passed" if got.passed else "failed at %s" % ", ".join(failed)))
+
+    def checked_at(self, repo):
+        at = self.read("ready:" + repo, {}).get("at")
+        try:
+            return limits.ts(at) if isinstance(at, str) else None
+        except ValueError:
+            return None
+
+    def asked_at(self, asked):
+        try:
+            return limits.ts(asked) if isinstance(asked, str) else None
+        except ValueError:
+            return None
+
+    def check(self, ask):
+        if not isinstance(ask, dict):
+            return
+        if isinstance(ask.get("path"), str):
+            got = projects.probe(ask["path"], self.cfg.get("project_root"))
+            self.probes.pop(got.path, None)
+            self.probes[got.path] = got
+            while len(self.probes) > PROBES_KEPT:
+                self.probes.pop(next(iter(self.probes)))
+            return
+        repo = ask.get("repo")
+        if not isinstance(repo, str) or not REPO.match(repo):
+            return self.problem("project check not understood: nothing is checked")
+        done, asked = self.checked_at(repo), self.asked_at(ask.get("at"))
+        if done is None or (asked is not None and done < asked) or (asked is None and self.now() - done >= CHECK_AGAIN_S):
+            self.record(repo)
+
+    def list_repos(self):
+        if self.repos_at is not None and self.now() - self.repos_at < REPOS_AGAIN_S:
+            return
+        self.repos_at = self.now()
+        try:
+            self.repos = projects.accessible(self.github)
+        except Exception as e:
+            self.problem("repositories the factory can reach not read: %s" % type(e).__name__)
 
     def problem(self, text):
         if text not in self.said:
             self.said.add(text)
             self.mod.log("-", text)
 
-    def ready(self, repo):
-        return repo == self.home or self.read("ready:" + repo, {}).get("passed") is True
+    def ready(self, repo, asked=None):
+        if repo == self.home:
+            return True
+        done = self.checked_at(repo)
+        if asked is not None and (done is None or done < asked):
+            self.record(repo)
+            done = self.checked_at(repo)
+        fresh = asked is None or (done is not None and done >= asked)
+        return fresh and self.read("ready:" + repo, {}).get("passed") is True
+
+    def drain(self):
+        waiting = [(r, len(unpushed(d))) for r, d in self.lines.items() if r != self.active and unpushed(d)]
+        self.lines[self.active].taking = not waiting
+        if self.draining and not waiting:
+            self.mod.log("project", "%s starts: %s has no job left to push" % (self.active, ", ".join(r for r, _ in self.draining)))
+        elif waiting and waiting != self.draining:
+            self.mod.log("project", "%s waits: %s" % (self.active, "; ".join("%d jobs of %s to push" % (n, r) for r, n in waiting)))
+        self.draining = waiting
 
     def once(self):
+        self.drain()
         self.lines[self.active].once()
         for repo in [r for r in self.lines if r != self.active]:
             if live(self.lines[repo]):
@@ -97,6 +192,10 @@ class Lines:
         self.learn(self.lines[self.active].answer)
 
     def learn(self, answer):
+        if isinstance(answer, dict):
+            self.check(answer.get("check"))
+            if answer.get("repos"):
+                self.list_repos()
         if answer is None or (isinstance(answer, dict) and answer.get("project") is None):
             return
         p = answer.get("project") if isinstance(answer, dict) else None
@@ -105,7 +204,7 @@ class Lines:
             return self.problem("project answer not understood: the factory stays on %s" % self.active)
         if repo == self.active:
             return
-        if not self.ready(repo):
+        if not self.ready(repo, self.asked_at(p.get("at"))):
             return self.problem("project %s not taken: its readiness is not recorded as passed here; the factory stays on %s" % (repo, self.active))
         try:
             if repo not in self.lines:
