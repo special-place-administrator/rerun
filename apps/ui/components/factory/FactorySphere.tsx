@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { STATUS_COLOR, type PodView } from './factory-scene'
 import type { P } from './factory-rest'
 import { formatInState } from './FactoryTasks'
+import { ProjectMark } from './ProjectMark'
 
 const clock = () => Date.now()
 const R = 15
@@ -45,7 +46,7 @@ export function Sphere({ pod, at, selected = false, onSelectJob }: { pod: PodVie
                     {selected && <circle r={R + 3} fill="none" stroke={color} strokeWidth={2} className="fab-orb-ring" />}
                     <ellipse cx={-5} cy={-7.5} rx={3.6} ry={2} fill="#e8edff" />
                 </svg>
-                <span className="fab-orb-tag">#{pod.issue}<b>{stageWord(pod)}</b></span>
+                <span className="fab-orb-tag">{pod.repo && <ProjectMark repo={pod.repo} className="size-2.5 text-[6px]" />}#{pod.issue}<b>{stageWord(pod)}</b></span>
                 {hover && <span className="fab-orb-card" data-card={pod.issue}>#{pod.issue} {pod.title}<br />stage: {stageWord(pod)}
                     {pod.holder && <><br /><span data-card-line="holder">holder: {pod.holder}</span></>}
                     {pod.since !== undefined && <><br /><span data-card-line="since">in stage: {formatInState(clock() - pod.since)}</span></>}

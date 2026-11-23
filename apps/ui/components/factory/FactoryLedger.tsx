@@ -7,13 +7,14 @@ import { cn } from '@/lib/utils'
 import { formatEndedAt, formatInState } from './FactoryTasks'
 import { DEPARTMENT_VIEW, chainOf, type LedgerEpic, type LedgerTask } from './factory-ledger'
 import { JOB_STATE_VIEW } from './factory-state'
+import { ProjectMark } from './ProjectMark'
 
 const KIND_LABEL: Record<FactoryEpicKind, string> = {
     feature: 'feature', review_fix: 'review + fix', fix: 'fix', upgrade: 'upgrade', refactor: 'refactor', research: 'research', other: 'other',
 }
 
-function TaskRow({ task, selected, onSelect, now, chain }: {
-    task: LedgerTask; selected: number | null; onSelect: (issue: number) => void; now: number
+function TaskRow({ task, repo, selected, onSelect, now, chain }: {
+    task: LedgerTask; repo: string; selected: number | null; onSelect: (issue: number) => void; now: number
     chain: { waitsOn: Set<number>; waitedBy: Set<number>; stuck: boolean } | null
 }) {
     const [open, setOpen] = useState(false)
@@ -35,6 +36,7 @@ function TaskRow({ task, selected, onSelect, now, chain }: {
                     className={cn('flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted', selected === task.issue && 'bg-muted', task.critical && 'font-medium')}
                 >
                     <Icon className={cn('size-3.5 shrink-0', view.dim && 'opacity-60')} style={{ color: view.color }} />
+                    <ProjectMark repo={repo} />
                     <span className="truncate">#{task.issue} {task.title}</span>
                     {task.coworker && <span className="text-muted-foreground">{task.coworker}</span>}
                     {task.needs.length > 0 && <span className="text-muted-foreground">needs {task.needs.map((n) => `#${n}`).join(', ')}</span>}
@@ -63,11 +65,11 @@ function TaskRow({ task, selected, onSelect, now, chain }: {
     )
 }
 
-export function FactoryLedger({ epics, selected, onSelect, now }: { epics: LedgerEpic[]; selected: number | null; onSelect: (issue: number) => void; now: number }) {
+export function FactoryLedger({ epics, repo, selected, onSelect, now }: { epics: LedgerEpic[]; repo: string; selected: number | null; onSelect: (issue: number) => void; now: number }) {
     if (epics.length === 0) return <p className="text-xs text-muted-foreground">No tasks</p>
     const c = selected !== null ? chainOf(epics, selected) : null
     const chain = c ? { waitsOn: new Set(c.waitsOn), waitedBy: new Set(c.waitedBy), stuck: c.stuck } : null
-    const row = (t: LedgerTask) => <TaskRow key={t.issue} task={t} selected={selected} onSelect={onSelect} now={now} chain={chain} />
+    const row = (t: LedgerTask) => <TaskRow key={t.issue} task={t} repo={repo} selected={selected} onSelect={onSelect} now={now} chain={chain} />
     return (
         <div className="flex flex-col gap-3">
             {epics.map((e) => (

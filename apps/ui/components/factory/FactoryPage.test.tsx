@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
     theme: 'dark' as string | undefined,
 }))
 
-vi.mock('@/app/api/_actions/factory.actions', () => ({ readFactorySnapshotAction: () => Promise.resolve(mocks.answer) }))
+vi.mock('@/app/api/_actions/factory.actions', () => ({ readFactorySnapshotAction: () => Promise.resolve(mocks.answer), listFactoryProjectsAction: () => Promise.resolve({ ok: true, projects: [], isOwner: false }) }))
 vi.mock('@/components/factory/FactoryWorld', () => ({
     FactoryWorld: (props: Record<string, unknown>) => {
         mocks.world.current = props

@@ -5,6 +5,7 @@ import { ExternalLink } from 'lucide-react'
 import type { FactoryJob, FactorySnapshot } from '@moldwright/contracts'
 import { cn } from '@/lib/utils'
 import { JOB_STATE_VIEW, groupOf } from './factory-state'
+import { ProjectMark } from './ProjectMark'
 
 type Shown = 'problems' | 'active' | 'waiting' | 'ended' | 'earlier'
 const SHOWN_ORDER: Shown[] = ['problems', 'active', 'waiting', 'ended', 'earlier']
@@ -89,6 +90,7 @@ export function FactoryTasks({ jobs, repo, endedToday, selected, onSelect, sampl
                                 className={cn('flex cursor-pointer flex-col rounded-md border border-border bg-card px-2 py-1.5 hover:bg-accent/50', isSel && 'border-primary bg-accent')}>
                                 <div className="flex items-center gap-2">
                                     <Icon className={cn('size-4 shrink-0', view.dim && 'opacity-50')} style={{ color: view.color }} />
+                                    <ProjectMark repo={repo} />
                                     <span className="shrink-0 text-muted-foreground">#{j.issue}</span>
                                     <span className="min-w-0 flex-1 truncate">{j.title}</span>
                                     {who && <span className="shrink-0 text-xs text-muted-foreground">{who}</span>}
