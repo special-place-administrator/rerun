@@ -136,6 +136,7 @@ export type PodView = {
     since?: number
     holder?: string
     pr?: number
+    repo?: string
 }
 export const STATUS_COLOR = { queued: '#8ea2ff', held: '#ef4444', build: '#f5a524', review: '#2dd4a3', fixing: '#fb923c', checks: '#6ea8ff', complete: '#ffe08a', rejected: '#f87171' } as const
 export type SlotView = { issue: number; state: 'empty' | 'merged' | 'rejected'; arriving: number }

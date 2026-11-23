@@ -440,5 +440,11 @@
     "fileChangedOnBox": "Este arquivo mudou na Box desde que você o abriu.",
     "saveThisFileFailed": "Falha ao salvar este arquivo",
     "templateSubscriptionEnded": "Este coworker veio de uma assinatura de template que terminou. Compre o template de novo para recuperá-lo.",
-    "noFreeCoworkerSlot": "Nenhuma vaga de coworker livre no seu plano. Assine o Pro para ter coworkers ilimitados ou exclua um coworker para liberar espaço."
+    "noFreeCoworkerSlot": "Nenhuma vaga de coworker livre no seu plano. Assine o Pro para ter coworkers ilimitados ou exclua um coworker para liberar espaço.",
+    "factoryOwnerOnly": "Somente o proprietário do workspace pode alterar os projetos da factory",
+    "factoryProjectNotFound": "Projeto não encontrado",
+    "factoryProjectExists": "{repo} já é um projeto",
+    "factoryRepoNotReachable": "A factory não alcança {repo}",
+    "factoryPathInvalid": "Digite um caminho de pasta simples",
+    "factoryProjectActive": "{repo} é o projeto em que a factory trabalha: selecione outro primeiro"
 }

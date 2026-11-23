@@ -442,5 +442,11 @@
     "fileChangedOnBox": "Ce fichier a changé sur la Box depuis que vous l'avez ouvert.",
     "saveThisFileFailed": "Impossible d'enregistrer ce fichier",
     "templateSubscriptionEnded": "Ce coworker vient d'un abonnement à un template qui a pris fin. Rachetez le template pour le récupérer.",
-    "noFreeCoworkerSlot": "Plus d'emplacement de coworker libre sur votre plan. Passez à Pro pour des coworkers illimités, ou supprimez un coworker pour faire de la place."
+    "noFreeCoworkerSlot": "Plus d'emplacement de coworker libre sur votre plan. Passez à Pro pour des coworkers illimités, ou supprimez un coworker pour faire de la place.",
+    "factoryOwnerOnly": "Seul le propriétaire du workspace peut modifier les projets de la factory",
+    "factoryProjectNotFound": "Projet introuvable",
+    "factoryProjectExists": "{repo} est déjà un projet",
+    "factoryRepoNotReachable": "La factory ne peut pas accéder à {repo}",
+    "factoryPathInvalid": "Saisissez un simple chemin de dossier",
+    "factoryProjectActive": "{repo} est le projet sur lequel travaille la factory : sélectionnez-en d'abord un autre"
 }

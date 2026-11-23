@@ -19,6 +19,7 @@ import desktopShell from './desktopShell.json'
 import dialogs from './dialogs.json'
 import emails from './emails.json'
 import errors from './errors.json'
+import factory from './factory.json'
 import files from './files.json'
 import foreman from './foreman.json'
 import kit from './kit.json'
@@ -57,4 +58,4 @@ import tools from './tools.json'
 import ui from './ui.json'
 import workspace from './workspace.json'
 
-export default { account, agent, agentSuggestions, apps, auth, billing, brain, builder, changelog, chat, chatErrors, common, connections, data, desktop, desktopApp, desktopShell, dialogs, emails, errors, files, foreman, kit, landingCommon, landingCommunity, landingCompare, landingDownload, landingFeatures, landingHome, landingIndustries, landingPricing, landingResources, landingSections, landingTemplates, layout, mobileAuth, mobileCards, mobileChat, mobileCommon, mobileCoworker, mobileHitl, mobileHome, mobileOnboarding, mobileProviders, mobileSettings, mobileSteps, notifications, publicPages, published, push, rewind, services, subRuns, templates, tools, ui, workspace }
+export default { account, agent, agentSuggestions, apps, auth, billing, brain, builder, changelog, chat, chatErrors, common, connections, data, desktop, desktopApp, desktopShell, dialogs, emails, errors, factory, files, foreman, kit, landingCommon, landingCommunity, landingCompare, landingDownload, landingFeatures, landingHome, landingIndustries, landingPricing, landingResources, landingSections, landingTemplates, layout, mobileAuth, mobileCards, mobileChat, mobileCommon, mobileCoworker, mobileHitl, mobileHome, mobileOnboarding, mobileProviders, mobileSettings, mobileSteps, notifications, publicPages, published, push, rewind, services, subRuns, templates, tools, ui, workspace }

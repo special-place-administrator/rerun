@@ -5,6 +5,7 @@ import { ExternalLink } from 'lucide-react'
 import type { FactoryJob } from '@moldwright/contracts'
 import { JOB_STATE_VIEW, groupOf } from './factory-state'
 import { formatInState } from './FactoryTasks'
+import { ProjectMark } from './ProjectMark'
 
 const HINT = 'Pick a task in the list or on the floor'
 const NO_HISTORY = 'No earlier history from the delegator yet'
@@ -56,6 +57,7 @@ export function FactoryInspector({ job, jobs, repo, names, onSelect, onOpenCowor
         <div className="flex flex-col gap-4 overflow-y-auto p-4">
             <header className="flex items-center gap-2">
                 <StateIcon state={job.state} />
+                <ProjectMark repo={repo} />
                 <span className="shrink-0 text-sm tabular-nums text-muted-foreground">#{job.issue}</span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{job.title}</span>
                 <a href={`${base}/issues/${job.issue}`} target="_blank" rel="noreferrer" aria-label="Issue" className={linkCls}><ExternalLink className="size-3.5" /></a>

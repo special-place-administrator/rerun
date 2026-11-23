@@ -17,7 +17,7 @@ const epics = (jobs: FactoryJob[], list: FactorySnapshot['epics'] = [{ issue: 1,
 let host: HTMLDivElement
 let root: Root
 const render = (e: ReturnType<typeof epics>, selected: number | null = null, onSelect: (n: number) => void = () => {}) =>
-    act(() => { root.render(createElement(FactoryLedger, { epics: e, selected, onSelect, now: NOW })) })
+    act(() => { root.render(createElement(FactoryLedger, { epics: e, repo: 'a/b', selected, onSelect, now: NOW })) })
 const q = (s: string) => host.querySelector(s) as HTMLElement | null
 const text = () => host.textContent ?? ''
 

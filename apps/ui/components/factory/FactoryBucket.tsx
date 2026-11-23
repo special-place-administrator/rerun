@@ -5,6 +5,7 @@ import type { FactoryJob } from '@moldwright/contracts'
 import { formatEndedAt } from './FactoryTasks'
 import { bucketJobs, bucketRow, isRejected, type Bucket } from './factory-bucket'
 import { JOB_STATE_VIEW } from './factory-state'
+import { ProjectMark } from './ProjectMark'
 
 const EMPTY = 'No job in this bucket'
 const NO_REASON = 'No reason recorded'
@@ -24,6 +25,7 @@ function Row({ job, repo, names, now, onSelect }: { job: FactoryJob; repo: strin
             <button type="button" data-bucket-open={job.issue} onClick={() => onSelect(job.issue)} className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
                 <span className="flex items-center gap-2 text-sm">
                     <Icon className="size-3.5 shrink-0" style={{ color: view.color }} aria-hidden />
+                    <ProjectMark repo={repo} />
                     <span className="truncate">#{job.issue} {job.title}</span>
                 </span>
                 <span className="pl-5 text-xs text-muted-foreground">

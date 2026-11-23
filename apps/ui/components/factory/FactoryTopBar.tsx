@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { FactoryBucket } from './FactoryBucket'
 import { FactoryInspector } from './FactoryInspector'
 import { FactoryLedger } from './FactoryLedger'
+import { FactoryProjectPicker } from './FactoryProjectPicker'
 import { SAMPLE_TEXT } from './FactoryTasks'
 import { type Bucket } from './factory-bucket'
 import { DEPARTMENT_VIEW, buildLedger, chipCounts, filterLedger, type ChipCounts, type LedgerFilter } from './factory-ledger'
@@ -89,6 +90,7 @@ export function FactoryTopBar({ snapshot, selected, onSelect, names, onOpenCowor
     return (
         <div ref={rootRef} data-topbar className="relative w-full">
             <div className="flex flex-wrap items-center justify-center gap-2">
+                <FactoryProjectPicker snapshot={snapshot} />
                 {MAIN_CHIPS.map(c => (
                     <Chip key={c.key} name={c.key} label={c.label} count={counts[c.key]} filter={c.key} active={sameFilter(filter, c.key)} onPress={press} />
                 ))}
@@ -118,7 +120,7 @@ export function FactoryTopBar({ snapshot, selected, onSelect, names, onOpenCowor
                                     <Chip key={d} name={d} label={DEPARTMENT_VIEW[d].label} count={counts.byDepartment[d]} filter={{ department: d }} active={sameFilter(filter, { department: d })} onPress={press} color={DEPARTMENT_VIEW[d].color} />
                                 ))}
                             </div>
-                            <FactoryLedger epics={shownEpics} selected={selected} onSelect={onSelect} now={now} />
+                            <FactoryLedger epics={shownEpics} repo={snapshot.repo} selected={selected} onSelect={onSelect} now={now} />
                         </div>
                     )}
                 </div>
