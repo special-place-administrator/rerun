@@ -33,7 +33,8 @@ alter table public.factory_controls enable row level security;
 create policy factory_controls_select_workspace_members on public.factory_controls for select to authenticated
     using (workspace_id in (select public.current_workspace_ids()));
 
-revoke insert, update, delete, truncate on table public.factory_controls from anon, authenticated;
+revoke all on table public.factory_controls from anon, authenticated;
+grant select on table public.factory_controls to authenticated;
 
 create table public.factory_work_orders (
     id text primary key check (id ~ '^[A-Za-z0-9_.:-]{1,64}$'),
@@ -58,6 +59,7 @@ alter table public.factory_work_orders enable row level security;
 create policy factory_work_orders_select_workspace_members on public.factory_work_orders for select to authenticated
     using (workspace_id in (select public.current_workspace_ids()));
 
-revoke insert, update, delete, truncate on table public.factory_work_orders from anon, authenticated;
+revoke all on table public.factory_work_orders from anon, authenticated;
+grant select on table public.factory_work_orders to authenticated;
 
 commit;

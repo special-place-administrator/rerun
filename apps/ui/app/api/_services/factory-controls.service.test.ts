@@ -17,9 +17,9 @@ const upsert = vi.fn()
 const insert = vi.fn()
 const from = vi.fn()
 
-type Rows = { factory_projects?: object | null; factory_controls?: object | null }
+type Rows = { factory_projects?: object | null; factory_controls?: object | null; workspace_members?: object | null }
 function rows(by: Rows, orders: object[] = []) {
-    vi.mocked(selectMaybeSingle).mockImplementation((async (_client: unknown, table: keyof Rows) => ({ data: by[table] ?? null, error: null })) as never)
+    vi.mocked(selectMaybeSingle).mockImplementation((async (_client: unknown, table: keyof Rows) => ({ data: table === 'workspace_members' ? { role: 'admin' } : by[table] ?? null, error: null })) as never)
     vi.mocked(selectMany).mockResolvedValue({ data: orders, error: null } as never)
 }
 
