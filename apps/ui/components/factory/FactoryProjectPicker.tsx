@@ -36,7 +36,10 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
     const [confirm, setConfirm] = useState<Confirm>(null)
     const triggerRef = useRef<HTMLButtonElement>(null)
     const alive = useRef(true)
-    useEffect(() => () => { alive.current = false }, [])
+    useEffect(() => {
+        alive.current = true
+        return () => { alive.current = false }
+    }, [])
 
     const apply = useCallback((res: Awaited<ReturnType<typeof listFactoryProjectsAction>> | ReturnType<typeof thrown>) => {
         if (!alive.current) return
@@ -49,7 +52,7 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
     useEffect(() => { listFactoryProjectsAction(false).catch(thrown).then(apply) }, [apply])
 
     const active = projects?.find(p => p.active)?.repo ?? snapshot.repo
-    const inFlight = snapshot.jobs.filter(j => groupOf(j.state) !== 'ended').length
+    const inFlight = snapshot.jobs.filter(j => groupOf(j.state) === 'active').length
     const finishing = (snapshot.finishing ?? []).filter(f => f.jobs > 0)
     const known = new Set(projects?.map(p => p.repo))
     const reachable = snapshot.projects?.repos.filter(r => !known.has(r))
@@ -126,7 +129,7 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
                             <Command className="rounded-md border border-border/60">
                                 <CommandInput placeholder={t('reposSearch')} aria-label={t('reposSearch')} />
                                 <CommandList aria-label={t('reposHeading')} className="max-h-48">
-                                    <CommandEmpty>{reachable === undefined ? t('reposWaiting') : t('reposEmpty')}</CommandEmpty>
+                                    <CommandEmpty>{(snapshot.projects?.repos.length ?? 0) === 0 ? t('reposWaiting') : t('reposEmpty')}</CommandEmpty>
                                     <CommandGroup heading={t('reposHeading')}>
                                         {(reachable ?? []).map(repo => (
                                             <CommandItem key={repo} value={repo} disabled={busy} onSelect={() => void addRepo(repo)}>
