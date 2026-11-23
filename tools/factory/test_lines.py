@@ -339,5 +339,74 @@ class Rechecks(Pair):
         self.assertEqual(len(self.lines_said("readiness checks per hour")), 1)
 
 
+class Controls(Pair):
+    def run_on(self, conns, off=()):
+        inner = self.w.account
+
+        def account(tool, args, timeout=30):
+            if tool == "list_ai_connections":
+                return {"connections": [{"id": c, "provider": "claude", "isDefault": c == "c1", "signIn": None, "planLimits": None} for c in sorted(set(conns.values()))]}
+            if tool == "get_agent":
+                return dict(inner(tool, args), runsOn={"connectionId": conns.get(args["agentId"], "c1")})
+            return inner(tool, args)
+
+        self.w.account = account
+        if off:
+            self.answer["providers"] = {"off": list(off), "by": "rob", "at": D.iso(self.w.clock)}
+
+    def control(self, state):
+        self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock)}
+
+    def test_a_fresh_factory_is_paused_and_a_pause_starts_nothing_new_while_running_work_finishes(self):
+        self.d = self.new()
+        self.tick(3)
+        self.assertEqual(self.w.sends, [])
+        self.assertEqual(self.d.lines["o/r"].control, "PAUSED")
+        self.control("RUNNING")
+        self.tick(2)
+        self.assertEqual((self.state(), len(self.w.sends)), ("building", 1))
+        self.control("PAUSED")
+        self.tick()
+        self.w.finish("b1", PR_LINE)
+        self.tick(3)
+        self.assertEqual((self.state(), len(self.w.sends)), ("review_wait", 1))
+        self.assertEqual(len(self.lines_said("#control RUNNING -> PAUSED by rob")), 1)
+        self.assertIn("control PAUSED", self.d.lines["o/r"].beat_line)
+        self.assertEqual(self.w.reports[-1]["control"]["state"], "PAUSED")
+
+    def test_a_stop_cancels_running_jobs_back_to_their_queue_without_an_error(self):
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(2)
+        self.assertEqual(self.state(), "building")
+        self.control("STOPPED")
+        self.tick()
+        self.assertEqual(self.w.cancels, [(self.w.order[-1][1], self.w.order[-1][0])])
+        self.assertEqual(self.state(), "queued")
+        self.assertEqual(self.w.rows("SELECT status FROM fires"), [("cancelled",)])
+        self.tick(3)
+        self.assertEqual(len(self.w.sends), 1)
+        self.assertEqual(self.d.lines["o/r"].store.failures(), [])
+
+    def test_an_off_connection_is_never_fired_and_its_work_goes_to_a_coworker_on_an_enabled_one(self):
+        self.w.issues.append(issue(6, "Six"))
+        self.w.open_numbers.add(6)
+        self.run_on({"b1": "c1", "b2": "c2", "r1": "c2", "r2": "c2"}, off=["c1"])
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(4)
+        self.assertEqual([a for a, _, _ in self.w.sends], ["b2"])
+        self.assertEqual(self.w.reports[-1]["providers"]["off"], ["c1"])
+
+    def test_with_every_connection_off_jobs_wait_for_an_enabled_provider(self):
+        self.run_on({"b1": "c1", "b2": "c2"}, off=["c1", "c2"])
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(4)
+        self.assertEqual(self.w.sends, [])
+        self.assertEqual(self.state(), "queued")
+        self.assertEqual(self.d.lines["o/r"].store.get_job("5")["wait_reason"], "no enabled provider")
+
+
 if __name__ == "__main__":
     unittest.main()
