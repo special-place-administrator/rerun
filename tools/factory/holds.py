@@ -29,6 +29,10 @@ def _rows(st):
     return rows
 
 
+def until(st, kind):
+    return _rows(st).get(kind, 0)
+
+
 def active_kinds(st, now):
     return {k for k, until in _rows(st).items() if until > now}
 
