@@ -75,6 +75,7 @@ MERGE_TRIES = 5
 STALE_RUN_S, STALE_RUNS_A_BEAT = 2 * 3600, 15
 RUNS_ON_TTL_S = 10 * 60
 DRAIN_SEND_S = 300
+ORDER_VIEW_S = 300
 DRAIN_MAX_S = 3 * 3600
 MAX_TAKES = 3
 INBOX = "Factory follow-ups inbox"
@@ -575,7 +576,7 @@ class Dispatcher:
         self.connections = None
         self.plan_week_full = False
         self.runs_on, self.runs_on_at = {}, None
-        self.run_state, self.off_connections, self.work = "RUNNING", frozenset(), None
+        self.run_state, self.off_connections, self.work, self.order_views = "RUNNING", frozenset(), None, {}
         self.pace = 1.0
         self.draining = False
         self.report_logged = set()
@@ -706,10 +707,8 @@ class Dispatcher:
         for n in self.work["issues"]:
             i = listed.get(n)
             if i is None:
-                try:
-                    i = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "number,title,labels,body,author,state"]) or "{}")
-                except (Error, ValueError) as e:
-                    log(n, "work order: issue not read: %s" % e)
+                i = self.order_view(n)
+                if i is None:
                     continue
                 if i.get("state") == "CLOSED":
                     if not self.store.get_job(str(n)):
@@ -731,12 +730,22 @@ class Dispatcher:
             mine.append(i)
         return mine
 
+    def order_view(self, n):
+        at, seen = self.order_views.get(n, (None, None))
+        if at is not None and self.now() - at < ORDER_VIEW_S:
+            return seen
+        try:
+            seen = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "number,title,labels,body,author,state"]) or "{}")
+        except (Error, ValueError) as e:
+            log(n, "work order: issue not read: %s" % e)
+            return None
+        self.order_views = {n: (self.now(), seen)}
+        return seen
+
     def open_pr_for(self, n):
-        listed = json.loads(self.gh(["pr", "list", "-R", self.repo, "--state", "open", "--json", "number,title,headRefName,body", "--limit", "200"]) or "[]")
-        closes = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#%d\b" % n)
-        hits = [p["number"] for p in listed if isinstance(p, dict) and isinstance(p.get("number"), int) and (
-            str(p.get("title") or "").rstrip().endswith("(#%d)" % n) or str(p.get("headRefName") or "").startswith("chunk/%d-" % n)
-            or closes.search(str(p.get("body") or "")))]
+        listed = json.loads(self.gh(["pr", "list", "-R", self.repo, "--state", "open", "--json", "number,headRefName,author,isCrossRepository", "--limit", "200"]) or "[]")
+        hits = [p["number"] for p in listed if isinstance(p, dict) and isinstance(p.get("number"), int) and p.get("isCrossRepository") is False
+                and str(p.get("headRefName") or "").startswith("chunk/%d-" % n) and authors.is_factory(p)]
         return min(hits) if hits else None
 
     def cancel_job(self, j):
