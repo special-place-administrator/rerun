@@ -1190,6 +1190,50 @@ export type Database = {
           },
         ]
       }
+      factory_projects: {
+        Row: {
+          activated_at: string | null
+          activated_by: string | null
+          active: boolean
+          created_at: string
+          created_by: string | null
+          host_path: string | null
+          id: number
+          repo: string
+          workspace_id: number
+        }
+        Insert: {
+          activated_at?: string | null
+          activated_by?: string | null
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          host_path?: string | null
+          id?: never
+          repo: string
+          workspace_id: number
+        }
+        Update: {
+          activated_at?: string | null
+          activated_by?: string | null
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          host_path?: string | null
+          id?: never
+          repo?: string
+          workspace_id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "factory_projects_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       foreman_conversations: {
         Row: {
           backend: string
