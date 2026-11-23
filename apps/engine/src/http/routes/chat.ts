@@ -2,6 +2,7 @@ import { chatRequestSchema, runGoalSchema, ENGINE_SESSION_NOT_FOUND, type Sessio
 import { Hono } from 'hono'
 import { resolveRunModel } from '../../agents/availability.js'
 import { getAgent } from '../../agents/registry.js'
+import { holdHubToken } from '../../bus/secrets.js'
 import { claimInstallSession } from '../../agents/setup.js'
 import { createSession, getSession } from '../../db/repos/sessions.js'
 import { startRun } from '../../db/repos/runs.js'
@@ -30,6 +31,7 @@ chatRoutes.post('/chat', async c => {
     if (raw && typeof raw === 'object' && 'goal' in raw && !runGoalSchema.safeParse((raw as { goal: unknown }).goal).success) return c.json({ error: 'invalid_goal' }, 400)
     const body = chatRequestSchema.parse(raw)
     const briefedAgent = agent.config.kind === 'foreman' && body.foreman ? { ...agent, brief: body.foreman } : agent
+    if (briefedAgent.brief) holdHubToken(briefedAgent.brief.hubToken)
     const runAgentView = body.thinkingLevel ? { ...briefedAgent, config: { ...briefedAgent.config, thinkingLevel: body.thinkingLevel } } : briefedAgent
     const source = body.source ?? 'dashboard'
     const claim = body.install && !body.sessionId ? await claimInstallSession(agentId, () => createSession(agentId, undefined, undefined, source)) : null
