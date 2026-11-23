@@ -5,7 +5,7 @@ import store as S
 
 P1, P2 = "p1", "p2"
 CFG = {"repo": "o/r", "types": {"planner": {"coworkers": [
-    {"id": P1, "name": "One", "runs": 1}, {"id": P2, "name": "Two", "runs": 2}]}}}
+    {"id": P1, "name": "One", "runs": 1}, {"id": P2, "name": "Two", "runs": 1}]}}}
 
 
 def issue(n, label, created):
@@ -26,6 +26,10 @@ class Rig:
         self.calls, self.sends, self.runs = [], [], []
         self.fail = []
         self.fail_after_run = []
+        self.station = planning.Station(self.cfg, self.store, self.account, self.gh, lambda: 1000.0)
+
+    def seat(self, seats):
+        self.cfg["pool"] = {"max": 8, "seats": seats, "members": {"One": {P1}, "Two": {P2}}, "ghosts": list}
         self.station = planning.Station(self.cfg, self.store, self.account, self.gh, lambda: 1000.0)
 
     def gh(self, args):
@@ -76,22 +80,19 @@ class Start(unittest.TestCase):
         rec = r.store.get_all("plan:12")
         self.assertEqual((rec["run"], rec["state"], rec["started"]), ("run1", "running", STAMP))
 
-    def test_parallel_setting(self):
+    def test_the_planner_seats_set_how_many_plans_run_at_once(self):
         r = Rig()
-        r.cfg["planning"] = {"parallel": 1}
-        r.station = planning.Station(r.cfg, r.store, r.account, r.gh, lambda: 1000.0)
+        r.seat({"One": 1, "Two": 0})
         r.station.once(1)
         self.assertEqual(len(r.sends), 1)
         r = Rig()
-        r.cfg["planning"] = {"parallel": 3}
-        r.station = planning.Station(r.cfg, r.store, r.account, r.gh, lambda: 1000.0)
+        r.seat({"One": 1, "Two": 2})
         r.station.once(1)
         self.assertEqual([s[0] for s in r.sends], [P1, P2, P2])
 
     def test_backlog_read_every_fifth_beat(self):
         r = Rig()
-        r.cfg["planning"] = {"parallel": 5}
-        r.station = planning.Station(r.cfg, r.store, r.account, r.gh, lambda: 1000.0)
+        r.seat({"One": 2, "Two": 3})
         for beat in range(1, 6):
             r.station.once(beat)
         self.assertEqual(len(r.listed()), 1)
@@ -105,8 +106,7 @@ class Start(unittest.TestCase):
 
     def test_parallel_five_sends_three(self):
         r = Rig()
-        r.cfg["planning"] = {"parallel": 5}
-        r.station = planning.Station(r.cfg, r.store, r.account, r.gh, lambda: 1000.0)
+        r.seat({"One": 2, "Two": 3})
         r.station.once(1)
         r.station.once(6)
         self.assertEqual(len(r.sends), 3)
@@ -134,8 +134,7 @@ class Start(unittest.TestCase):
 
     def test_send_that_raised_after_the_run_started_is_adopted(self):
         r = Rig()
-        r.cfg["planning"] = {"parallel": 1}
-        r.station = planning.Station(r.cfg, r.store, r.account, r.gh, lambda: 1000.0)
+        r.seat({"One": 1, "Two": 0})
         r.fail_after_run = [1]
         r.station.once(1)
         r.station.once(6)
@@ -145,8 +144,7 @@ class Start(unittest.TestCase):
 
     def test_next_beat_adoption_records_run_and_label(self):
         r = Rig()
-        r.cfg["planning"] = {"parallel": 1}
-        r.station = planning.Station(r.cfg, r.store, r.account, r.gh, lambda: 1000.0)
+        r.seat({"One": 1, "Two": 0})
         r.fail = [1]
         r.station.once(1)
         r.runs.append({"runId": "late1", "agentId": P2, "startedAt": STAMP})

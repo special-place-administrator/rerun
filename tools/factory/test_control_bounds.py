@@ -13,7 +13,7 @@ def runs_today():
     out = {}
     for group in load("dispatch.json")["types"].values():
         for c in group["coworkers"]:
-            out[c["name"]] = c["runs"]
+            out[c["name"]] = c.get("runs", 1)
     return out
 
 

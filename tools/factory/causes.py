@@ -226,6 +226,10 @@ class Station:
     def row(self):
         return self.store.get_all(JOB)
 
+    def running(self):
+        row = self.row()
+        return [(row["agent"], int(row["copy"]))] if row.get("state") == "running" and row.get("agent") and str(row.get("copy") or "").isdigit() else []
+
     def put(self, k, v):
         self.store.set(JOB, k, v)
 

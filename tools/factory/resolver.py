@@ -103,7 +103,7 @@ class Resolver:
         if not self.switches(d)[1]:
             return 0
         recs = list(self.records(d).values())
-        copies = sum(c["runs"] for c in pools.types(d.cfg)[POOL]["coworkers"])
+        copies = pools.seats(d.cfg, POOL)
         free = copies - sum(1 for r in recs if r["state"] == "resolving")
         return max(0, min(free, sum(1 for r in recs if r["state"] == "resolve_wait")))
 

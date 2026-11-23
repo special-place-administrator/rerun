@@ -637,11 +637,12 @@ class Dispatcher:
 
     def pace_slots(self, total, pace=None):
         pace = self.pace if pace is None else pace
-        return total if pace >= 1 else max(1, int(total * pace))
+        return total if pace >= 1 else max(min(1, total), int(total * pace))
 
     def slot_quotas(self):
-        total = self.cfg.get("slots")
-        if not total:
+        pool = self.cfg.get("pool")
+        total = pool["max"] if pool else self.cfg.get("slots")
+        if not pool and not total:
             return None
         total = self.pace_slots(total)
         waiting = {}
@@ -669,6 +670,10 @@ class Dispatcher:
 
     def running(self):
         return self.own() + list(self.others())
+
+    def ghosts(self):
+        rows = list(self.station.live().values()) + list(self.station.live_rechecks().values()) + list(self.acceptance.live().values())
+        return self.own() + [(r["agent"], r.get("copy")) for r in rows if r.get("agent")] + self.causes.running() + self.classifier.running()
 
     def unresolved(self):
         return {j["agent"] for j in self.jobs() if j["state"] not in END and j.get("agent") and j.get("sending") and not j.get("run")}
@@ -807,7 +812,7 @@ class Dispatcher:
     def with_holds(self, cfg):
         now = self.now()
         return dict(cfg, held=bool(self.cfg.get("held") or holds.blocks_all(self.store, now)),
-                    held_plan=holds.blocks_subscription(self.store, now))
+                    held_plan=holds.blocks_subscription(self.store, now), pool=cfg.get("pool", self.cfg.get("pool")))
 
     def cache_kind(self, agent):
         for t in (self.cfg.get("types") or {}).values():
@@ -839,14 +844,15 @@ class Dispatcher:
         return self.warm_pick(j, pools.free_copies(self.cfg, "reviewer", self.running(), exclude=skip))
 
     def free_copy_of(self, agent, j=None):
-        mine = [c for t in pools.types(self.cfg).values() for c in t["coworkers"] if c["id"] == agent]
+        kind = next((t for t, v in pools.types(self.cfg).items() if any(c["id"] == agent for c in v["coworkers"])), None)
+        mine = [c for c in (pools.types(self.cfg).get(kind) or {}).get("coworkers", []) if c["id"] == agent]
         if not mine or agent in self.unresolved() or agent in self.held_ids():
             return None
-        cfg = self.with_holds({"types": {"x": {"coworkers": mine}}})
+        cfg = self.with_holds({"types": {kind: {"coworkers": mine}}})
         if j is None:
-            got = pools.pick_copy(cfg, "x", self.running())
+            got = pools.pick_copy(cfg, kind, self.running())
             return got[1] if got else None
-        got = self.warm_pick(j, pools.free_copies(cfg, "x", self.running()))
+        got = self.warm_pick(j, pools.free_copies(cfg, kind, self.running()))
         return got[1] if got else None
 
     def inbox(self):
@@ -915,7 +921,8 @@ class Dispatcher:
 
     def intake(self):
         open_jobs = [j for j in self.jobs() if j["state"] not in END + ("waiting",)]
-        rooms = {t: (v["max_jobs"] or 0) - len([j for j in open_jobs if j.get("worker", "coder") == t])
+        pool = self.cfg.get("pool")
+        rooms = {t: (v["max_jobs"] if v["max_jobs"] is not None and not pool else pools.seats(self.cfg, t)) - len([j for j in open_jobs if j.get("worker", "coder") == t])
                  for t, v in pools.types(self.cfg).items()}
         if all(r <= 0 for r in rooms.values()):
             return
@@ -2183,8 +2190,9 @@ class Dispatcher:
         week_used, mark = week.get("weekUsedPercent"), self.cfg.get("plan_week_hold_percent")
         resets = limits.ts(week["weekResetsAt"]) if week.get("weekResetsAt") else None
         pace = renewal.pace(week_used, mark, resets, now)
-        if pace < 1 and self.cfg.get("slots") and round(pace, 1) != round(self.pace, 1):
-            log("-", "pacing the plan week: %d %% used, %.1f days left, %d of %d slots" % (week_used, (resets - now) / 86400, self.pace_slots(self.cfg["slots"], pace), self.cfg["slots"]))
+        total = (self.cfg.get("pool") or {}).get("max", self.cfg.get("slots"))
+        if pace < 1 and total and round(pace, 1) != round(self.pace, 1):
+            log("-", "pacing the plan week: %d %% used, %.1f days left, %d of %d slots" % (week_used, (resets - now) / 86400, self.pace_slots(total, pace), total))
         self.pace = pace
         full = mark is not None and week_used is not None and week_used >= mark
         if full:
@@ -2449,7 +2457,7 @@ class Dispatcher:
             out["plans"] = {str(n): r.get("state") for n, r in sorted(records.items()) if r.get("state") not in planning.ENDED}
             out["planner_free"] = len(pools.free_copies(dict(self.cfg, held=False, held_plan=False), "planner", self.station.running()))
             out["planner_room"] = self.station.parallel - len(live)
-            out["planner_copies"] = {c["name"]: c["runs"] for c in (pools.types(self.cfg).get("planner") or {}).get("coworkers", [])}
+            out["planner_copies"] = {c["name"]: pools.copies(self.cfg, c) for c in (pools.types(self.cfg).get("planner") or {}).get("coworkers", [])}
         except Exception as e:  # noqa: BLE001
             out["planner_error"] = type(e).__name__
         try:

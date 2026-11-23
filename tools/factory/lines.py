@@ -3,8 +3,10 @@ import os
 import re
 import time
 
+import authors
 import factory
 import limits
+import pools
 import projects
 import states
 
@@ -26,6 +28,29 @@ ORDER_ISSUES_MAX = 200
 ORDER_TEXT_MAX = 4000
 ORDER_ACTIONS = ("retry", "skip")
 FAILED = ("blocked", "failed")
+GHOSTS_CEILING = 32
+FILE_AGAIN_S = 5 * 60
+STATION = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+STATIONS_MAX = 64
+TOKEN = re.compile(r"(gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,})")
+
+
+def ceiling():
+    try:
+        return max(0, int(os.environ.get("FACTORY_MAX_GHOSTS", GHOSTS_CEILING)))
+    except ValueError:
+        return GHOSTS_CEILING
+
+
+def whole(n):
+    return isinstance(n, int) and not isinstance(n, bool) and n >= 0
+
+
+def stamp(at):
+    try:
+        return limits.ts(str(at))
+    except (TypeError, ValueError):
+        return None
 
 
 def ledger_path(cfg, repo):
@@ -113,7 +138,78 @@ class Lines:
         state, off = self.control(), frozenset(self.off())
         for d in self.lines.values():
             d.run_state, d.off_connections, d.work = state, off, None
+            d.cfg["pool"] = self.pool(d)
         self.lines[self.active].work = self.work()
+
+    def throttle(self):
+        saved = self.read("throttle", {})
+        stations = saved.get("stations") if isinstance(saved.get("stations"), dict) else {}
+        return {"max_ghosts": saved["max_ghosts"] if whole(saved.get("max_ghosts")) else 1,
+                "stations": {k: v for k, v in stations.items() if isinstance(k, str) and whole(v)}, "by": saved.get("by"), "at": saved.get("at")}
+
+    def stations(self, d):
+        members = {}
+        for t in pools.types(d.cfg).values():
+            for c in t["coworkers"]:
+                members.setdefault(c["name"], set()).add(c["id"])
+        settings = d.cfg.get("classify") or {}
+        if settings.get("on") and settings.get("agent"):
+            members.setdefault(settings.get("agent_name") or "classify", set()).add(settings["agent"])
+        return members
+
+    def ghosts(self):
+        return [g for d in self.lines.values() for g in d.ghosts()]
+
+    def pool(self, d):
+        top, wanted = ceiling(), self.throttle()
+        members = self.stations(d)
+        return {"max": min(wanted["max_ghosts"], top), "seats": {s: min(wanted["stations"].get(s, 1), top) for s in members},
+                "members": members, "ghosts": self.ghosts}
+
+    def learn_throttle(self, ask):
+        if ask is None:
+            return
+        fingerprint = json.dumps(ask, sort_keys=True, default=str)[:4000]
+        if self.read("throttle_asked", {}).get("raw") == fingerprint:
+            return
+        self.kv.set("-", "throttle_asked", json.dumps({"raw": fingerprint}))
+        old = self.throttle()
+        ask = ask if isinstance(ask, dict) else {}
+        at, last = stamp(ask.get("at")), stamp(self.read("throttle", {}).get("asked_at"))
+        if at is not None and last is not None and at <= last:
+            return
+        top, most, stations = ceiling(), ask.get("max_ghosts", old["max_ghosts"]), ask.get("stations", {})
+        if not whole(most) or not isinstance(stations, dict) or len(stations) > STATIONS_MAX or not all(isinstance(k, str) and STATION.match(k) and whole(v) for k, v in stations.items()):
+            return self.problem("throttle answer not understood: the pool stays %d" % old["max_ghosts"])
+        new = {"max_ghosts": min(most, top), "stations": dict(old["stations"], **{k: min(v, top) for k, v in stations.items()})}
+        if new == {"max_ghosts": old["max_ghosts"], "stations": old["stations"]} and "throttle" in self.kv.get_all("-"):
+            return
+        self.change("throttle", dict(new, by=printable(ask.get("by")), at=self.mod.iso(self.now()), asked_at=str(ask.get("at"))[:64]),
+                    "pool %d, seats %s" % (new["max_ghosts"], ", ".join("%s %d" % kv for kv in sorted(new["stations"].items())) or "default"))
+
+    def file_order(self):
+        order = self.order()
+        if not order or order["kind"] not in ("feature", "bug") or order.get("filed") or order.get("repo") != self.active or not self.chosen():
+            return
+        failed = self.read("work_order_filing", {})
+        if failed.get("id") == order["id"] and self.now() - (failed.get("t") or 0) < FILE_AGAIN_S:
+            return
+        d, marker = self.lines[self.active], "Factory work order: %s" % order["id"]
+        try:
+            found = json.loads(d.gh(["issue", "list", "-R", order["repo"], "--state", "all", "--search", '"%s" in:body' % marker,
+                                     "--json", "number,body,author", "--limit", "20"]) or "[]")
+            n = next((i["number"] for i in found if isinstance(i, dict) and isinstance(i.get("number"), int)
+                      and marker in str(i.get("body") or "").splitlines() and authors.trusted_author(i)), None)
+            if n is None:
+                title = next((x.strip().lstrip("#").strip() for x in order["text"].splitlines() if x.strip().lstrip("#").strip()), order["kind"])[:256]
+                made = d.gh(["issue", "create", "-R", order["repo"], "--title", title, "--body", "%s\n\n%s" % (order["text"].rstrip(), marker), "--label", d.label])
+                n = int(made.strip().rsplit("/", 1)[1])
+        except (self.mod.Error, ValueError, IndexError, TypeError) as e:
+            why = TOKEN.sub("[token]", printable(str(e)))[:200]
+            self.kv.set("-", "work_order_filing", json.dumps({"id": order["id"], "t": self.now(), "error": why}))
+            return self.mod.log("work_order", "work order %s: issue filing failed: %s" % (order["id"], why))
+        self.kv.set("-", "work_order_filing", "{}")
+        self.change("work_order", dict(order, filed=n), "work order %s filed as #%d" % (order["id"], n))
 
     def chosen(self):
         return bool(self.last) and self.last.get("repo") == self.active
@@ -129,16 +225,21 @@ class Lines:
         if order is None or order.get("repo") != self.active:
             return {"wait": "no work order", "issues": [], "order": []}
         issues = order.get("issues") or []
+        if order["kind"] in ("feature", "bug") and not order.get("filed"):
+            failed = self.read("work_order_filing", {})
+            wait = "issue filing failed: %s" % failed.get("error") if failed.get("id") == order["id"] else "filing issue"
+            return {"wait": wait, "issues": [], "order": issues}
         if order["kind"] in ("feature", "bug"):
-            return {"wait": "the %s work order has no issue to run yet" % order["kind"], "issues": [], "order": issues}
-        store, skipped, retried, done = self.lines[self.active].store, order.get("skipped", []), order.get("retried", {}), []
+            issues = [order["filed"]]
+        store, skipped, retried, done, picked = self.lines[self.active].store, order.get("skipped", []), order.get("retried", {}), [], []
+        most = max(1, min(self.throttle()["max_ghosts"], ceiling()))
         for n in issues:
             j, kv = store.get_job(str(n)) or {}, store.get_all(str(n))
             if n in skipped or (not j and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")):
                 done.append(n)
                 continue
             if j.get("state") in FAILED and retried.get(str(n)) != j.get("take", 1):
-                return {"wait": "job #%d failed: retry or skip" % n, "issues": [], "order": issues, "done": done, "halted": n}
+                return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n}
             if j.get("state") in states.END and j.get("state") not in FAILED:
                 done.append(n)
                 continue
@@ -147,7 +248,13 @@ class Lines:
                 wait = "issue #%d is labelled factory-paused" % n
             elif not j and kv.get("cutshape"):
                 wait = "issue #%d body is not cut-shaped" % n
-            return {"wait": wait, "issues": [n], "order": issues, "done": done}
+            if wait and picked:
+                break
+            picked.append(n)
+            if wait or len(picked) >= most:
+                return {"wait": wait, "issues": picked, "order": issues, "done": done}
+        if picked:
+            return {"wait": None, "issues": picked, "order": issues, "done": done}
         return {"wait": "the work order is done", "issues": [], "order": issues, "done": done}
 
     def learn_action(self, ask):
@@ -188,7 +295,7 @@ class Lines:
         if order is None:
             return self.problem("work order answer not understood: the work order stays %s" % ((self.order() or {}).get("id") or "none"))
         self.kv.set("-", "work_order_asked", json.dumps({"raw": fingerprint}))
-        self.change("work_order", dict(order, by=printable(ask.get("by")), at=self.mod.iso(self.now())),
+        self.change("work_order", dict(order, by=printable(ask.get("by")), at=self.mod.iso(self.now()), asked_at=str(ask.get("at"))[:64]),
                     "work order %s: %s %s in %s" % (order["id"], order["kind"], ", ".join("#%d" % n for n in order["issues"]) or "-", order["repo"]))
 
     def valid_order(self, ask):
@@ -222,13 +329,21 @@ class Lines:
         if self.read("control_asked", {}) == asked:
             return
         self.kv.set("-", "control_asked", json.dumps(asked))
-        if state in ("DRAINING", "STOPPED") and self.order() is not None:
+        at, last = stamp(asked["at"]), stamp(self.read("control", {}).get("asked_at"))
+        if at is None:
+            return self.problem("control answer has no readable at: the factory stays %s" % self.control())
+        if last is not None and at <= last:
+            return
+        order = self.order()
+        newer = order is None or stamp(order.get("asked_at")) is None or at > stamp(order.get("asked_at"))
+        if state in ("DRAINING", "STOPPED") and order is not None and newer:
             self.change("work_order", {"kind": "none", "by": printable(ask.get("by")), "at": self.mod.iso(self.now())},
                         "work order %s cancelled by the stop" % self.order().get("id"))
         old = self.control()
         if state == old and "control" in self.kv.get_all("-"):
+            self.kv.set("-", "control", json.dumps(dict(self.read("control", {}), asked_at=asked["at"])))
             return
-        self.change("control", {"state": state, "by": printable(ask.get("by")), "at": self.mod.iso(self.now())}, "%s -> %s" % (old, state))
+        self.change("control", {"state": state, "by": printable(ask.get("by")), "at": self.mod.iso(self.now()), "asked_at": asked["at"]}, "%s -> %s" % (old, state))
 
     def drained(self):
         if self.control() != "DRAINING" or any(d.store.running() or d.store.pending() for d in self.lines.values()):
@@ -258,6 +373,9 @@ class Lines:
         out["work_order"] = {"id": order.get("id"), "repo": order.get("repo"), "kind": order.get("kind"), "issues": order.get("issues", []),
                              "text": order.get("text"), "by": order.get("by"), "at": order.get("at"), "current": (work["issues"] or [None])[0],
                              "done": work.get("done", []), "skipped": order.get("skipped", []), "halted": work.get("halted"), "wait": work["wait"]}
+        pool, ghosts, wanted = self.lines[self.active].cfg.get("pool") or self.pool(self.lines[self.active]), self.ghosts(), self.throttle()
+        out["throttle"] = {"max_ghosts": pool["max"], "running": len(ghosts), "ceiling": ceiling(), "by": wanted["by"], "at": wanted["at"],
+                           "stations": {s: {"seats": pool["seats"][s], "running": sum(1 for a, _ in ghosts if a in m)} for s, m in sorted(pool["members"].items())}}
         if self.last:
             out["switch"] = self.last
         ready = self.readiness()
@@ -372,6 +490,7 @@ class Lines:
         self.draining = waiting
 
     def once(self):
+        self.file_order()
         self.apply_controls()
         self.drain()
         self.lines[self.active].once()
@@ -393,6 +512,7 @@ class Lines:
             self.learn_providers(answer.get("providers"))
             self.learn_order(answer.get("work_order"))
             self.learn_action(answer.get("work_order_action"))
+            self.learn_throttle(answer.get("throttle"))
             self.learn_control(answer.get("control"))
             self.check(answer.get("check"))
             if answer.get("repos"):

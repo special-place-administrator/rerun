@@ -45,8 +45,8 @@ class Pools(unittest.TestCase):
             want = pools.pick(one, "coder", busy)
             self.assertEqual(got, None if want is None else (want, 1))
 
-    def test_old_keys_default_max_jobs_is_8(self):
-        self.assertEqual(pools.max_jobs({"builders": cw("b1")}, "coder"), 8)
+    def test_old_keys_carry_no_job_limit(self):
+        self.assertIsNone(pools.max_jobs({"builders": cw("b1")}, "coder"))
 
 
 if __name__ == "__main__":

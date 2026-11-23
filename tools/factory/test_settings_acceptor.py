@@ -17,13 +17,13 @@ def load(name):
 
 
 class SettingsAcceptor(unittest.TestCase):
-    def test_the_shipped_settings_have_the_acceptor_type_with_barbara_at_two_runs(self):
+    def test_the_shipped_settings_have_the_acceptor_type_with_barbara(self):
         settings = load("dispatch.json")
         acceptor = settings["types"]["acceptor"]
-        self.assertEqual(acceptor["coworkers"], [{"id": BARBARA, "name": "BARBARA", "runs": 2}])
+        self.assertEqual(acceptor["coworkers"], [{"id": BARBARA, "name": "BARBARA"}])
         self.assertNotIn("max_jobs", acceptor)
         pool = pools.types({"types": {"acceptor": acceptor}})["acceptor"]
-        self.assertEqual([(c["name"], c["runs"]) for c in pool["coworkers"]], [("BARBARA", 2)])
+        self.assertEqual([(c["name"], c["runs"]) for c in pool["coworkers"]], [("BARBARA", 1)])
 
     def test_barbara_has_a_bound_of_three_copies(self):
         self.assertEqual(load("control-bounds.json")["copies"]["BARBARA"], 3)

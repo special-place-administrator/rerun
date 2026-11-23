@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import planning
+import pools
 import stops
 
 RULES = Path(__file__).resolve().parent / "classify_rules.json"
@@ -215,6 +216,10 @@ class Pass:
                 self.store.set(job, "how", "model")
         return calls
 
+    def running(self):
+        agent = self.cfg.get("classify", {}).get("agent")
+        return [(agent, None) for row in self.store.running() if row["stage"] == "classify"] if agent else []
+
     def owner_stop(self, log):
         agent = self.cfg.get("classify", {}).get("agent")
         if not (self.account and agent):
@@ -266,7 +271,8 @@ class Pass:
         joined = set()
         if modelled:
             calls = self.poll(repo, rules, listed, cap, calls)
-            room = 0 if self.cfg.get("held") or self.cfg.get("held_plan") else settings.get("model_runs", 5) - self.sent_since(start)
+            left = pools.room(self.cfg, settings.get("agent_name") or "classify")
+            room = 0 if self.cfg.get("held") or self.cfg.get("held_plan") else settings.get("model_runs", 1) - self.sent_since(start) if left is None else left
         for issue in listed:
             if skipped(issue, rules) or kind(issue, rules) == "problem":
                 continue

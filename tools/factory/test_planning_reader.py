@@ -28,7 +28,7 @@ class ShippedSettings(unittest.TestCase):
     def test_shipped_settings_keep_the_defaults(self):
         cfg = shipped_planning()
         self.assertIs(cfg.get("auto", True), True)
-        self.assertEqual(cfg.get("parallel", planning.PARALLEL), planning.PARALLEL)
+        self.assertNotIn("parallel", cfg)
 
 
 class ReaderBrief(unittest.TestCase):
