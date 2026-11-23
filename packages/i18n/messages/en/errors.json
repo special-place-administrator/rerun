@@ -447,10 +447,19 @@
     "saveThisFileFailed": "Failed to save this file",
     "templateSubscriptionEnded": "This coworker came from a template subscription that has ended. Buy the template again to bring it back.",
     "noFreeCoworkerSlot": "No free coworker slot on your plan. Start Pro for unlimited coworkers, or delete a coworker to make room.",
-    "factoryOwnerOnly": "Only the workspace owner can change the factory's projects",
+    "factoryOwnerOnly": "Only the workspace owner can change the factory",
     "factoryProjectNotFound": "Project not found",
     "factoryProjectExists": "{repo} is already a project",
     "factoryRepoNotReachable": "The factory cannot reach {repo}",
     "factoryPathInvalid": "Type a plain folder path",
-    "factoryProjectActive": "{repo} is the project the factory works on: switch to another one first"
+    "factoryProjectActive": "{repo} is the project the factory works on: switch to another one first",
+    "factoryInputInvalid": "That request is not valid",
+    "factoryTooManyOff": "At most {max} connections can be off for the factory",
+    "factoryOrderIssuesInvalid": "List each issue number once: one for a single issue, 1 to {max} for all issues",
+    "factoryOrderTextTooLong": "Keep the description under {max} characters",
+    "factoryOrderTextMissing": "Describe the feature or the bug",
+    "factoryOrderNotActiveProject": "{repo} is not the project the factory works on",
+    "factoryWorkOrderActive": "{repo} already has a work order: cancel it first",
+    "factoryWorkOrderNotFound": "This work order was not found or has ended",
+    "factoryWorkOrderNotHalted": "Job #{issue} is not waiting for a retry or a skip"
 }

@@ -24,11 +24,11 @@ const CHECK_GIVES_UP_MS = 10 * 60_000
 const MAX_PATH = 4096
 const UNIQUE_VIOLATION = '23505'
 
-async function isFactoryOwner(workspaceId: number, userId: string): Promise<boolean> {
+export async function isFactoryOwner(workspaceId: number, userId: string): Promise<boolean> {
     return (await workspaceFounderUserId(workspaceId)) === userId
 }
 
-async function assertFactoryOwner(workspaceId: number, userId: string): Promise<void> {
+export async function assertFactoryOwner(workspaceId: number, userId: string): Promise<void> {
     if (!(await isFactoryOwner(workspaceId, userId))) throw new AuthorizationError('factoryOwnerOnly')
 }
 
