@@ -75,6 +75,7 @@ MERGE_TRIES = 5
 STALE_RUN_S, STALE_RUNS_A_BEAT = 2 * 3600, 15
 RUNS_ON_TTL_S = 10 * 60
 DRAIN_SEND_S = 300
+ORDER_VIEW_S = 300
 DRAIN_MAX_S = 3 * 3600
 MAX_TAKES = 3
 INBOX = "Factory follow-ups inbox"
@@ -575,6 +576,7 @@ class Dispatcher:
         self.connections = None
         self.plan_week_full = False
         self.runs_on, self.runs_on_at = {}, None
+        self.run_state, self.off_connections, self.work, self.order_views = "RUNNING", frozenset(), None, {}
         self.pace = 1.0
         self.draining = False
         self.report_logged = set()
@@ -621,7 +623,8 @@ class Dispatcher:
             return
         now = self.now()
         why = waits.reason(j, now, holds.active(self.store, now), [
-            "%s (%s)" % (self.names.get(a, a[:8]), row["why"]) for a, row in sorted(strikes.held(self.store, now).items())])
+            "%s (%s)" % (self.names.get(a, a[:8]), row["why"]) for a, row in sorted(strikes.held(self.store, now).items())],
+            no_provider=self.no_provider(j), work=self.work)
         if why and why != j.get("wait_reason"):
             j["wait_reason"] = why
             self.save(j, "waits: " + why)
@@ -671,7 +674,113 @@ class Dispatcher:
         return {j["agent"] for j in self.jobs() if j["state"] not in END and j.get("agent") and j.get("sending") and not j.get("run")}
 
     def held_ids(self):
-        return set(strikes.held(self.store, self.now()))
+        return set(strikes.held(self.store, self.now())) | set(self.cfg.get("off_agents") or ())
+
+    def no_provider(self, j):
+        worker = j.get("worker", "coder") if j["state"] == "queued" else None
+        kinds = [t for w, t in pools.types(self.cfg).items() if worker is None or w == worker]
+        coworkers = [c["id"] for t in kinds for c in t["coworkers"]]
+        return bool(coworkers) and set(coworkers) <= set(self.cfg.get("off_agents") or ())
+
+    def control_hold(self):
+        now = self.now()
+        if self.work is not None and self.work.get("wait"):
+            holds.arm(self.store, "no work", now + 2 * self.cfg.get("poll_s", 30))
+        elif holds.until(self.store, "no work") > now:
+            holds.clear(self.store, "no work")
+        for kind in ("paused", "draining", "stopped"):
+            if kind == self.run_state.lower():
+                holds.arm(self.store, kind, now + 2 * self.cfg.get("poll_s", 30))
+            elif holds.until(self.store, kind) > now:
+                holds.clear(self.store, kind)
+        listed = (self.connections or {}).get("connections") if isinstance(self.connections, dict) else None
+        default = next((c.get("id") for c in listed or [] if isinstance(c, dict) and c.get("isDefault") is True), None)
+        self.cfg["off_agents"] = sorted(c["id"] for t in pools.types(self.cfg).values() for c in t["coworkers"]
+                                        if self.runs_on.get(c["id"], default) in self.off_connections)
+        if self.run_state == "STOPPED":
+            self.stop_running()
+        elif self.run_state == "DRAINING":
+            self.clear_queue()
+
+    def order_issues(self, issues):
+        listed, mine = {i["number"]: i for i in issues}, []
+        for n in self.work["issues"]:
+            i = listed.get(n)
+            if i is None:
+                i = self.order_view(n)
+                if i is None:
+                    continue
+                if i.get("state") == "CLOSED":
+                    if not self.store.get_job(str(n)):
+                        self.store.set(str(n), "closed_unstarted", "1")
+                        log(n, "work order: issue closed before it started, skipped")
+                    continue
+                i = dict(i, number=n, title=i.get("title") or "", body=i.get("body") or "", labels=i.get("labels") or [])
+            names = {x.get("name") if isinstance(x, dict) else x for x in i.get("labels") or []}
+            kv = self.store.get_all(str(n))
+            if PAUSED in names:
+                if not kv.get("order_paused"):
+                    self.store.set(str(n), "order_paused", "1")
+                    log(n, "work order: the issue is labelled %s, so it is skipped" % PAUSED)
+                continue
+            if kv.get("order_paused"):
+                self.store.set(str(n), "order_paused", "")
+            if not kv.get("order_consent"):
+                self.store.set(str(n), "order_consent", "1")
+            mine.append(i)
+        return mine
+
+    def order_view(self, n):
+        at, seen = self.order_views.get(n, (None, None))
+        if at is not None and self.now() - at < ORDER_VIEW_S:
+            return seen
+        try:
+            seen = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "number,title,labels,body,author,state"]) or "{}")
+        except (Error, ValueError) as e:
+            log(n, "work order: issue not read: %s" % e)
+            return None
+        self.order_views = {k: v for k, v in self.order_views.items() if k in self.work["issues"]}
+        self.order_views[n] = (self.now(), seen)
+        return seen
+
+    def open_pr_for(self, n):
+        listed = json.loads(self.gh(["pr", "list", "-R", self.repo, "--state", "open", "--json", "number,headRefName,author,isCrossRepository", "--limit", "200"]) or "[]")
+        hits = [p["number"] for p in listed if isinstance(p, dict) and isinstance(p.get("number"), int) and p.get("isCrossRepository") is False
+                and str(p.get("headRefName") or "").startswith("chunk/%d-" % n) and authors.is_factory(p)]
+        return min(hits) if hits else None
+
+    def cancel_job(self, j):
+        self.to(j, "cancelled", "cancelled: the factory was %s by the owner" % ("stopped" if self.run_state == "STOPPED" else "drained"),
+                reason="cancelled by the owner", sending=None, ended_at=ledger_store.now())
+
+    def clear_queue(self):
+        for j in self.jobs():
+            if j["state"] not in END and j["state"] not in RUNNING and not j.get("sending"):
+                self.cancel_job(j)
+
+    def stop_running(self):
+        for j in self.jobs():
+            if j["state"] not in RUNNING or not j.get("run"):
+                continue
+            run = j["run"]
+            try:
+                c = self.account("cancel_run", {"agentId": j["agent"], "runId": run}) or {}
+            except Error as e:
+                log(j["issue"], "stop: run %s not cancelled yet, tried again next beat: %s" % (run, e))
+                continue
+            self.store.close_run(run, "cancelled", error="stopped by the owner", **self.kept_tokens(run))
+            log(j["issue"], "stopped by the owner: run %s cancelled (wasRunning %s)" % (run, c.get("wasRunning")))
+            self.cancel_job(j)
+        self.clear_queue()
+        for station in (self.station, self.acceptance, self.instructions, self.causes, self.classifier):
+            try:
+                station.owner_stop(log)
+            except Exception as e:
+                log("-", "stop: %s not stopped yet, tried again next beat: %s" % (type(station).__module__, str(e)[:200]))
+        try:
+            self.resolver.owner_stop(self, log)
+        except Exception as e:
+            log("-", "stop: resolver not stopped yet, tried again next beat: %s" % str(e)[:200])
 
     def strike(self, j, ran_ok):
         agent = j.get("agent")
@@ -812,6 +921,8 @@ class Dispatcher:
             return
         issues = json.loads(self.gh(["issue", "list", "-R", self.repo, "--label", self.label, "--state", "open",
                                      "--json", "number,title,labels,body,author", "--limit", "100"]))
+        if self.work is not None:
+            issues = self.order_issues(issues)
         paused = {i["number"] for i in issues if PAUSED in {x.get("name") for x in i.get("labels") or [] if isinstance(x, dict)}}
         issues = [i for i in issues if i["number"] not in paused and (authors.trusted_author(i) or "author" not in i)]
         for i in issues:
@@ -948,6 +1059,8 @@ class Dispatcher:
                     job["rechecks"] = old["rechecks"]
                 if old and old.get("pr") and json.loads(self.gh(["pr", "view", str(old["pr"]), "-R", self.repo, "--json", "state"])).get("state") == "OPEN":
                     job.update(state="review_wait", pr=old["pr"], builder=old.get("builder"))
+                elif (pr := self.open_pr_for(i["number"])) is not None:
+                    job.update(state="review_wait", pr=pr, builder=(old or {}).get("builder"))
                 rooms[parsed["worker"]] -= 1
                 self.save(job, "queued")
                 log(i["number"], ("back in at the review of #%s: " % job["pr"] if job.get("pr") else "queued: ") + i["title"][:120])
@@ -1022,7 +1135,7 @@ class Dispatcher:
                         state, why = "merged", "merged outside the delegator"
                     elif pr == "CLOSED":
                         state, why = "blocked", "pull request #%s closed without merge" % j["pr"]
-                if state is None and j["issue"] not in labelled:
+                if state is None and j["issue"] not in labelled and not self.store.get_all(str(j["issue"])).get("order_consent"):
                     state, why = "returned", "issue closed or the %s label removed" % self.label
                 if state is None:
                     continue
@@ -1535,6 +1648,8 @@ class Dispatcher:
                 return
         if st in states.QUEUE and j.get("not_before") and self.now() < j["not_before"]:
             return
+        if st in states.QUEUE and self.work is not None and j["issue"] not in self.work["issues"]:
+            return
         if st == "queued" and not self.taking:
             return
         if st == "queued" and proven_line(j.get("body")):
@@ -2013,9 +2128,9 @@ class Dispatcher:
         except Exception as e:
             counts = "by type: unreadable | features: unreadable"
             log("-", "heartbeat counts: %s" % type(e).__name__)
-        line = "%s beat %d | %s | ended today: %s | %s | unreadable %d, dead waits %d | problems %d open, %d owner" % (
+        line = "%s beat %d | %s | ended today: %s | %s | unreadable %d, dead waits %d | problems %d open, %d owner | control %s" % (
             iso(self.now()), self.beats, ", ".join("%s %d" % (s, count.get(s, 0)) for s in stages),
-            ", ".join("%s %d" % (s, n) for s, n in ended.items()), counts, self.unreadable, dead, *self.resolver.counts(self))
+            ", ".join("%s %d" % (s, n) for s, n in ended.items()), counts, self.unreadable, dead, *self.resolver.counts(self), self.run_state)
         self.beat_line = line
         print(line, flush=True)
         path = self.cfg.get("heartbeat_file", "/state/heartbeat")
@@ -2129,6 +2244,7 @@ class Dispatcher:
         self.heartbeat()
         self.renewal_hold()
         self.drain_hold()
+        self.control_hold()
         self.cfg["held"] = holds.blocks_all(self.store, self.now())
         self.cfg["held_plan"] = holds.blocks_subscription(self.store, self.now())
         if self.reporting:
@@ -2203,7 +2319,7 @@ class Dispatcher:
                     stepped += 1
                     self.step(j)
                     self.note_wait(j)
-                if j["state"] in END and not j.get("relabelled"):
+                if j["state"] in END and j["state"] != "cancelled" and not j.get("relabelled"):
                     self.report(j)
                 if j["state"] == "returned" and j.get("relabelled"):
                     self.replan(j)

@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import planning
+import stops
 
 RULES = Path(__file__).resolve().parent / "classify_rules.json"
 
@@ -213,6 +214,14 @@ class Pass:
                 self.store.set(job, "at", int(self.now()))
                 self.store.set(job, "how", "model")
         return calls
+
+    def owner_stop(self, log):
+        agent = self.cfg.get("classify", {}).get("agent")
+        if not (self.account and agent):
+            return
+        for row in self.store.running():
+            if row["stage"] == "classify" and row.get("run_id") and stops.cancel(self.account, self.store, agent, row["run_id"], log):
+                self.store.set(row["job"], "run", "")
 
     def send(self, issue, rules, settings):
         job = "classify:%s" % issue["number"]

@@ -10,6 +10,7 @@ import handover
 import notes
 import plancheck
 import pools
+import stops
 import tiers
 
 DEV = re.compile(r"(?m)^PLAN READY\b[^\n]*\bdev (?:at )?([0-9a-f]{7,40})\b")
@@ -40,7 +41,7 @@ STAGES = {"planning": "plan", "running": "plan", "cutting": "cut", "reviewing": 
 AGAIN = {"cut": "planned", "review": "planned", "repair": "repair"}
 QUESTION_LABEL = "factory-question"
 REPLAN = "factory-replan"
-ENDED = ("blocked", "lost", "cut")
+ENDED = ("blocked", "lost", "cut", stops.CANCELLED)
 CLEARED = frozenset(("factory-plan", "factory-blocked", "factory-unsolvable", "likely-fixed"))
 ANSWER = re.compile(r"(?mi)^ANSWER:[ \t]*(.+)$")
 ISSUE_URL = re.compile(r"/issues/(\d+)\b")
@@ -630,18 +631,22 @@ class Station:
         self.blocked(n, rest)
 
     def lost(self, n, row, got, why):
-        job = "plan:%d" % n
         stage = STAGES.get(row.get("state"))
         done = json.loads(row.get("resent") or "[]")
         mark = "review:%s" % row["lens"] if stage == "review" and row.get("lens") not in (None, "", "0") else stage
         if stage is None or mark in done:
             self.stopped(n, row, why)
             return
+        self.back(n, row, got, [("resent", json.dumps(done + [mark]))])
+
+    def back(self, n, row, got, items=()):
+        job = "plan:%d" % n
+        stage = STAGES.get(row.get("state"))
         unstaged_plan = stage == "plan" and not self.staged()
         if unstaged_plan and self.opened_children(n):
             self.finish(n, "blocked", "the plan run was lost after it opened child issues")
             return
-        items = [("resent", json.dumps(done + [mark])), ("handover", got.get("handoverPath") or ""), ("handover_stage", stage)]
+        items = list(items) + [("handover", got.get("handoverPath") or ""), ("handover_stage", stage)]
         if unstaged_plan:
             items += [("intent", ""), ("agent", "")]
             try:
@@ -650,6 +655,15 @@ class Station:
                 pass
         items.append(("state", AGAIN.get(stage, "resend" if self.staged() else "unsent")))
         self.store.set_many(job, items)
+
+    def owner_stop(self, log):
+        for n, row in self.records().items():
+            if row.get("state") in ENDED or (row.get("state") in LIVE and row.get("run") and not stops.cancel(self.account, self.store, row["agent"], row["run"], log)):
+                continue
+            self.store.set_many("plan:%d" % n, (("why", stops.WHY), ("state", stops.CANCELLED)))
+        for n, row in self.live_rechecks().items():
+            if row.get("run") and stops.cancel(self.account, self.store, row["agent"], row["run"], log):
+                self.recheck_result("recheck:%d" % n, stops.CANCELLED, stops.WHY)
 
     def opened_children(self, n):
         try:

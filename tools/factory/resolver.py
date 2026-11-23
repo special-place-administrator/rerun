@@ -10,6 +10,7 @@ import pools
 import problems
 import snapshot
 import states
+import stops
 import store as ledger_store
 import tiers
 
@@ -82,6 +83,16 @@ class Resolver:
 
     def put(self, d, key, r):
         d.store.set(KV, key, json.dumps(r))
+
+    def owner_stop(self, d, log):
+        for key, r in self.records(d).items():
+            if r.get("state") not in ("resolving", "resolve_wait"):
+                continue
+            if r.get("state") == "resolving" and r.get("run") and not stops.cancel(d.account, d.store, r["agent"], r["run"], log):
+                continue
+            r.update(state=stops.CANCELLED, agent=None, copy=None, run=None)
+            self.put(d, key, r)
+            self.log(r.get("issue", "-"), "problem %s: cancelled by the owner's hard stop" % key)
 
     def running(self, d):
         if not self.switches(d)[1]:

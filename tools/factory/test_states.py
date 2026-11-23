@@ -85,7 +85,7 @@ class States(unittest.TestCase):
 
     def test_derived_lists(self):
         self.assertEqual(states.RUNNING, ("building", "reviewing", "fixing", "proving"))
-        self.assertEqual(states.END, ("merged", "rejected", "blocked", "failed", "returned", "superseded", "unsolvable"))
+        self.assertEqual(states.END, ("merged", "rejected", "blocked", "failed", "returned", "superseded", "unsolvable", "cancelled"))
         self.assertEqual(states.PROBLEM, ("rejected", "blocked", "failed", "returned", "unsolvable"))
 
 
