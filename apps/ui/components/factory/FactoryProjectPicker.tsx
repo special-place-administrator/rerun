@@ -16,9 +16,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useErrorText } from '@/hooks/useErrorText'
 import { ProjectMark } from './ProjectMark'
 import { groupOf } from './factory-state'
+import { thrown } from './use-factory-controls'
 
 const POLL_MS = 5_000
-const thrown = (err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : '' })
 type Confirm = { kind: 'select' | 'remove'; project: FactoryProject } | null
 
 export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }) {

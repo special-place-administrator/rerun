@@ -7,9 +7,12 @@ import { FactoryBucket } from './FactoryBucket'
 import { FactoryInspector } from './FactoryInspector'
 import { FactoryLedger } from './FactoryLedger'
 import { FactoryProjectPicker } from './FactoryProjectPicker'
+import { FactoryRunControl } from './FactoryRunControl'
+import { FactoryWorkOrders, FactoryWorkOrdersSkeleton } from './FactoryWorkOrders'
 import { SAMPLE_TEXT } from './FactoryTasks'
 import { type Bucket } from './factory-bucket'
 import { DEPARTMENT_VIEW, buildLedger, chipCounts, filterLedger, type ChipCounts, type LedgerFilter } from './factory-ledger'
+import { useFactoryControls } from './use-factory-controls'
 
 const MAIN_CHIPS: { key: 'running' | 'waiting' | 'problems' | 'doneToday'; label: string }[] = [
     { key: 'running', label: 'Running' },
@@ -53,6 +56,7 @@ export function FactoryTopBar({ snapshot, selected, onSelect, names, onOpenCowor
         return () => clearInterval(id)
     }, [])
     const [filter, setFilter] = useState<LedgerFilter | null>(null)
+    const controls = useFactoryControls()
     const open = snapshot !== null && (filter !== null || selected !== null || bucket !== null)
     const rootRef = useRef<HTMLDivElement>(null)
 
@@ -91,6 +95,8 @@ export function FactoryTopBar({ snapshot, selected, onSelect, names, onOpenCowor
         <div ref={rootRef} data-topbar className="relative w-full">
             <div className="flex flex-wrap items-center justify-center gap-2">
                 <FactoryProjectPicker snapshot={snapshot} />
+                {controls.view === null && controls.loadError === null ? <FactoryWorkOrdersSkeleton /> : <FactoryWorkOrders snapshot={snapshot} controls={controls} />}
+                <FactoryRunControl snapshot={snapshot} controls={controls} />
                 {MAIN_CHIPS.map(c => (
                     <Chip key={c.key} name={c.key} label={c.label} count={counts[c.key]} filter={c.key} active={sameFilter(filter, c.key)} onPress={press} />
                 ))}
