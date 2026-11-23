@@ -8,6 +8,7 @@ import unittest.mock
 
 import dispatch as D
 import lines as L
+import pools
 import resolver as R
 import store as S
 from test_dispatch import HEAD, PR_LINE, Base, World, ready, wf
@@ -40,6 +41,7 @@ class Pair(Base):
         s.set("-", "project", json.dumps({"repo": repo, "from": None, "by": "test", "at": at}))
         s.add_event("project", None, s.get_all("-")["project"])
         s.set("-", "work_order", json.dumps({"id": "seed", "repo": repo, "kind": "all_issues", "issues": [5, 6, 7, 8], "text": "", "by": "test", "at": at}))
+        s.set("-", "throttle", json.dumps({"max_ghosts": 1, "stations": {}, "by": "test", "at": at}))
         s.close()
 
     def start(self, passed=True):
@@ -52,6 +54,9 @@ class Pair(Base):
         self.answer["project"] = {"repo": repo, "by": by}
         if order:
             self.answer["work_order"] = {"id": "seed-" + repo.replace("/", "-"), "repo": repo, "kind": "all_issues", "issues": [5, 6, 7, 8], "by": by, "at": "2026-11-23T00:00:00Z"}
+
+    def widen(self):
+        self.answer["throttle"] = {"max_ghosts": 2, "stations": {}, "by": "rob", "at": D.iso(self.w.clock)}
 
     def lines_said(self, text):
         return [x for x in self.out.getvalue().split("\n") if text in x]
@@ -84,7 +89,7 @@ class Two(Pair):
         self.start(passed=False)
         after = dump()
         self.assertEqual(self.w.rows("SELECT v FROM kv WHERE job='-' AND k='project_of'"), [("o/r",)])
-        after["kv"] = [r for r in after["kv"] if r[1] not in ("project_of", "control", "project", "work_order")]
+        after["kv"] = [r for r in after["kv"] if r[1] not in ("project_of", "control", "project", "work_order", "throttle")]
         self.assertEqual(after, before)
         db.close()
         self.w.finish("b1", PR_LINE)
@@ -124,6 +129,8 @@ class Two(Pair):
         self.start()
         self.to_review()
         self.select("p/q")
+        self.answer["work_order"]["issues"] = [5]
+        self.widen()
         self.tick(2)
         self.assertEqual(self.d.active, "p/q")
         self.assertEqual(self.state(), "reviewing")
@@ -168,6 +175,8 @@ class Two(Pair):
         self.start()
         self.to_review()
         self.select("p/q")
+        self.answer["work_order"]["issues"] = [5]
+        self.widen()
         self.tick(2)
         busy = [a for a, _ in self.d.lines["o/r"].own()]
         self.assertTrue(busy)
@@ -302,6 +311,7 @@ class Drain(Pair):
         self.w.clock += 5
         self.answer["project"] = {"repo": "p/q", "by": "rob", "at": D.iso(self.w.clock - 1)}
         self.answer["work_order"] = {"id": "pq", "repo": "p/q", "kind": "all_issues", "issues": [5], "by": "rob", "at": D.iso(self.w.clock)}
+        self.widen()
         self.tick(3)
         self.assertEqual(self.d.active, "p/q")
         self.assertEqual(self.p.sends, [])
@@ -374,7 +384,8 @@ class Controls(Pair):
             self.answer["providers"] = {"off": list(off), "by": "rob", "at": D.iso(self.w.clock)}
 
     def control(self, state):
-        self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock)}
+        self.clicks = getattr(self, "clicks", 0) + 1
+        self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock + self.clicks)}
 
     def test_a_fresh_factory_is_paused_and_a_pause_starts_nothing_new_while_running_work_finishes(self):
         self.d = self.new()
@@ -571,7 +582,8 @@ class OrderRules(Pair):
         self.assertEqual(len(self.lines_said("cancelled by the stop")), 2)
 
     def control(self, state):
-        self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock)}
+        self.clicks = getattr(self, "clicks", 0) + 1
+        self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock + self.clicks)}
 
     def test_a_failed_job_halts_the_sequence_until_the_owner_retries_or_skips_it(self):
         self.w.issues.append(issue(6, "Six"))
@@ -633,6 +645,95 @@ class OrderRules(Pair):
             self.w.clock += 30
             line.order_issues([])
         self.assertEqual((first, views() - first), (3, 0))
+
+class Seats(unittest.TestCase):
+    def test_the_pool_caps_all_stations_together_and_each_station_stays_within_its_seats(self):
+        seats = {"code": 5, "LINUS": 6, "Boss": 2, "HOUSE": 1}
+        types = {t: {"coworkers": [{"id": n.lower(), "name": n, "runs": 1}]} for t, n in zip(("coder", "reviewer", "planner", "resolver"), seats)}
+        members = {n: {n.lower()} for n in seats}
+        for pool, most in ((16, 14), (3, 3)):
+            ghosts = []
+            cfg = {"types": types, "pool": {"max": pool, "seats": seats, "members": members, "ghosts": lambda: ghosts}}
+            started = True
+            while started:
+                started = False
+                for t in types:
+                    got = pools.pick_copy(cfg, t, ghosts)
+                    if got:
+                        ghosts.append(got)
+                        started = True
+            per = {s: sum(1 for a, _ in ghosts if a in members[s]) for s in seats}
+            self.assertEqual(len(ghosts), most)
+            self.assertTrue(all(per[s] <= seats[s] for s in seats), per)
+
+
+class Throttle(Pair):
+    order = WorkOrders.order
+    running_factory = WorkOrders.running_factory
+
+    def test_a_throttle_answer_sets_the_pool_and_seats_once_within_the_ceiling(self):
+        self.running_factory()
+        self.select("o/r", order=False)
+        self.answer["throttle"] = {"max_ghosts": 16, "stations": {"B1": 5, "R1": 40}, "by": "rob", "at": "2026-11-23T21:00:00Z"}
+        with unittest.mock.patch.dict(os.environ, {"FACTORY_MAX_GHOSTS": "12"}):
+            self.tick(3)
+        pool = self.d.lines["o/r"].cfg["pool"]
+        self.assertEqual((pool["max"], pool["seats"]), (12, {"B1": 5, "B2": 1, "R1": 12, "R2": 1}))
+        got = self.w.reports[-1]["throttle"]
+        self.assertEqual((got["max_ghosts"], got["ceiling"], got["running"], got["stations"]["B1"]), (12, 12, 0, {"seats": 5, "running": 0}))
+        self.assertEqual(len(self.lines_said("pool 12")), 1)
+
+    def test_a_feature_order_files_its_issue_once_and_then_runs_it(self):
+        made, real = [], self.w.gh
+
+        def gh(args):
+            a = list(args)
+            if a[:2] == ["issue", "create"]:
+                n = 70 + len(made)
+                made.append(a)
+                self.w.issues.append({"number": n, "title": a[a.index("--title") + 1], "body": a[a.index("--body") + 1], "comments": [], "labels": ["factory"]})
+                return "https://github.com/o/r/issues/%d\n" % n
+            if a[:2] == ["issue", "list"] and "--search" in a and any("Factory work order" in x for x in a):
+                return "[]"
+            return real(a)
+
+        self.w.gh = gh
+        self.running_factory()
+        self.select("o/r", order=False)
+        self.answer["work_order"] = {"id": "wo-f", "repo": "o/r", "kind": "feature", "text": "Add a thing\n" + ready(), "by": "rob", "at": D.iso(self.w.clock)}
+        self.tick(4)
+        self.tick(2, fresh=True)
+        self.assertEqual(len(made), 1)
+        self.assertEqual((made[0][made[0].index("--title") + 1], made[0][made[0].index("--label") + 1]), ("Add a thing", "factory"))
+        self.assertEqual(sorted((j["issue"], j["state"]) for j in self.d.lines["o/r"].store.jobs()), [(70, "building")])
+        self.assertEqual(self.w.reports[-1]["work_order"]["current"], 70)
+
+    def test_a_work_order_runs_as_many_issues_at_once_as_the_pool_allows(self):
+        self.running_factory()
+        self.w.issues = [issue(n, "Fix %d" % n) for n in (5, 6, 7, 8)]
+        self.select("o/r", order=False)
+        self.order("all_issues", [5, 6, 7, 8])
+        self.answer["throttle"] = {"max_ghosts": 3, "stations": {"B1": 2, "B2": 2}, "by": "rob", "at": D.iso(self.w.clock)}
+        self.tick(4)
+        building = [j["issue"] for j in self.d.lines["o/r"].store.jobs() if j["state"] == "building"]
+        self.assertEqual(sorted(building), [5, 6, 7])
+
+    def test_a_resent_old_stop_never_cancels_a_newer_work_order(self):
+        self.running_factory()
+        self.select("o/r", order=False)
+        stop = {"state": "STOPPED", "by": "rob", "at": "2026-11-23T10:00:00Z"}
+        self.answer["control"] = stop
+        self.tick(2)
+        self.answer["control"] = {"state": "RUNNING", "by": "rob", "at": "2026-11-23T10:05:00Z"}
+        self.tick(2)
+        self.answer["work_order"] = {"id": "wo-new", "repo": "o/r", "kind": "issue", "issues": [5], "by": "rob", "at": "2026-11-23T10:10:00Z"}
+        self.tick(2)
+        self.d.kv.set("-", "control_asked", "{}")
+        self.answer["control"] = stop
+        self.tick(2)
+        got = self.w.reports[-1]
+        self.assertEqual((got["control"]["state"], got["work_order"]["id"], got["work_order"]["kind"]), ("RUNNING", "wo-new", "issue"))
+
 
 if __name__ == "__main__":
     unittest.main()
