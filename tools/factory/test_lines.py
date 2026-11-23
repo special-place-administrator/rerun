@@ -33,6 +33,7 @@ class Pair(Base):
 
     def start(self, passed=True):
         self.d = self.new()
+        self.d.kv.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
         if passed:
             self.d.kv.set("-", "ready:p/q", json.dumps({"passed": True}))
 
@@ -70,7 +71,7 @@ class Two(Pair):
         self.start(passed=False)
         after = dump()
         self.assertEqual(self.w.rows("SELECT v FROM kv WHERE job='-' AND k='project_of'"), [("o/r",)])
-        after["kv"] = [r for r in after["kv"] if r[1] != "project_of"]
+        after["kv"] = [r for r in after["kv"] if r[1] not in ("project_of", "control")]
         self.assertEqual(after, before)
         db.close()
         self.w.finish("b1", PR_LINE)
@@ -254,6 +255,9 @@ class Two(Pair):
             setattr(D, name, fake)
         self.addCleanup(setattr, L, "Lines", real)
         L.Lines = lambda *a, **k: seen.append(k) or real(*a, **k)
+        s = S.Store(self.cfg["ledger_file"])
+        s.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
+        s.close()
         with unittest.mock.patch.dict(os.environ, {"DISPATCH_ACCOUNT_URL": "http://account.invalid"}), contextlib.redirect_stdout(self.out):
             self.assertEqual(D.main(["once"]), 0)
         self.assertIs(seen[0]["mod"], D)
@@ -361,7 +365,7 @@ class Controls(Pair):
         self.d = self.new()
         self.tick(3)
         self.assertEqual(self.w.sends, [])
-        self.assertEqual(self.d.lines["o/r"].control, "PAUSED")
+        self.assertEqual(self.d.lines["o/r"].run_state, "PAUSED")
         self.control("RUNNING")
         self.tick(2)
         self.assertEqual((self.state(), len(self.w.sends)), ("building", 1))

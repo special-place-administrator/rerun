@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 
 import factory
@@ -16,6 +17,10 @@ RECHECK_FLOOR_S = 60
 READINESS_PER_HOUR = 20
 REPOS_AGAIN_S = 5 * 60
 PROBES_KEPT = 10
+CONTROL_STATES = ("RUNNING", "PAUSED", "STOPPED")
+CONTROL_DEFAULT = "PAUSED"
+CONNECTION_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+CONNECTIONS_OFF_MAX = 50
 
 
 def ledger_path(cfg, repo):
@@ -91,8 +96,56 @@ class Lines:
     def finishing(self):
         return [(r, len(live(d))) for r, d in self.lines.items() if r != self.active and live(d)]
 
+    def control(self):
+        saved = self.read("control", {})
+        return saved.get("state") if saved.get("state") in CONTROL_STATES else CONTROL_DEFAULT
+
+    def off(self):
+        saved = self.read("providers", {}).get("off")
+        return sorted(c for c in saved if isinstance(c, str) and CONNECTION_ID.match(c)) if isinstance(saved, list) else []
+
+    def apply_controls(self):
+        state, off = self.control(), frozenset(self.off())
+        for d in self.lines.values():
+            d.run_state, d.off_connections = state, off
+
+    def change(self, key, value, said):
+        old = self.kv.get_all("-").get(key)
+        new = json.dumps(value)
+        self.kv.set("-", key, new)
+        self.kv.add_event(key, old, new)
+        self.mod.log(key, "%s by %s at %s" % (said, value["by"] or "?", value["at"]))
+
+    def learn_control(self, ask):
+        if ask is None:
+            return
+        state = ask.get("state") if isinstance(ask, dict) else None
+        if state not in CONTROL_STATES:
+            return self.problem("control answer not understood: the factory stays %s" % self.control())
+        old = self.control()
+        if state == old and "control" in self.kv.get_all("-"):
+            return
+        self.change("control", {"state": state, "by": printable(ask.get("by")), "at": self.mod.iso(self.now())}, "%s -> %s" % (old, state))
+
+    def learn_providers(self, ask):
+        if ask is None:
+            return
+        off = ask.get("off") if isinstance(ask, dict) else None
+        if not isinstance(off, list) or len(off) > CONNECTIONS_OFF_MAX or not all(isinstance(c, str) and CONNECTION_ID.match(c) for c in off):
+            return self.problem("providers answer not understood: the connections stay as they are")
+        off = sorted(set(off))
+        if off == self.off() and "providers" in self.kv.get_all("-"):
+            return
+        self.change("providers", {"off": off, "by": printable(ask.get("by")), "at": self.mod.iso(self.now())},
+                    "connections off: %s (were %s)" % (", ".join(off) or "none", ", ".join(self.off()) or "none"))
+
     def extra(self):
         out = {"home": self.home, "finishing": [{"repo": r, "jobs": n} for r, n in self.finishing()][:10]}
+        saved = self.read("control", {})
+        out["control"] = {"state": self.control(), "by": saved.get("by"), "at": saved.get("at")}
+        listed = (self.lines[self.active].connections or {}).get("connections") if isinstance(self.lines[self.active].connections, dict) else None
+        ids = sorted(c["id"] for c in listed or [] if isinstance(c, dict) and isinstance(c.get("id"), str))
+        out["providers"] = {"off": self.off(), "enabled": [c for c in ids if c not in self.off()]}
         if self.last:
             out["switch"] = self.last
         ready = self.readiness()
@@ -207,6 +260,7 @@ class Lines:
         self.draining = waiting
 
     def once(self):
+        self.apply_controls()
         self.drain()
         self.lines[self.active].once()
         for repo in [r for r in self.lines if r != self.active]:
@@ -216,9 +270,15 @@ class Lines:
                 self.lines.pop(repo).close()
         self.kv.set("-", "finishing", json.dumps([r for r, _ in self.finishing()]))
         self.learn(self.lines[self.active].answer)
+        self.apply_controls()
+        if self.control() == "STOPPED":
+            for d in self.lines.values():
+                d.stop_running()
 
     def learn(self, answer):
         if isinstance(answer, dict):
+            self.learn_control(answer.get("control"))
+            self.learn_providers(answer.get("providers"))
             self.check(answer.get("check"))
             if answer.get("repos"):
                 self.list_repos()

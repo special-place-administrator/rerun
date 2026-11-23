@@ -45,7 +45,8 @@ def free_copies(cfg, worker, running, exclude=()):
     if t is None or cfg.get("held"):
         return []
     out = []
-    for c in [c for c in t["coworkers"] if c["id"] not in exclude]:
+    off = set(cfg.get("off_agents") or ())
+    for c in [c for c in t["coworkers"] if c["id"] not in exclude and c["id"] not in off]:
         if cfg.get("held_plan") and (c.get("provider") or "claude") == "claude":
             continue
         taken = {1 if k is None else k for i, k in running if i == c["id"]}

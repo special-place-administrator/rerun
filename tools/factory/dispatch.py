@@ -575,6 +575,7 @@ class Dispatcher:
         self.connections = None
         self.plan_week_full = False
         self.runs_on, self.runs_on_at = {}, None
+        self.run_state, self.off_connections = "RUNNING", frozenset()
         self.pace = 1.0
         self.draining = False
         self.report_logged = set()
@@ -621,7 +622,8 @@ class Dispatcher:
             return
         now = self.now()
         why = waits.reason(j, now, holds.active(self.store, now), [
-            "%s (%s)" % (self.names.get(a, a[:8]), row["why"]) for a, row in sorted(strikes.held(self.store, now).items())])
+            "%s (%s)" % (self.names.get(a, a[:8]), row["why"]) for a, row in sorted(strikes.held(self.store, now).items())],
+            no_provider=self.no_provider(j))
         if why and why != j.get("wait_reason"):
             j["wait_reason"] = why
             self.save(j, "waits: " + why)
@@ -671,7 +673,42 @@ class Dispatcher:
         return {j["agent"] for j in self.jobs() if j["state"] not in END and j.get("agent") and j.get("sending") and not j.get("run")}
 
     def held_ids(self):
-        return set(strikes.held(self.store, self.now()))
+        return set(strikes.held(self.store, self.now())) | set(self.cfg.get("off_agents") or ())
+
+    def no_provider(self, j):
+        worker = j.get("worker", "coder") if j["state"] == "queued" else None
+        kinds = [t for w, t in pools.types(self.cfg).items() if worker is None or w == worker]
+        coworkers = [c["id"] for t in kinds for c in t["coworkers"]]
+        return bool(coworkers) and set(coworkers) <= set(self.cfg.get("off_agents") or ())
+
+    def control_hold(self):
+        now = self.now()
+        for kind in ("paused", "stopped"):
+            if kind == self.run_state.lower():
+                holds.arm(self.store, kind, now + 2 * self.cfg.get("poll_s", 30))
+            elif holds.until(self.store, kind) > now:
+                holds.clear(self.store, kind)
+        listed = (self.connections or {}).get("connections") if isinstance(self.connections, dict) else None
+        default = next((c.get("id") for c in listed or [] if isinstance(c, dict) and c.get("isDefault") is True), None)
+        self.cfg["off_agents"] = sorted(c["id"] for t in pools.types(self.cfg).values() for c in t["coworkers"]
+                                        if self.runs_on.get(c["id"], default) in self.off_connections)
+        if self.run_state == "STOPPED":
+            self.stop_running()
+
+    def stop_running(self):
+        for j in self.jobs():
+            if j["state"] not in RUNNING or not j.get("run"):
+                continue
+            run = j["run"]
+            try:
+                c = self.account("cancel_run", {"agentId": j["agent"], "runId": run}) or {}
+            except Error as e:
+                log(j["issue"], "stop: run %s not cancelled yet, tried again next beat: %s" % (run, e))
+                continue
+            self.store.close_run(run, "cancelled", error="stopped by the owner", **self.kept_tokens(run))
+            j.update(state=BACK[j["state"]], retry_attempt=j.get("attempt", 1), sending=None)
+            self.save(j, "stopped: back to %s" % j["state"])
+            log(j["issue"], "stopped by the owner: run %s cancelled (wasRunning %s), back to %s" % (run, c.get("wasRunning"), j["state"]))
 
     def strike(self, j, ran_ok):
         agent = j.get("agent")
@@ -2013,9 +2050,9 @@ class Dispatcher:
         except Exception as e:
             counts = "by type: unreadable | features: unreadable"
             log("-", "heartbeat counts: %s" % type(e).__name__)
-        line = "%s beat %d | %s | ended today: %s | %s | unreadable %d, dead waits %d | problems %d open, %d owner" % (
+        line = "%s beat %d | %s | ended today: %s | %s | unreadable %d, dead waits %d | problems %d open, %d owner | control %s" % (
             iso(self.now()), self.beats, ", ".join("%s %d" % (s, count.get(s, 0)) for s in stages),
-            ", ".join("%s %d" % (s, n) for s, n in ended.items()), counts, self.unreadable, dead, *self.resolver.counts(self))
+            ", ".join("%s %d" % (s, n) for s, n in ended.items()), counts, self.unreadable, dead, *self.resolver.counts(self), self.run_state)
         self.beat_line = line
         print(line, flush=True)
         path = self.cfg.get("heartbeat_file", "/state/heartbeat")
@@ -2129,6 +2166,7 @@ class Dispatcher:
         self.heartbeat()
         self.renewal_hold()
         self.drain_hold()
+        self.control_hold()
         self.cfg["held"] = holds.blocks_all(self.store, self.now())
         self.cfg["held_plan"] = holds.blocks_subscription(self.store, self.now())
         if self.reporting:
