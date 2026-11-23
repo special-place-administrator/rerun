@@ -60,6 +60,45 @@ class ProvenTest(Base):
         self.assertEqual(len(self.pr_creates()), 1)
         self.assertIn("branch chunk/5-p not made, so it is moved to sha5aaa", self.log_text())
 
+    def test_a_proven_branch_is_brought_up_to_date_with_dev_before_its_pull_request(self):
+        self.tick()
+        self.assertEqual(self.state(), "review_wait")
+        refs_call = ["api", "-X", "POST", "repos/o/r/git/refs", "-f", "ref=refs/heads/chunk/5-p", "-f", "sha=sha5aaaaaaaaaaa"]
+        merge_call = ["api", "-X", "POST", "repos/o/r/merges", "-f", "base=chunk/5-p", "-f", "head=dev"]
+        self.assertIn(merge_call, self.w.gh_calls)
+        self.assertEqual(len(self.pr_creates()), 1)
+        self.assertLess(self.w.gh_calls.index(refs_call), self.w.gh_calls.index(merge_call))
+        self.assertLess(self.w.gh_calls.index(merge_call), self.w.gh_calls.index(self.pr_creates()[0]))
+
+    def test_a_proven_branch_that_conflicts_with_dev_returns_to_the_planner(self):
+        gh = self.w.gh
+
+        def merges_conflict(args):
+            if args[0] == "api" and "-X" in args and any(x.endswith("/merges") for x in args):
+                raise D.Error("gh api failed: exit 1: HTTP 409: Merge conflict")
+            return gh(args)
+
+        self.w.gh = merges_conflict
+        self.tick()
+        self.assertEqual(self.state(), "returned")
+        self.assertEqual(self.pr_creates(), [])
+        self.assertEqual(self.w.sends, [])
+        self.assertIn("plan: the proven branch plan/5 conflicts with today's dev; prove it again from today's dev, or say it is already done there", self.log_text())
+
+    def test_a_proven_branch_whose_dev_merge_fails_without_conflict_still_gets_its_pull_request(self):
+        gh = self.w.gh
+
+        def merges_fail(args):
+            if args[0] == "api" and "-X" in args and any(x.endswith("/merges") for x in args):
+                raise D.Error("gh api failed: exit 1: HTTP 502")
+            return gh(args)
+
+        self.w.gh = merges_fail
+        self.tick()
+        self.assertEqual(self.state(), "review_wait")
+        self.assertEqual(len(self.pr_creates()), 1)
+        self.assertIn("dev not merged into chunk/5-p, going on to the pull request: gh api failed: exit 1: HTTP 502", self.log_text())
+
     def test_the_proven_job_goes_through_review_checks_and_proof_and_merges(self):
         self.tick(2)
         self.assertEqual(len(self.w.sends), 1)

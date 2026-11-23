@@ -231,6 +231,8 @@ class World:
             if self.ref_exists:
                 raise D.Error("gh api failed: exit 1: Reference already exists")
             return "{}"
+        if a[0] == "api" and "-X" in a and a[a.index("-X") + 1] == "POST" and any(x.endswith("/merges") for x in a):
+            return "{}"
         if a[0] == "api" and "-X" in a and a[a.index("-X") + 1] == "PATCH" and any("/git/refs/heads/" in x for x in a):
             if self.patch_error:
                 raise D.Error(self.patch_error)
