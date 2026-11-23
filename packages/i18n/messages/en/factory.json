@@ -67,7 +67,11 @@
         "retry": "Try again",
         "confirmHardStopTitle": "Hard stop the factory?",
         "confirmHardStopBody": "Every running job, planner and station run is cancelled now, and the work order ends. Nothing resumes on its own.",
-        "confirmHardStop": "Hard stop"
+        "confirmHardStop": "Hard stop",
+        "pool": "Pool",
+        "seats": "Seats",
+        "usage": "{running} / {max} running",
+        "throttleSaved": "{label} set to {value}"
     },
     "orders": {
         "trigger": "Work order",

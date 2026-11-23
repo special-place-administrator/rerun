@@ -59,7 +59,11 @@
         "retry": "Reintentar",
         "confirmHardStopTitle": "¿Detener la fábrica de inmediato?",
         "confirmHardStopBody": "Cada trabajo, planificación y estación en curso se cancela ahora, y la orden de trabajo termina. Nada se reanuda solo.",
-        "confirmHardStop": "Parada inmediata"
+        "confirmHardStop": "Parada inmediata",
+        "pool": "Grupo",
+        "seats": "Plazas",
+        "usage": "{running} / {max} en marcha",
+        "throttleSaved": "{label}: {value}"
     },
     "orders": {
         "trigger": "Orden de trabajo",

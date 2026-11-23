@@ -59,7 +59,11 @@
         "retry": "Erneut versuchen",
         "confirmHardStopTitle": "Fabrik sofort stoppen?",
         "confirmHardStopBody": "Jeder laufende Job, Planer- und Stationslauf wird jetzt abgebrochen, und der Arbeitsauftrag endet. Nichts läuft von selbst weiter.",
-        "confirmHardStop": "Sofort stoppen"
+        "confirmHardStop": "Sofort stoppen",
+        "pool": "Pool",
+        "seats": "Plätze",
+        "usage": "{running} / {max} aktiv",
+        "throttleSaved": "{label} auf {value} gesetzt"
     },
     "orders": {
         "trigger": "Arbeitsauftrag",

@@ -59,7 +59,11 @@
         "retry": "Réessayer",
         "confirmHardStopTitle": "Arrêter l'usine immédiatement ?",
         "confirmHardStopBody": "Chaque tâche, planification et station en cours est annulée maintenant, et l'ordre de travail prend fin. Rien ne reprend seul.",
-        "confirmHardStop": "Arrêt immédiat"
+        "confirmHardStop": "Arrêt immédiat",
+        "pool": "Pool",
+        "seats": "Places",
+        "usage": "{running} / {max} en cours",
+        "throttleSaved": "{label} réglé sur {value}"
     },
     "orders": {
         "trigger": "Ordre de travail",
