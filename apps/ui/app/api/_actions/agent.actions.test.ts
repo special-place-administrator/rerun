@@ -125,7 +125,7 @@ describe('the level each action asks of the Box', () => {
         await actions.moveAgentAction({ agentId, spaceId })
         await actions.duplicateAgentAction({ agentId, spaceId })
 
-        expect(mocks.moveAgentToBox).toHaveBeenCalledWith(agentId, spaceId, MEMBER)
+        expect(mocks.moveAgentToBox).toHaveBeenCalledWith(agentId, spaceId, MEMBER, undefined)
         expect(mocks.duplicateAgent).toHaveBeenCalledWith(expect.objectContaining({ actor: MEMBER, agentRowId: agentId, workspaceId: 7, spaceId }))
     })
 })

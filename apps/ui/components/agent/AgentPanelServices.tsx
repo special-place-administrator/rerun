@@ -5,7 +5,8 @@ import { parseServiceRegistryKey } from '@moldwright/contracts'
 
 import { getServiceAlternativesAction, getServiceDetailsAction, installServiceAction, listCatalogServicesAction, resetServiceConnectionAction, searchServicesAction, uninstallServiceAction } from '@/app/api/_actions/services.actions'
 import { getAgentDetailAction, patchAgentMcpServersAction } from '@/app/api/_actions/agent.actions'
-import { listAgentConnectorsAction, removeCustomMcpServerAction } from '@/app/api/_actions/custom-mcp.actions'
+import { enableCustomMcpServerAction, listAgentConnectorsAction, removeCustomMcpServerAction } from '@/app/api/_actions/custom-mcp.actions'
+import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { McpOAuthAuthorize } from '@/components/agent/McpOAuthAuthorize'
 import { McpServerEditor } from '@/components/agent/McpServerEditor'
 import { CustomMcpRow } from '@/components/services/CustomMcpRow'
@@ -98,6 +99,7 @@ export function AgentPanelServices({ agentId }: AgentPanelServicesProps) {
     const [installed, setInstalled] = useState<InstalledService[]>([])
     const [custom, setCustom] = useState<CustomMcpServer[]>([])
     const [customStep, setCustomStep] = useState<CustomStep | null>(null)
+    const [enableAck, setEnableAck] = useState<string | null>(null)
     const { statuses: customStatuses, loading: customStatusesLoading, checkedAt: customCheckedAt } = useMcpServerStatuses(agentId)
     const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | null>(null)
     const [query, setQuery] = useState('')
@@ -286,6 +288,21 @@ export function AgentPanelServices({ agentId }: AgentPanelServicesProps) {
         [agentId, afterCustomChange, t, errorText],
     )
 
+    const onEnableCustom = useCallback(
+        async (name: string, acceptUnpinned: boolean) => {
+            setError(null)
+            setEnableAck(null)
+            const res = await enableCustomMcpServerAction(agentId, name, acceptUnpinned)
+            if (res.needsAck) {
+                setEnableAck(name)
+                return
+            }
+            if (!res.success) setError(errorText(res, t('enableServerFailed')))
+            await afterCustomChange()
+        },
+        [agentId, afterCustomChange, t, errorText],
+    )
+
     const onEditCustom = useCallback(
         async (name: string) => {
             setError(null)
@@ -389,6 +406,14 @@ export function AgentPanelServices({ agentId }: AgentPanelServicesProps) {
 
     return (
         <PanelSteps stepKey="list" depth={0}>
+            <ConfirmDialog
+                open={enableAck !== null}
+                onOpenChange={open => !open && setEnableAck(null)}
+                title={t('enableUnpinnedTitle', { name: enableAck ?? '' })}
+                description={t('enableUnpinnedDescription')}
+                confirmLabel={t('enableUnpinnedConfirm')}
+                onConfirm={() => enableAck && onEnableCustom(enableAck, true)}
+            />
             <div className="flex h-full flex-col">
                 <div className="space-y-2 border-b border-border p-3">
                     <Input value={query} placeholder={t('searchPlaceholder')} className="h-8 text-sm" onChange={e => setQuery(e.target.value)} />
@@ -475,6 +500,7 @@ export function AgentPanelServices({ agentId }: AgentPanelServicesProps) {
                                                 onConnect={() => setCustomStep({ kind: 'connect', server, popup: openPendingSignInPopup(server.displayName, tServices('signInPopup.connecting', { name: server.displayName })) })}
                                                 onEdit={() => onEditCustom(server.name)}
                                                 onRemove={() => onRemoveCustom(server.name)}
+                                                onEnable={() => onEnableCustom(server.name, false)}
                                                 disabledReason={manageReason}
                                             />
                                         ))}

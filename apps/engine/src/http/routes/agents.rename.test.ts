@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-agents-rename-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 process.env.RERUN_HUB_BASE_URL = ''
 
 const { describe, expect, it, beforeAll } = await import('vitest')

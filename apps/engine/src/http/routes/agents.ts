@@ -2,18 +2,20 @@ import { Hono } from 'hono'
 import { rm, writeFile, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { Readable } from 'node:stream'
-import { createAgentSchema, duplicateAgentSchema, mcpTokenSchema, updateAgentKeysSchema, updateAgentMcpServersSchema } from '@moldwright/contracts'
+import { createAgentSchema, duplicateAgentSchema, enableMcpServerSchema, mcpTokenSchema, updateAgentKeysSchema, updateAgentMcpServersSchema } from '@moldwright/contracts'
 import { clearToken, saveToken } from '../../tools/mcp-auth.js'
 import { MCP_STATUS_TIMEOUT_MS, probeMcpStatuses } from '../../tools/mcp-status.js'
-import { McpProbeTimeoutError, modelReadyMcpTool, openMcpClient, prepareMcpServer } from '../../tools/mcp.js'
+import { McpProbeTimeoutError, modelReadyMcpTool, isEnabledMcpServer, openMcpClient, prepareMcpServer } from '../../tools/mcp.js'
 import { COMPACTION_CHARS_PER_TOKEN } from '../../runtime/compaction/config.js'
 import { buildSystemPrompt, systemPromptText } from '../../agents/systemPrompt.js'
+import { McpVersionUnresolvedError, mcpLaunchLine, pinStdioLaunch } from '../../tools/mcp-pin.js'
 import { agentMcpSpawn, errorClassOf, mcpSessionStates, reconnectMcp } from '../../tools/mcp-pool.js'
 import { announceToAgentRuns } from '../../runtime/run-control.js'
 import { createAgent } from '../../agents/factory.js'
 import { agentConfigSchema, BRIDGE_SERVER_NAME, MCP_SERVER_NAME_RE } from '../../agents/types.js'
 import { readAgentEnv, writeAgentEnv } from '../../agents/env.js'
-import { reloadAgent, unloadAgent } from '../../agents/registry.js'
+import { readSharedEnvSync } from '../../agents/shared-env.js'
+import { getAgent, reloadAgent, unloadAgent } from '../../agents/registry.js'
 import { agentExists, loadAgentFromDisk, loadAgentView, readAgentConfig } from '../../agents/loader.js'
 import { withAgentLock } from '../../agents/lock.js'
 import { buildArchive, planArchive } from '../../agents/archive.js'
@@ -164,6 +166,38 @@ agentRoutes.patch('/:id/mcp-servers', async c => {
     return c.json(publicView(id, agent.config, agent.soul, agent.install, agent.resolved))
 })
 
+agentRoutes.post('/:id/mcp-servers/:name/enable', async c => {
+    const id = c.req.param('id')
+    const name = c.req.param('name')
+    if (!agentExists(id)) return c.json({ error: 'agent not found', code: 'agent_not_found' }, 404)
+    const { acceptUnpinned } = enableMcpServerSchema.parse(await c.req.json().catch(() => ({})))
+    const server = (await readAgentConfig(id)).mcpServers.find(entry => entry.name === name)
+    if (!server) return c.json({ error: 'server not found', code: 'mcp_server_not_found' }, 404)
+    if (!server.disabledReason) {
+        const agent = await getAgent(id)
+        return c.json(publicView(id, agent.config, agent.soul, agent.install, agent.resolved))
+    }
+    let pin: Awaited<ReturnType<typeof pinStdioLaunch>>
+    try {
+        pin = await pinStdioLaunch(server)
+    } catch (e) {
+        if (e instanceof McpVersionUnresolvedError) return c.json({ error: e.message, code: e.code, name, spec: e.spec }, 502)
+        throw e
+    }
+    const command = mcpLaunchLine(server)
+    if (!pin.pinned && !acceptUnpinned) return c.json({ error: `${name} runs a command that cannot be pinned to a release; confirm to enable it as written`, code: 'mcp_enable_needs_ack', name, command }, 409)
+    const agent = await withAgentLock(id, async () => {
+        const current = agentConfigSchema.parse(JSON.parse(await readFile(configPath(id), 'utf8')))
+        const stored = current.mcpServers.find(entry => entry.name === name)
+        if (!stored || mcpLaunchLine(stored) !== command) return null
+        current.mcpServers = current.mcpServers.map(entry => (entry.name === name ? { ...entry, ...(pin.pinned ? { command: pin.command, args: pin.args } : {}), disabledReason: undefined } : entry))
+        await writeAgentConfig(id, current)
+        return reloadAgent(id)
+    })
+    if (!agent) return c.json({ error: 'the server changed while it was being enabled; try again', code: 'mcp_server_not_found' }, 404)
+    return c.json(publicView(id, agent.config, agent.soul, agent.install, agent.resolved))
+})
+
 agentRoutes.get('/:id/mcp-servers/status', async c => {
     const id = c.req.param('id')
     if (!agentExists(id)) return c.json({ error: 'agent not found' }, 404)
@@ -209,6 +243,7 @@ agentRoutes.get('/:id/mcp-servers/:name/tools', async c => {
     const server = config.mcpServers.find(entry => entry.name === name)
     if (!server) return c.json({ error: 'server not found' }, 404)
     if (name === BRIDGE_SERVER_NAME) return c.json({ error: 'the rerun server has no tool list here' }, 400)
+    if (!isEnabledMcpServer(server)) return c.json({ error: 'server disabled', code: 'mcp_server_disabled' }, 409)
     const picks = server.tools ?? []
     let timer: NodeJS.Timeout | undefined
     try {
@@ -268,10 +303,33 @@ agentRoutes.get('/:id/keys', async c => {
     return c.json({ keys: Object.keys(env).sort(), engineKeys })
 })
 
+const PROCESS_HOOK_ENV_KEYS = new Set(['LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'NODE_OPTIONS', 'GIT_SSH_COMMAND', 'GIT_EXEC_PATH', 'BASH_ENV', 'ENV'])
+const isHookEnvKey = (key: string) => {
+    const upper = key.toUpperCase()
+    return PROCESS_HOOK_ENV_KEYS.has(upper) || upper.startsWith('DYLD_') || upper.startsWith('NPM_CONFIG_')
+}
+
+agentRoutes.get('/:id/mcp-servers/:name/env-candidates', async c => {
+    const id = c.req.param('id')
+    if (!agentExists(id)) return c.json({ error: 'agent not found', code: 'agent_not_found' }, 404)
+    const [config, env] = await Promise.all([readAgentConfig(id), readAgentEnv(id)])
+    if (!config.mcpServers.some(server => server.name === c.req.param('name'))) return c.json({ error: 'server not found', code: 'mcp_server_not_found' }, 404)
+    const sources = new Map<string, 'agent' | 'shared'>()
+    for (const name of Object.keys(readSharedEnvSync())) sources.set(name, 'shared')
+    for (const name of Object.keys(env)) sources.set(name, 'agent')
+    const names = [...sources]
+        .filter(([name]) => !isHookEnvKey(name))
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([name, source]) => ({ name, source }))
+    return c.json({ names })
+})
+
 agentRoutes.patch('/:id/keys', async c => {
     const id = c.req.param('id')
     if (!agentExists(id)) return c.json({ error: 'agent not found' }, 404)
     const { set, remove } = updateAgentKeysSchema.parse(await c.req.json())
+    const hook = Object.keys(set).find(key => PROCESS_HOOK_ENV_KEYS.has(key.toUpperCase()))
+    if (hook) return c.json({ error: `Environment variable ${hook} cannot be set on a coworker` }, 400)
     const keys = await withAgentLock(id, async () => {
         const next = await readAgentEnv(id)
         for (const key of remove) delete next[key]

@@ -13,6 +13,7 @@ export const mcpServerSchema = z.object({
     env: z.record(z.string(), z.string()).default({}),
     headers: z.record(z.string(), z.string()).default({}),
     tools: z.array(z.string().min(1).max(128)).max(200).optional(),
+    disabledReason: z.enum(['stdio_runtime_unpinned']).optional(),
 })
 export type McpServer = z.infer<typeof mcpServerSchema>
 export const strictMcpServerSchema = mcpServerSchema.extend({ name: mcpServerNameSchema })
@@ -195,6 +196,10 @@ export const updateAgentKeysSchema = z.object({
     remove: z.array(z.string()).default([]),
 })
 
+export const enableMcpServerSchema = z.object({ acceptUnpinned: z.boolean().default(false) })
+export const mcpEnvCandidatesSchema = z.object({ names: z.array(z.object({ name: z.string(), source: z.enum(['agent', 'shared']) })) })
+export type McpEnvCandidates = z.infer<typeof mcpEnvCandidatesSchema>
+
 export const updateAgentMcpServersSchema = z.object({
     upsert: z.array(strictMcpServerSchema).default([]),
     remove: z.array(z.string()).default([]),
@@ -213,7 +218,9 @@ export const mcpTokenSchema = z.object({
 
 export const mcpServerStatusSchema = z.object({
     name: z.string(),
-    status: z.enum(['connected', 'needs_auth', 'error']),
+    status: z.enum(['connected', 'needs_auth', 'error', 'disabled', 'config_error']),
+    code: z.enum(['stdio_runtime_unpinned', 'env_ref_unresolved']).optional(),
+    missingEnv: z.array(z.string()).optional(),
     transport: z.enum(['stdio', 'sse', 'http']),
     toolCount: z.number().int().nonnegative(),
     error: z.string().optional(),

@@ -285,6 +285,7 @@
     "removeCoworkerFailed": "Falha ao remover o coworker.",
     "removeNumberFailed": "Falha ao remover o número",
     "removeServerFailed": "Falha ao remover o servidor",
+    "enableServerFailed": "Não foi possível ativar o servidor",
     "resetAppFailed": "Falha ao redefinir o app",
     "restartMachineFailed": "Falha ao reiniciar a máquina do workspace",
     "resumeSubscriptionFailed": "Falha ao retomar sua assinatura",

@@ -6,6 +6,7 @@ import { vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-update-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 process.env.RERUN_DESKTOP = '1'
 process.env.RERUN_CODEX_PATH = '/opt/codex'
 process.env.RERUN_SERVICE_USER = 'rerun'

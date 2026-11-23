@@ -8,7 +8,7 @@ import { agentConfigSchema, mcpServerSchema, verbositySchema, BRIDGE_SERVER_NAME
 import { reloadAgent } from '../../agents/registry.js'
 import { withAgentLock } from '../../agents/lock.js'
 import { writeAgentConfig, mergeMcpServers, ReservedMcpServerNameError, InvalidMcpServerNameError } from '../../agents/config-write.js'
-import { mcpToolNameFor, probeMcp } from '../mcp.js'
+import { mcpToolNameFor, probeMcp, resolveTransport } from '../mcp.js'
 import { agentMcpSpawn } from '../mcp-pool.js'
 import { describeConnectorState } from '../mcp-index.js'
 import { connectorServerStates } from '../../services/registry.js'
@@ -25,6 +25,7 @@ import {
 } from '../mcp-auth.js'
 import type { RunContext } from '../../runtime/context.js'
 import { mcpSignInTool } from './hitl.js'
+import { taintRefusal } from './taint.js'
 
 const run = promisify(execFile)
 
@@ -71,6 +72,8 @@ export function selfTools(ctx: RunContext): ToolSet {
             description: 'Install an npm package into your workspace so you can use it via shell. Use to add capabilities you need.',
             inputSchema: z.object({ packages: z.array(z.string()).min(1).describe('npm package names') }),
             execute: async ({ packages }) => {
+                const refusal = taintRefusal(ctx, 'tool_install', `npm install ${packages.join(' ')}`)
+                if (refusal) return refusal
                 const flag = packages.find(name => name.startsWith('-'))
                 if (flag) return `Install refused: ${flag} is not a package name.`
                 const cwd = workspaceDir(id)
@@ -94,6 +97,8 @@ export function selfTools(ctx: RunContext): ToolSet {
             }),
             execute: async input => {
                 const server = mcpServerSchema.parse({ ...input, env: {} })
+                const refusal = resolveTransport(server) === 'stdio' ? taintRefusal(ctx, 'mcp_register (stdio)') : null
+                if (refusal) return `${refusal}\nNothing was saved.`
                 if (server.name === BRIDGE_SERVER_NAME) return `${new ReservedMcpServerNameError().message}\nNothing was saved.`
                 if (!MCP_SERVER_NAME_RE.test(server.name)) return `${new InvalidMcpServerNameError(server.name).message}\nNothing was saved.`
                 const probe = await probeMcp(id, server, ctx.agent.env, { spawn: agentMcpSpawn(ctx.agent) })

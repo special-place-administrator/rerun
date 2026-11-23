@@ -5,6 +5,7 @@ import { vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-triggers-routes-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 const fired = vi.hoisted(() => [] as { agentId: string; slug: string; message: string }[])
 
@@ -82,6 +83,11 @@ describe('trigger routes', () => {
         const res = await send('PATCH', '/merge-hook', { description: 'second', enabled: false })
         expect(res.status).toBe(200)
         expect(await res.json()).toMatchObject({ name: 'Merge Hook', description: 'second', enabled: false, body: 'Original.', methods: ['POST', 'PUT'], token: created.token, connectionId: 'cnx', provider: 'anthropic', model: 'claude-sonnet-4-6' })
+        await create({ name: 'Trusted Hook', body: 'Owner text.', methods: ['POST'], trustedPayload: true })
+        expect(await (await send('PATCH', '/trusted-hook', { description: 'same body' })).json()).toMatchObject({ trustedPayload: true })
+        expect(await (await send('PATCH', '/trusted-hook', { body: 'Owner text.' })).json()).toMatchObject({ trustedPayload: true })
+        expect(await (await send('PATCH', '/trusted-hook', { body: 'Foreman text.' })).json()).toMatchObject({ trustedPayload: false })
+        expect(await (await send('PATCH', '/trusted-hook', { body: 'Owner again.', trustedPayload: true })).json()).toMatchObject({ trustedPayload: true })
     })
 
     it('clears the model pin with null', async () => {

@@ -95,6 +95,10 @@
     "agentPanelServices": {
         "uninstallFailed": "No se pudo desinstalar la app",
         "removeServerFailed": "No se pudo eliminar el servidor",
+        "enableServerFailed": "No se pudo activar el servidor",
+        "enableUnpinnedTitle": "¿Activar {name} sin una versión fijada?",
+        "enableUnpinnedDescription": "Este comando no se puede fijar a una versión, así que se ejecuta tal cual y puede cambiar entre ejecuciones. Actívalo solo si confías en él.",
+        "enableUnpinnedConfirm": "Activar de todos modos",
         "loadServerFailed": "No se pudo cargar este servidor desde el engine.",
         "alternativeLoadFailed": "No se pudo cargar {name}.",
         "signInHint": "Inicia sesión en {host} para que el coworker pueda usar sus herramientas.",

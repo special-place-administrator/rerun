@@ -5,6 +5,7 @@ import { vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-files-enospc-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 const failure = vi.hoisted(() => ({ code: 'ENOSPC' }))
 

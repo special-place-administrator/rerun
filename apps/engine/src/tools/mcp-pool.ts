@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
 import type { ToolSet } from 'ai'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { McpError } from '@modelcontextprotocol/sdk/types.js'
@@ -6,9 +7,11 @@ import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.j
 import type { LoadedAgent, McpServer } from '../agents/types.js'
 import { agentProcessEnv } from '../agents/process-env.js'
 import { childProcessEnv } from '../lib/child-env.js'
+import { mcpCwdDir } from '../config/paths.js'
 import { logger } from '../lib/logger.js'
 import { isAuthError } from './mcp-auth.js'
-import { callMcpTool, mcpToolSet, openMcpClient, prepareMcpServer, resolveTransport, type McpCallResult, type McpSpawn, type McpTool } from './mcp.js'
+import { McpEnvRefError } from './mcp-resolve.js'
+import { callMcpTool, isEnabledMcpServer, mcpToolSet, openMcpClient, prepareMcpServer, resolveTransport, type McpCallResult, type McpSpawn, type McpTool } from './mcp.js'
 
 export const MCP_IDLE_MS = 10 * 60 * 1000
 export const MCP_CONNECT_TIMEOUT_MS = 20_000
@@ -146,24 +149,42 @@ export async function acquireMcp(agentId: string, server: McpServer, spawn: McpS
     }
 }
 
+const ENGINE_LABELS = ['RERUN_AGENT_DB', 'RERUN_WORKSPACE', 'RERUN_SHARED_DB'] as const
+
+const engineLabels = (env: Record<string, string>): Record<string, string> => Object.fromEntries(ENGINE_LABELS.filter(key => env[key] !== undefined).map(key => [key, env[key]!]))
+
 export function agentMcpSpawn(agent: Pick<LoadedAgent, 'id' | 'env' | 'config'>): McpSpawn {
-    const { cwd, env } = agentProcessEnv(agent)
-    return { cwd, env: childProcessEnv(env) }
+    const { env } = agentProcessEnv(agent)
+    const cwd = mcpCwdDir(agent.id)
+    mkdirSync(cwd, { recursive: true })
+    return { cwd, env: childProcessEnv(engineLabels(env)) }
+}
+
+export async function preparedMcpServers(agent: Pick<LoadedAgent, 'id' | 'env' | 'config' | 'hubAgentId'>): Promise<McpServer[]> {
+    const prepared = await Promise.all(
+        agent.config.mcpServers.filter(isEnabledMcpServer).map(server =>
+            prepareMcpServer(agent.id, server, agent.env, agent.hubAgentId).catch((e: unknown) => {
+                if (!(e instanceof McpEnvRefError)) throw e
+                logger.warn({ agentId: agent.id, server: server.name, vars: e.refs }, 'mcp: env ref unresolved, server not started')
+                return null
+            }),
+        ),
+    )
+    return prepared.filter(server => server !== null)
 }
 
 export async function pooledMcpServers(agent: LoadedAgent): Promise<PooledMcp[]> {
     const spawn = agentMcpSpawn(agent)
-    const prepared = await Promise.all(agent.config.mcpServers.map(server => prepareMcpServer(agent.id, server, agent.env, agent.hubAgentId)))
-    const pooled = await Promise.all(prepared.map(server => acquireMcp(agent.id, server, spawn)))
+    const pooled = await Promise.all((await preparedMcpServers(agent)).map(server => acquireMcp(agent.id, server, spawn)))
     return pooled.filter(server => server !== null)
 }
 
-export function pooledMcpToolSet(servers: PooledMcp[]): ToolSet {
+export function pooledMcpToolSet(servers: PooledMcp[], onResult: () => void = () => {}): ToolSet {
     const tools: ToolSet = {}
     for (const server of servers)
         Object.assign(
             tools,
-            mcpToolSet(server.name, server.tools, (name, args) => server.call(name, args))
+            mcpToolSet(server.name, server.tools, (name, args) => server.call(name, args).finally(onResult))
         )
     return tools
 }

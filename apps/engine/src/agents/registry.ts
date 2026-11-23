@@ -2,6 +2,7 @@ import { agentExists, loadAgentFromDisk } from './loader.js'
 import type { LoadedAgent } from './types.js'
 import { notFound } from '../lib/errors.js'
 import { releaseAgentMcp } from '../tools/mcp-pool.js'
+import { isEnabledMcpServer } from '../tools/mcp.js'
 
 const cache = new Map<string, LoadedAgent>()
 
@@ -26,7 +27,7 @@ export function clearAgentCache(): void {
 export async function reloadAgent(id: string): Promise<LoadedAgent> {
     cache.delete(id)
     const agent = await getAgent(id)
-    const declared = agent.config.mcpServers.map(server => server.name)
+    const declared = agent.config.mcpServers.filter(isEnabledMcpServer).map(server => server.name)
     releaseAgentMcp(id, declared)
     return agent
 }

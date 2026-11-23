@@ -9,6 +9,10 @@ import { dispatchTeamHubTool, isTeamHubTool } from './team-hub.service'
 vi.mock('@/app/api/_services/chat.service', () => ({ resolveAgentTarget: vi.fn() }))
 vi.mock('@/app/api/_services/mcp-account.service', () => ({ dispatchAccountTool: vi.fn() }))
 vi.mock('@/lib/engine/client', () => ({ getAgent: vi.fn() }))
+vi.mock('@/app/api/_auth/access', () => ({
+    workspaceActor: (workspaceId: number) => ({ kind: 'workspace', workspaceId }),
+    readAgentActor: vi.fn().mockResolvedValue({ kind: 'agent', workspaceId: 7, spaceId: 'space-auditor', boxOpen: false }),
+}))
 
 const WORKSPACE_ID = 7
 
@@ -34,10 +38,10 @@ describe('dispatchTeamHubTool', () => {
         ['team_list_schedules', 'list_schedules'],
         ['team_list_runs', 'list_runs'],
         ['team_get_run', 'get_run'],
-    ] as const)('reads %s through the account tool %s, as the workspace', async (name, accountTool) => {
+    ] as const)("reads %s through the account tool %s, as the caller's box", async (name, accountTool) => {
         const args = { agentId: 'a1', runId: 'r1' }
         expect(await dispatchTeamHubTool('auditor', WORKSPACE_ID, name, args)).toEqual({ ok: true })
-        expect(dispatchAccountTool).toHaveBeenCalledWith({ kind: 'workspace', workspaceId: WORKSPACE_ID }, accountTool, args)
+        expect(dispatchAccountTool).toHaveBeenCalledWith({ kind: 'agent', workspaceId: WORKSPACE_ID, spaceId: 'space-auditor', boxOpen: false }, accountTool, args)
     })
 
     it('checks the switch on the calling coworker', async () => {

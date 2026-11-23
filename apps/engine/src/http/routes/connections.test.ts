@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-cxroutes-'))
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 const { beforeEach, describe, expect, it, vi } = await import('vitest')
 

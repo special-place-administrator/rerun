@@ -10,7 +10,7 @@ import { listWorkspacePublishedAction, publishFileAction, unpublishLinkAction, u
 vi.mock('@/app/api/_auth/ownership', async () => ({ AuthorizationError: (await vi.importActual<typeof import('@/app/api/_auth/errors')>('@/app/api/_auth/errors')).AuthorizationError, requireAdminContext: vi.fn(), requireWorkspaceContext: vi.fn() }))
 vi.mock('@/app/api/_auth/access', () => ({
     assertAgentInWorkspace: vi.fn(),
-    isAdminActor: (actor: Actor) => actor.kind === 'workspace' || actor.role === 'admin',
+    isAdminActor: (actor: Actor) => actor.kind === 'workspace' || (actor.kind === 'user' && actor.role === 'admin'),
     requireLightSessionActor: vi.fn(),
     visibleAgentIds: vi.fn(),
 }))

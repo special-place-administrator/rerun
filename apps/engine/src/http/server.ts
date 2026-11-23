@@ -30,7 +30,7 @@ import { HttpError, notFound } from '../lib/errors.js'
 import { agentExists, listAgentIdsOnDisk } from '../agents/loader.js'
 import { workspaceDir, sharedDir } from '../config/paths.js'
 import { AGENT_HIDDEN_TABLES, getAgentDb } from '../db/agentDb.js'
-import { getSharedDb, SHARED_HIDDEN_TABLES } from '../db/sharedDb.js'
+import { getSharedDb, SHARED_HIDDEN_TABLES, setSharedTableAccessAsUser, tablePolicies } from '../db/sharedDb.js'
 import { logger } from '../lib/logger.js'
 
 export function createServer(): Hono {
@@ -85,7 +85,7 @@ export function createServer(): Hono {
         })
     )
     api.route('/shared/files', createFilesRouter(() => sharedDir()))
-    api.route('/shared/data', createDataRouter(() => getSharedDb(), SHARED_HIDDEN_TABLES, () => listAgentIdsOnDisk()))
+    api.route('/shared/data', createDataRouter(() => getSharedDb(), SHARED_HIDDEN_TABLES, () => listAgentIdsOnDisk(), { policies: tablePolicies, set: setSharedTableAccessAsUser }))
     api.route('/brain', brainRoutes)
     api.route('/screenshot', createScreenshotRoutes())
     api.route('/desktop', desktopRoutes)

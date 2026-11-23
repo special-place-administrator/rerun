@@ -1,9 +1,11 @@
 import { configPath } from '../config/paths.js'
 import { writeFileAtomic } from '../lib/atomic-write.js'
+import { withoutLoaderEnvKeys } from './env-policy.js'
 import { BRIDGE_SERVER_NAME, MCP_SERVER_NAME_RE, type AgentConfig, type McpServer } from './types.js'
 
 export async function writeAgentConfig(id: string, config: AgentConfig): Promise<void> {
-    await writeFileAtomic(configPath(id), JSON.stringify(config, null, 4), { mode: 0o600 })
+    const mcpServers = config.mcpServers.map(server => ({ ...server, env: withoutLoaderEnvKeys(server.env, `agent ${id} mcp ${server.name}`) }))
+    await writeFileAtomic(configPath(id), JSON.stringify({ ...config, mcpServers }, null, 4), { mode: 0o600 })
 }
 
 export class ReservedMcpServerNameError extends Error {
@@ -24,7 +26,7 @@ export function mergeMcpServers(current: McpServer[], patch: { upsert?: McpServe
     for (const s of patch.upsert ?? []) {
         if (s.name === BRIDGE_SERVER_NAME) throw new ReservedMcpServerNameError()
         if (!MCP_SERVER_NAME_RE.test(s.name)) throw new InvalidMcpServerNameError(s.name)
-        byName.set(s.name, s)
+        byName.set(s.name, { ...s, disabledReason: byName.get(s.name)?.disabledReason })
     }
     return [...byName.values()]
 }

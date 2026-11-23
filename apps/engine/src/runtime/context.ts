@@ -9,7 +9,7 @@ import type { ScreenshotStore } from './screenshots.js'
 
 export type RunLineage = { initiatorAgentId?: string; initiatorRunId?: string; initiatorSessionId?: string; initiatorUserId?: string; jobRef?: string; branch?: string; copyIndex?: number }
 
-export type RunTrigger = { source: 'chat'; author?: MessageAuthor; userLanguage?: string; callableAgentIds?: string[]; calledBy?: string; lineage?: RunLineage; goal?: RunGoal; contextSize?: ContextSize } | { source: 'schedule'; slug: string; name: string } | { source: 'trigger'; slug: string; name: string }
+export type RunTrigger = { source: 'chat'; author?: MessageAuthor; userLanguage?: string; callableAgentIds?: string[]; calledBy?: string; lineage?: RunLineage; goal?: RunGoal; contextSize?: ContextSize } | { source: 'schedule'; slug: string; name: string } | { source: 'trigger'; slug: string; name: string; trustedPayload?: boolean }
 
 export type PartialResult = { label: string; text: string }
 
@@ -37,4 +37,5 @@ export type RunContext = {
     skillProposals?: SkillProposalNotice[]
     screenshots?: ScreenshotStore
     userTurnStored?: Promise<unknown>
+    taintedByUntrustedInput?: boolean
 }

@@ -291,6 +291,7 @@
     "removeCoworkerFailed": "Failed to remove the coworker.",
     "removeNumberFailed": "Failed to remove the number",
     "removeServerFailed": "Failed to remove the server",
+    "enableServerFailed": "Failed to enable the server",
     "resetAppFailed": "Failed to reset app",
     "restartMachineFailed": "Failed to restart the workspace machine",
     "resumeSubscriptionFailed": "Failed to resume your subscription",

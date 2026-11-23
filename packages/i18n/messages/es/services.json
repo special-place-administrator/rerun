@@ -55,9 +55,13 @@
         "removeTitle": "¿Quitar {name}?",
         "removeDescription": "El coworker pierde todas las herramientas que expone este servidor y se borra su inicio de sesión.",
         "removeConfirm": "Quitar",
+        "enable": "Activar",
         "status": {
             "connected": "Conectado · {count, plural, one {# herramienta} other {# herramientas}}",
             "needsAuth": "Requiere iniciar sesión",
+            "disabledUnpinned": "Desactivado: entorno sin fijar",
+            "needsConfig": "Requiere configuración",
+            "needsEnv": "Necesita {names}",
             "unreachable": "Inaccesible",
             "noAnswer": "El servidor no respondió."
         }

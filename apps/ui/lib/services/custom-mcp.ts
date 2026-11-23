@@ -79,5 +79,6 @@ export function toCustomMcpServer(server: EngineMcpServer, look: { displayName?:
         host: url?.hostname ?? null,
         icon: look.icon,
         signInUrl: url?.href ?? null,
+        ...(remote ? {} : { command: [server.command ?? '', ...(server.args ?? [])].join(' ').trim() }),
     }
 }

@@ -1,4 +1,4 @@
-import { mcpToolNameFor, resolveTransport } from './mcp.js'
+import { isEnabledMcpServer, mcpToolNameFor, resolveTransport } from './mcp.js'
 import { MCP_CALL_TOOL, MCP_SEARCH_TOOL, mcpServerToolCounts, type McpCatalogEntry } from './mcp-search.js'
 import { loadToken, serverCarriesCredential } from './mcp-auth.js'
 import { connectorServerStates, type ConnectorServerState } from '../services/registry.js'
@@ -25,13 +25,14 @@ function connectorAuth(state: ConnectorServerState, states: Map<string, Connecto
 }
 
 export async function buildMcpIndex(agent: LoadedAgent, provider?: Provider, heldBack?: McpCatalogEntry[]): Promise<string> {
-    if (agent.config.mcpServers.length === 0) return ''
+    const servers = agent.config.mcpServers.filter(isEnabledMcpServer)
+    if (servers.length === 0) return ''
     const states = await connectorServerStates(agent.id)
     const toolCounts = heldBack ? mcpServerToolCounts(heldBack) : null
     const { enabled, allowToolInstall } = agent.config.selfImprovement
     const signInStep = enabled && allowToolInstall ? 'call request_mcp_sign_in with its name and end your turn' : 'ask the user to connect it from the Apps panel of this coworker'
     const lines = await Promise.all(
-        agent.config.mcpServers.map(async server => {
+        servers.map(async server => {
             const transport = resolveTransport(server)
             const state = states.get(server.name)
             let auth = transport === 'stdio' ? 'local command' : serverCarriesCredential(server) ? 'authenticated with a key in its url' : `not signed in — if its tools answer that sign-in is required, ${signInStep}`
@@ -41,7 +42,7 @@ export async function buildMcpIndex(agent: LoadedAgent, provider?: Provider, hel
             return `- ${server.name} (${transport}): ${auth}${toolCounts ? `, ${toolCounts.get(server.name) ?? 0} tools` : ''}`
         }),
     )
-    const pending = agent.config.mcpServers.some(server => {
+    const pending = servers.some(server => {
         const status = states.get(server.name)?.status
         return status !== undefined && status !== 'active'
     })

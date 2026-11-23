@@ -62,16 +62,16 @@ describe('resolveWithinReal', () => {
         await expect(resolveWithinReal(real, 'dangling-out')).rejects.toThrow('Path escapes the root: dangling-out')
     })
 
-    it('accepts a dangling link whose target would be inside the root', async () => {
-        expect(await resolveWithinReal(real, 'dangling-in')).toBe(resolve(real, 'dangling-in'))
+    it('accepts a dangling link whose target would be inside the root and returns that target', async () => {
+        expect(await resolveWithinReal(real, 'dangling-in')).toBe(resolve(real, 'inside/missing.txt'))
     })
 
     it('refuses a link loop', async () => {
         await expect(resolveWithinReal(real, 'loop-a')).rejects.toThrow()
     })
 
-    it('returns the textual path for a link to a file inside the root', async () => {
-        expect(await resolveWithinReal(real, 'link-in')).toBe(resolve(real, 'link-in'))
+    it('returns the resolved target path for a link to a file inside the root', async () => {
+        expect(await resolveWithinReal(real, 'link-in')).toBe(resolve(real, 'inside/file.txt'))
     })
 
     it('accepts a plain path, existing or not', async () => {
@@ -92,8 +92,8 @@ describe('resolveWithinReal', () => {
     })
 
     it('works when the root itself is a link', async () => {
-        expect(await resolveWithinReal(rootlink, 'inside/file.txt')).toBe(resolve(rootlink, 'inside/file.txt'))
-        expect(await resolveWithinReal(rootlink, 'link-in')).toBe(resolve(rootlink, 'link-in'))
+        expect(await resolveWithinReal(rootlink, 'inside/file.txt')).toBe(resolve(real, 'inside/file.txt'))
+        expect(await resolveWithinReal(rootlink, 'link-in')).toBe(resolve(real, 'inside/file.txt'))
         await expect(resolveWithinReal(rootlink, 'link-out/secret.txt')).rejects.toThrow('Path escapes the root: link-out/secret.txt')
     })
 
@@ -119,11 +119,11 @@ describe('assertCommandAllowed', () => {
         expect(() => assertCommandAllowed(command)).not.toThrow()
     })
 
-    it.each(['rm -fr /', 'rm -r -f /', 'rm -rf /*', 'dd of=/dev/sda if=/dev/zero'])('does not catch the rewritten form %j', command => {
-        expect(() => assertCommandAllowed(command)).not.toThrow()
+    it.each(['rm -fr /', 'rm -r -f /', 'rm -rf /*', 'rm -rf /data', 'rm -fr /data/*', 'dd of=/dev/sda if=/dev/zero', 'rm -Rf /data', 'rm -fR /data', 'rm -rf "/data"', 'rm -rf /data//', 'rm -Rf /', 'rm -fR /'])('blocks rewritten or /data destructive form %j', command => {
+        expect(() => assertCommandAllowed(command)).toThrow(/blocked by policy/)
     })
 
-    it('blocks any command merely mentioning a power verb', () => {
-        expect(() => assertCommandAllowed('cat shutdown.txt')).toThrow(/blocked by policy/)
+    it.each(['cat shutdown.txt', 'git commit -m "graceful shutdown"', 'rg halt src/'])('allows power verbs in arguments and filenames (%j)', command => {
+        expect(() => assertCommandAllowed(command)).not.toThrow()
     })
 })

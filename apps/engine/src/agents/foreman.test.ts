@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-foreman-'))
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 const { hubCalls } = vi.hoisted(() => ({ hubCalls: [] as Array<{ agentId: string; tool: string; args: Record<string, unknown> }> }))
 

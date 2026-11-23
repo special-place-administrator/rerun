@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { vi } from 'vitest'
@@ -77,7 +77,7 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
 const { beforeEach, describe, expect, it } = await import('vitest')
 const { probeMcp, resolveTransport, MAX_TOOL_PAGES } = await import('./mcp.js')
 const { closeAllMcp, pooledMcpServers, pooledMcpToolSet } = await import('./mcp-pool.js')
-const { workspaceDir } = await import('../config/paths.js')
+const { dataDir, workspaceDir } = await import('../config/paths.js')
 
 type Server = Parameters<typeof resolveTransport>[0]
 
@@ -190,27 +190,35 @@ describe('pooled MCP tools', () => {
         expect(mcp.transports[0]).toMatchObject({ kind: 'http', target: 'https://lin.example/mcp', options: { requestInit: { headers: { Authorization: 'Bearer k1' } } } })
     })
 
-    it('builds each transport with its own options, a stdio server in the agent workspace', async () => {
+    it('builds each transport with its own options, a stdio server in its engine-owned directory', async () => {
         process.env.MCP_TEST_INHERITED = 'yes'
         await pooledMcpTools(
             agentWith(
                 [
-                    server({ name: 'local', command: 'node', args: ['srv.js'], env: { TOKEN: 't' } }),
+                    server({ name: 'local', command: 'node', args: ['srv.js'], env: { TOKEN: '${LOCAL_TOKEN}', npm_config_registry: '${LOCAL_TOKEN}' } }),
                     server({ name: 'stream', url: 'https://s.example/sse' }),
                     server({ name: 'plain', url: 'https://p.example/mcp' }),
                     server({ name: 'forced', transport: 'sse', url: 'https://f.example/events', headers: { 'x-k': 'v' } }),
+                    JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../../deploy/vps/everos-mcp.json'), 'utf8')),
+                    server({ name: 'keyed', command: 'keyed-mcp', env: { API_KEY: '${SECRET_X}' } }),
                 ],
-                { AGENT_KEY: 'a' },
+                { LOCAL_TOKEN: 't', SECRET_X: 'sx-1', OTHER_SECRET: 'o', AGENT_KEY: 'a', EVEROS_URL: 'https://everos.lan', EVEROS_USER_ID: 'u', EVEROS_APP: 'app', EVEROS_TOKEN: 'tok' },
             ),
         )
         const byTarget = Object.fromEntries(mcp.transports.map(t => [t.target, t]))
         const stdio = byTarget.node.options as { command: string; args: string[]; env: Record<string, string>; cwd: string }
         expect(stdio.args).toEqual(['srv.js'])
-        expect(stdio.cwd).toBe(workspaceDir('mcp-agent'))
-        expect(stdio.env).toMatchObject({ TOKEN: 't', AGENT_KEY: 'a', PATH: process.env.PATH, HOME: process.env.HOME, RERUN_WORKSPACE: workspaceDir('mcp-agent') })
+        expect(stdio.cwd).toBe(resolve(dataDir(), 'mcp-cwd', 'mcp-agent'))
+        expect(stdio.env.AGENT_KEY).toBeUndefined()
+        expect(stdio.env).toMatchObject({ TOKEN: 't', PATH: process.env.PATH, HOME: process.env.HOME, RERUN_WORKSPACE: workspaceDir('mcp-agent') })
         expect(stdio.env.MCP_TEST_INHERITED).toBeUndefined()
+        expect(stdio.env).not.toHaveProperty('npm_config_registry')
+        expect([stdio.env.NPM_CONFIG_GLOBALCONFIG, stdio.env.NPM_CONFIG_USERCONFIG].map(file => readFileSync(file!, 'utf8'))).toEqual(['', ''])
         expect(stdio.env).not.toHaveProperty('RERUN_API_KEY')
         expect(stdio.env).not.toHaveProperty('RERUN_DATA_DIR')
+        expect((byTarget['/data/tools/bin/uv'].options as { env: Record<string, string> }).env).toMatchObject({ UV_CACHE_DIR: '/data/tools/uv-cache', UV_PYTHON_INSTALL_DIR: '/data/tools/uv-python', EVEROS_URL: 'https://everos.lan', EVEROS_TOKEN: 'tok' })
+        const keyed = (byTarget['keyed-mcp'].options as { env: Record<string, string> }).env
+        expect([keyed.API_KEY, keyed.SECRET_X, keyed.OTHER_SECRET]).toEqual(['sx-1', undefined, undefined])
         expect(byTarget['https://s.example/sse']).toMatchObject({ kind: 'sse', options: undefined })
         expect(byTarget['https://p.example/mcp']).toMatchObject({ kind: 'http', options: undefined })
         expect(byTarget['https://f.example/events']).toMatchObject({ kind: 'sse', options: { requestInit: { headers: { 'x-k': 'v' } } } })
@@ -237,12 +245,35 @@ describe('pooled MCP tools', () => {
 const spawn = { cwd: '/agents/mcp-agent/workspace', env: { PATH: '/usr/bin', AGENT_KEY: 'a' } }
 
 describe('probeMcp', () => {
+    it('takes the everos EVEROS_TOKEN only from the agent own env, and gives a config error when the agent has none even if the shared env has one', async () => {
+        const { writeSharedEnv } = await import('../agents/shared-env.js')
+        const { classifyProbe } = await import('./mcp-status.js')
+        const everos = server(JSON.parse(readFileSync(resolve(import.meta.dirname, '../../../../deploy/vps/everos-mcp.json'), 'utf8')))
+        const shared = { EVEROS_URL: 'https://everos.lan', EVEROS_USER_ID: 'default', EVEROS_APP: 'rerun' }
+        await writeSharedEnv({ ...shared, EVEROS_TOKEN: 'shared-token' })
+        await probeMcp('mcp-agent', everos, { EVEROS_TOKEN: 'ui-token' }, { spawn })
+        expect((mcp.transports.at(-1)!.options as { env: Record<string, string> }).env.EVEROS_TOKEN).toBe('ui-token')
+        expect(classifyProbe('everos', await probeMcp('mcp-agent', everos, {}, { spawn }))).toMatchObject({ status: 'config_error', code: 'env_ref_unresolved', missingEnv: ['EVEROS_TOKEN'] })
+        await writeSharedEnv(shared)
+        expect(classifyProbe('everos', await probeMcp('mcp-agent', everos, {}, { spawn }))).toMatchObject({ status: 'config_error', code: 'env_ref_unresolved', missingEnv: ['EVEROS_TOKEN'] })
+        await writeSharedEnv({})
+    })
+
     it('dials a stdio server in the agent workspace with the spawn env, never the engine one', async () => {
         process.env.MCP_TEST_INHERITED = 'yes'
-        await probeMcp('mcp-agent', server({ name: 'local', command: 'node', args: ['srv.js'], env: { TOKEN: 't' } }), {}, { spawn })
+        await probeMcp('mcp-agent', server({ name: 'local', command: 'node', args: ['srv.js'], env: { TOKEN: '${LOCAL_TOKEN}', AUTH: 'Bearer ${LOCAL_TOKEN}', LITERAL: 'x', FALCON_BASE_URL: 'https://falcon.example', ANTHROPIC_BASE_URL: '${LOCAL_TOKEN}' } }), { LOCAL_TOKEN: 't' }, { spawn })
         const options = mcp.transports[0]!.options as { env: Record<string, string>; cwd?: string }
-        expect(options.env).toEqual({ PATH: '/usr/bin', AGENT_KEY: 'a', TOKEN: 't' })
+        expect(Object.fromEntries(Object.entries(options.env).filter(([key]) => !key.startsWith('NPM_CONFIG_')))).toEqual({ PATH: '/usr/bin', AGENT_KEY: 'a', TOKEN: 't', AUTH: 'Bearer t' })
         expect(options.cwd).toBe('/agents/mcp-agent/workspace')
+    })
+
+    it('keeps the engine PATH and HOME and drops loader keys whatever an imported server or agent .env sets', async () => {
+        const { childProcessEnv } = await import('../lib/child-env.js')
+        const archive = { PATH: '/data/agents/x/workspace:/usr/bin', HOME: '/data/agents/x/workspace', NODE_PATH: '/w', NODE_OPTIONS: '--require /w/x.js', PYTHONPATH: '/data/agents/x/workspace/lib', GIT_CONFIG_GLOBAL: '/w/gitconfig', LD_PRELOAD: '/w/x.so', TOKEN: 't' }
+        await probeMcp('mcp-agent', server({ name: 'archive-npx', command: 'npx', args: ['-y', '@scope/pkg@1.0.0'], env: archive }), {}, { spawn: { cwd: spawn.cwd, env: { PATH: '/usr/bin', HOME: '/home/engine', RERUN_WORKSPACE: '/data/agents/x/workspace' } } })
+        expect((mcp.transports.at(-1)!.options as { env: Record<string, string> }).env).toEqual({ PATH: '/usr/bin', HOME: '/home/engine', RERUN_WORKSPACE: '/data/agents/x/workspace', NPM_CONFIG_GLOBALCONFIG: expect.any(String), NPM_CONFIG_USERCONFIG: expect.any(String) })
+        const shellEnv = childProcessEnv(archive)
+        expect([shellEnv.PATH, shellEnv.HOME, shellEnv.NODE_OPTIONS, shellEnv.PYTHONPATH, shellEnv.GIT_CONFIG_GLOBAL, shellEnv.TOKEN]).toEqual([process.env.PATH, process.env.HOME, undefined, undefined, undefined, 't'])
     })
 
     it('lists the tool names and closes the client even when close fails', async () => {

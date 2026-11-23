@@ -399,6 +399,7 @@ describe('computer_open_app', () => {
     it('keeps the terminal and the files behind the switches that already govern them', async () => {
         expect(await settled(openApp(build(ctxWith('a1', { shell: false })), { app: 'terminal' }))).toMatchObject({ status: 'refused', reason: expect.stringContaining('shell tool is disabled') })
         expect(await settled(openApp(build(ctxWith('a2', { filesystem: false })), { app: 'files' }))).toMatchObject({ status: 'refused', reason: expect.stringContaining('filesystem tool is disabled') })
+        expect(await settled(openApp(build(ctxWith('a3', { shell: true }, { taintedByUntrustedInput: true })), { app: 'terminal' }))).toMatchObject({ status: 'refused', reason: expect.stringMatching(/untrusted/i) })
         expect(state.apps).toEqual([])
     })
 })

@@ -96,14 +96,19 @@ class Engine:
             raise EngineError("engine answered without a triggers list")
         return rows
 
-    def create_trigger(self, agent_id, name, body, model=None, provider=None, methods=None, description=""):
+    def create_trigger(self, agent_id, name, body, model=None, provider=None, methods=None, description="", trusted_payload=False):
         payload = {"name": name, "description": description, "body": body, "provider": provider, "model": model}
+        if trusted_payload:
+            payload["trustedPayload"] = True
         if methods:
             payload["methods"] = list(methods)
         row = self._call("POST", "/agents/%s/triggers" % _q(agent_id), payload=payload)
         if not row.get("slug") or not row.get("token"):
             raise EngineError("engine answered without a slug and token for the new trigger")
         return row
+
+    def set_trigger_trust(self, agent_id, slug, trusted):
+        return self._call("PATCH", "/agents/%s/triggers/%s" % (_q(agent_id), _q(slug)), payload={"trustedPayload": bool(trusted)})
 
     def set_trigger_model(self, agent_id, slug, model):
         return self._call("PATCH", "/agents/%s/triggers/%s" % (_q(agent_id), _q(slug)), payload={"model": model})

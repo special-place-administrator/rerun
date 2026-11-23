@@ -185,4 +185,36 @@ describe('/api/t/[agentId]/[slug]/[token]', () => {
         expect(resolveAgentTargetForTrigger).not.toHaveBeenCalled()
         expect(fireTrigger).not.toHaveBeenCalled()
     })
+    it('accepts the token from Authorization: Bearer header when token in path is empty or omitted', async () => {
+        const req = new Request('https://rerun.test/api/t/agent-1/stripe-paid', {
+            method: 'POST',
+            headers: { authorization: 'Bearer header-secret-token' },
+        })
+        const res = await POST(req, { params: Promise.resolve({ agentId: 'agent-1', slug: 'stripe-paid', token: '' }) })
+        expect(res.status).toBe(202)
+        expect(fireTrigger).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'stripe-paid', expect.objectContaining({ token: 'header-secret-token' }), expect.anything())
+    })
+
+    it('accepts the token from x-rerun-trigger-token header', async () => {
+        const req = new Request('https://rerun.test/api/t/agent-1/stripe-paid', {
+            method: 'POST',
+            headers: { 'x-rerun-trigger-token': 'custom-header-token' },
+        })
+        const res = await POST(req, { params: Promise.resolve({ agentId: 'agent-1', slug: 'stripe-paid', token: '' }) })
+        expect(res.status).toBe(202)
+        expect(fireTrigger).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'stripe-paid', expect.objectContaining({ token: 'custom-header-token' }), expect.anything())
+    })
+
+    it('limits a flood of requests with 429 and Retry-After', async () => {
+        const floodAgentId = 'flood-agent'
+        const floodSlug = 'webhook'
+        for (let i = 0; i < 60; i++) {
+            const res = await POST(request(), { params: Promise.resolve({ agentId: floodAgentId, slug: floodSlug, token: 'tok' }) })
+            expect(res.status).toBe(202)
+        }
+        const throttled = await POST(request(), { params: Promise.resolve({ agentId: floodAgentId, slug: floodSlug, token: 'tok' }) })
+        expect(throttled.status).toBe(429)
+        expect(throttled.headers.get('Retry-After')).toBe('60')
+        expect(await throttled.json()).toEqual({ error: 'Too many requests' })
+    })
 })

@@ -100,3 +100,19 @@ describe('PATCH /agents/:id/keys under concurrency', () => {
         for (let i = 0; i < N; i++) expect(keys).toContain(`K${i}`)
     })
 })
+
+describe('GET /agents/:id/mcp-servers/:name/env-candidates', () => {
+    it('lists names only, agent before shared, without loader or hook keys', async () => {
+        const { writeAgentEnv } = await import('../../agents/env.js')
+        const { writeSharedEnv } = await import('../../agents/shared-env.js')
+        await seedAgent()
+        await patchMcp({ upsert: [{ name: 'gh', transport: 'stdio', command: 'gh-mcp', args: [], env: {}, headers: {} }] })
+        await writeAgentEnv(id, { GH_TOKEN: 'agent-gh-value', API_KEY: 'agent-api-value', LD_PRELOAD: '/tmp/x.so', NPM_CONFIG_REGISTRY: 'https://evil.example' })
+        await writeSharedEnv({ GH_TOKEN: 'shared-gh-value', SHARED_ONE: 'shared-one-value', NODE_OPTIONS: '--require x', DYLD_INSERT_LIBRARIES: '/tmp/y' })
+        const res = await agentRoutes.request(`/${id}/mcp-servers/gh/env-candidates`)
+        const text = await res.text()
+        expect(JSON.parse(text)).toEqual({ names: [{ name: 'API_KEY', source: 'agent' }, { name: 'GH_TOKEN', source: 'agent' }, { name: 'SHARED_ONE', source: 'shared' }] })
+        expect(text).not.toMatch(/value|evil|tmp|require/)
+        expect((await agentRoutes.request(`/${id}/mcp-servers/nope/env-candidates`)).status).toBe(404)
+    })
+})

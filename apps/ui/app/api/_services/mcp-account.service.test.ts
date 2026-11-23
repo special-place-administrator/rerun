@@ -1,4 +1,4 @@
-import { workspaceActor } from '@/app/api/_auth/access'
+import { AccessDeniedError, workspaceActor, type Actor } from '@/app/api/_auth/access'
 import { MAX_TEXT_WRITE_CHARS } from '@moldwright/contracts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,7 +9,7 @@ import { fakeSupabase, type FakeSupabase, type SupabaseCall } from '@/test/supab
 import type { ServiceManifest } from '@/lib/services/manifest'
 import type { InstalledService } from '@/lib/services/types'
 
-import { changeAgentHandle, createAgent, deleteAgent, duplicateAgent, renameAgent } from './agent.service'
+import { changeAgentHandle, createAgent, deleteAgent, duplicateAgent, moveAgentToBox, renameAgent } from './agent.service'
 import { LOCKED_WRITE_ERROR } from './agent-content.service'
 import { declareService } from './agent-setup.service'
 import { resolveAgentTarget } from './chat.service'
@@ -323,6 +323,30 @@ describe('dispatchAccountTool', () => {
 
         beforeEach(() => {
             vi.mocked(resolveAgentTarget).mockResolvedValue({ conn, engineAgentId: 'engine-own', contentLocked: false } as never)
+        })
+
+        it('lets only an all-scope box manager switch team tools on', async () => {
+            db = fakeSupabase((table, calls) => (table === 'space_members' ? { data: calls.some(call => call.method === 'maybeSingle') ? { access: 'manage' } : [{ space_id: 'box-own', access: 'manage' }] } : resolveRow(table, calls)))
+            vi.mocked(createServiceRoleClient).mockReturnValue(db.client)
+            vi.mocked(getAgent).mockResolvedValue({ config: { tools: { team: false } } } as never)
+            vi.mocked(patchAgent).mockResolvedValue({} as never)
+            const manager = (boxScope: 'all' | 'assigned'): Actor => ({ kind: 'user', userId: 'u-manager', workspaceId: WORKSPACE_ID, role: 'member', boxScope })
+
+            await expect(dispatchAccountTool(manager('assigned'), 'update_agent', { agentId: 'agent-own', tools: { team: true } })).rejects.toBeInstanceOf(AccessDeniedError)
+            expect(patchAgent).not.toHaveBeenCalled()
+
+            await expect(dispatchAccountTool(manager('all'), 'update_agent', { agentId: 'agent-own', tools: { team: true } })).resolves.toMatchObject({ updated: ['tools'] })
+            expect(patchAgent).toHaveBeenCalledWith(conn, 'engine-own', expect.objectContaining({ tools: { team: true } }))
+
+            vi.mocked(patchAgent).mockClear()
+            vi.mocked(getAgent).mockResolvedValue({ config: { tools: { team: true } } } as never)
+            vi.mocked(moveAgentToBox).mockImplementation(async () => {
+                vi.mocked(getAgent).mockResolvedValue({ config: { tools: { team: false } } } as never)
+                return { ok: true, position: { col: 0, row: 0 } }
+            })
+            await expect(dispatchAccountTool(manager('assigned'), 'update_agent', { agentId: 'agent-own', spaceId: 'box-own', tools: { team: true } })).rejects.toBeInstanceOf(AccessDeniedError)
+            expect(moveAgentToBox).toHaveBeenCalled()
+            expect(patchAgent).not.toHaveBeenCalled()
         })
 
         it('lists the identity fields a rename wrote in updated', async () => {

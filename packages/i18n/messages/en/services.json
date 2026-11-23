@@ -70,9 +70,13 @@
         "removeTitle": "Remove {name}?",
         "removeDescription": "The coworker loses every tool this server exposes, and its sign-in is cleared.",
         "removeConfirm": "Remove",
+        "enable": "Enable",
         "status": {
             "connected": "Connected · {count, plural, one {# tool} other {# tools}}",
             "needsAuth": "Sign-in needed",
+            "disabledUnpinned": "Disabled: unpinned runtime",
+            "needsConfig": "Setup needed",
+            "needsEnv": "Needs {names}",
             "unreachable": "Unreachable",
             "noAnswer": "The server did not answer.",
             "checkedAt": "tested at {time}"

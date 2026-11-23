@@ -20,21 +20,24 @@ type CustomMcpRowProps = {
     onConnect: () => void
     onEdit: () => void
     onRemove: () => void
+    onEnable?: () => void
     disabledReason?: string
 }
 
-export function CustomMcpRow({ server, status, statusLoading, checkedAt, onConnect, onEdit, onRemove, disabledReason }: CustomMcpRowProps) {
+export function CustomMcpRow({ server, status, statusLoading, checkedAt, onConnect, onEdit, onRemove, onEnable, disabledReason }: CustomMcpRowProps) {
     const t = useTranslations('services.customMcp')
     const disabled = !!disabledReason
     const canSignIn = status?.status === 'needs_auth' && !!server.signInUrl
     const checkedTime = typeof checkedAt === 'number' ? new Date(checkedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : null
-    const footer =
-        status?.status === 'error' ? (
-            <span className="text-xs text-destructive">
-                {status.error ?? t('status.noAnswer')}
-                {checkedTime !== null && ` · ${t('status.checkedAt', { time: checkedTime })}`}
-            </span>
-        ) : undefined
+    const unpinned = status?.status === 'disabled'
+    const footer = unpinned ? (
+        <code className="break-all text-xs text-muted-foreground">{server.command}</code>
+    ) : status?.status === 'error' || status?.status === 'config_error' ? (
+        <span className="text-xs text-destructive">
+            {status.missingEnv?.length ? t('status.needsEnv', { names: status.missingEnv.join(', ') }) : (status.error ?? t('status.noAnswer'))}
+            {checkedTime !== null && ` · ${t('status.checkedAt', { time: checkedTime })}`}
+        </span>
+    ) : undefined
     return (
         <PanelRow
             footer={footer}
@@ -53,6 +56,13 @@ export function CustomMcpRow({ server, status, statusLoading, checkedAt, onConne
                     <span className="mr-2 flex items-center empty:hidden">
                         <CustomMcpStatusBadge status={status} loading={statusLoading} />
                     </span>
+                    {unpinned && (
+                        <TooltipDisabledReason reason={disabledReason}>
+                            <Button size="sm" variant="outline" disabled={disabled} onClick={onEnable}>
+                                {t('enable')}
+                            </Button>
+                        </TooltipDisabledReason>
+                    )}
                     {canSignIn && (
                         <TooltipDisabledReason reason={disabledReason}>
                             <Button size="sm" variant="outline" disabled={disabled} onClick={onConnect}>

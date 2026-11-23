@@ -103,8 +103,9 @@ export const mcpServerViewSchema = z.object({
     displayName: z.string(),
     host: z.string().nullable(),
     icon: z.string().nullable(),
-    status: z.enum(['connected', 'needs_auth', 'error', 'unknown']),
+    status: z.enum(['connected', 'needs_auth', 'error', 'config_error', 'unknown', 'disabled']),
     canSignIn: z.boolean(),
+    missingEnv: z.array(z.string()).optional(),
 })
 export type McpServerView = z.infer<typeof mcpServerViewSchema>
 

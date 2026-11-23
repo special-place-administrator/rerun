@@ -5,6 +5,7 @@ import { vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-runs-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 const sent = vi.hoisted(() => [] as { event?: string; kind: string; runId?: string | null; sessionId?: string | null; message: string; metadata?: Record<string, unknown> | null }[])
 

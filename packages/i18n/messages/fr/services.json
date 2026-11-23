@@ -55,9 +55,13 @@
         "removeTitle": "Retirer {name} ?",
         "removeDescription": "Le coworker perd tous les outils que ce serveur expose, et sa connexion est effacée.",
         "removeConfirm": "Retirer",
+        "enable": "Activer",
         "status": {
             "connected": "Connecté · {count, plural, one {# outil} other {# outils}}",
             "needsAuth": "Connexion requise",
+            "disabledUnpinned": "Désactivé : environnement non épinglé",
+            "needsConfig": "Configuration requise",
+            "needsEnv": "Requiert {names}",
             "unreachable": "Injoignable",
             "noAnswer": "Le serveur n’a pas répondu."
         }

@@ -12,6 +12,7 @@ import type { RunContext } from '../../runtime/context.js'
 import { hubCallerHeaders, type HubCaller } from '../../runtime/hub.js'
 import { pageFacts, stripHtml } from './page-facts.js'
 import { savePage, textExtension } from './page-file.js'
+import { markTainted } from './taint.js'
 
 export const FETCH_TIMEOUT_MS = 30_000
 const SEARCH_TIMEOUT_MS = 15_000
@@ -112,6 +113,7 @@ export function webTools(ctx: RunContext, fetchTimeoutMs = FETCH_TIMEOUT_MS): To
             inputSchema: z.object({ url: publicHttpUrl, raw: z.boolean().default(false).describe('Return raw body instead of stripped text') }),
             execute: async ({ url, raw }, { abortSignal }) =>
                 withHostBreaker(breaker, hostsOfUrl(url), async (): Promise<HostAttempt> => {
+                    markTainted(ctx)
                     const runSignal = ctx.abortSignal ?? abortSignal
                     const signal = deadlineSignal(fetchTimeoutMs, runSignal)
                     let directStatus: number | null = null
@@ -151,6 +153,7 @@ export function webTools(ctx: RunContext, fetchTimeoutMs = FETCH_TIMEOUT_MS): To
             description: webSearchDescription(ctx.agent.config.tools.paidData),
             inputSchema: z.object({ query: z.string(), maxResults: z.number().int().positive().max(20).default(5) }),
             execute: async ({ query, maxResults }) => {
+                markTainted(ctx)
                 try {
                     const results = await searchHub(ctx.agent, query, maxResults)
                     if (results.length === 0) return 'No results.'
@@ -165,6 +168,7 @@ export function webTools(ctx: RunContext, fetchTimeoutMs = FETCH_TIMEOUT_MS): To
             inputSchema: z.object({ url: publicHttpUrl, path: z.string().describe('Workspace-relative destination path') }),
             execute: async ({ url, path }, { abortSignal }) =>
                 withHostBreaker(breaker, hostsOfUrl(url), async (): Promise<HostAttempt> => {
+                    markTainted(ctx)
                     const runSignal = ctx.abortSignal ?? abortSignal
                     const signal = deadlineSignal(fetchTimeoutMs, runSignal)
                     let res: Response

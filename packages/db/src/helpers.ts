@@ -81,14 +81,28 @@ function orCondition(column: string, value: unknown): string {
     return `${column}.eq.${quoteOrValue(value)}`
 }
 
+function assertFilterValue(column: string, value: unknown): void {
+    if (value === undefined) throw new Error(`Filter value for "${column}" must not be undefined`)
+    if (typeof value === 'number' && Number.isNaN(value)) throw new Error(`Filter value for "${column}" must not be NaN`)
+    if (Array.isArray(value)) {
+        for (const item of value) assertFilterValue(column, item)
+    } else if (typeof value === 'object' && value !== null) {
+        for (const opValue of Object.values(value)) assertFilterValue(column, opValue)
+    }
+}
+
 function applyFilters<T extends TableName>(query: any, filters: Filters<T>) {
     for (const [key, value] of Object.entries(filters)) {
-        if (value === undefined) continue
-
+        if (key !== 'or' || value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+            assertFilterValue(key, value)
+        }
         if (key === 'or' && value !== null && typeof value === 'object' && !Array.isArray(value)) {
             const conditions = Object.entries(value as Record<string, unknown>)
                 .filter(([, v]) => v !== undefined)
-                .map(([col, v]) => orCondition(col, v))
+                .map(([col, v]) => {
+                    assertFilterValue(col, v)
+                    return orCondition(col, v)
+                })
             if (conditions.length > 0) query = query.or(conditions.join(','))
             continue
         }
@@ -134,7 +148,7 @@ function applyJoinFilters<J extends Record<string, JoinConfig<any, any>>>(joinSe
 
         const filterParts: string[] = []
         for (const [key, value] of Object.entries(filters)) {
-            if (value === undefined) continue
+            assertFilterValue(`${String(alias)}.${key}`, value)
 
             if (Array.isArray(value)) {
                 filterParts.push(`${key}.in.(${value.join(',')})`)

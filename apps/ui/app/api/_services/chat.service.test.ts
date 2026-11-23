@@ -188,6 +188,11 @@ describe('resolveAgentTargetForTrigger', () => {
         mocks.findWorkspaceEngine.mockResolvedValue(null)
         await expect(resolveAgentTargetForTrigger('a1')).resolves.toBeNull()
     })
+
+    it('answers null when the owning workspace is not subscription-entitled or paused', async () => {
+        row = { ...row!, workspaces: { subscription_status: 'canceled', is_sandbox: false } }
+        await expect(resolveAgentTargetForTrigger('a1')).resolves.toBeNull()
+    })
 })
 
 function run(id: string, sessionId: string, status: string, startedAt: string, error: string | null = null) {

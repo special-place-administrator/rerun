@@ -28,6 +28,22 @@ export function CustomMcpStatusBadge({ status, loading }: CustomMcpStatusBadgePr
             </Badge>
         )
     }
+    if (status.status === 'disabled') {
+        return (
+            <Badge size="xs" tone="orange" glow={false}>
+                {t('disabledUnpinned')}
+            </Badge>
+        )
+    }
+    if (status.status === 'config_error') {
+        return (
+            <TooltipLabeled label={status.error ?? t('needsConfig')}>
+                <Badge size="xs" tone="orange" glow={false}>
+                    {t('needsConfig')}
+                </Badge>
+            </TooltipLabeled>
+        )
+    }
     if (status.status === 'error') {
         return (
             <TooltipLabeled label={status.error ?? t('noAnswer')}>

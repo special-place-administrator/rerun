@@ -287,6 +287,7 @@
     "removeCoworkerFailed": "Impossible de retirer le coworker.",
     "removeNumberFailed": "Impossible de retirer le numéro",
     "removeServerFailed": "Impossible de retirer le serveur",
+    "enableServerFailed": "Impossible d'activer le serveur",
     "resetAppFailed": "Impossible de réinitialiser l'app",
     "restartMachineFailed": "Impossible de redémarrer la machine du workspace",
     "resumeSubscriptionFailed": "Impossible de reprendre votre abonnement",

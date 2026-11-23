@@ -24,7 +24,7 @@ export async function fireTrigger(agentId: string, trigger: Trigger, message: st
         source: 'trigger',
     })
     void markFired(agentId, trigger.slug, nowIso()).catch(err => logger.warn({ agent: agentId, trigger: trigger.slug, err: String(err) }, 'markFired failed'))
-    const { runId, settled } = await startHeadlessRun(agent, session.id, message, override, { source: 'trigger', slug: trigger.slug, name: trigger.name })
+    const { runId, settled } = await startHeadlessRun(agent, session.id, message, override, { source: 'trigger', slug: trigger.slug, name: trigger.name, trustedPayload: trigger.trustedPayload })
 
     logger.info({ agent: agentId, trigger: trigger.slug, runId, session: session.id }, 'triggered run fired')
 

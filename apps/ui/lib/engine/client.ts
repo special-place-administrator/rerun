@@ -311,6 +311,10 @@ export async function reconnectMcpServer(conn: EngineConnection, agentId: string
     return request(conn, `/agents/${encodeURIComponent(agentId)}/mcp-servers/${encodeURIComponent(name)}/reconnect`, { method: 'POST' }, d => engineMcpReconnectResultSchema.parse(d))
 }
 
+export async function enableMcpServer(conn: EngineConnection, agentId: string, name: string, acceptUnpinned: boolean): Promise<void> {
+    await request(conn, `/agents/${encodeURIComponent(agentId)}/mcp-servers/${encodeURIComponent(name)}/enable`, { method: 'POST', body: JSON.stringify({ acceptUnpinned }) }, () => undefined)
+}
+
 export async function listMcpServerTools(conn: EngineConnection, agentId: string, name: string): Promise<EngineMcpServerToolList> {
     return request(conn, `/agents/${encodeURIComponent(agentId)}/mcp-servers/${encodeURIComponent(name)}/tools`, { method: 'GET' }, d => engineMcpServerToolListSchema.parse(d))
 }

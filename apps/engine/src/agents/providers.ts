@@ -20,7 +20,7 @@ import { env } from '../config/env.js'
 import { codexPath } from '../runtime/codex-cli.js'
 import { codexHomeDir } from '../config/paths.js'
 import { allowedModel } from '../connections/plan.js'
-import { CONNECTION_TOKEN_KEY, RERUN_CONNECTION_ID } from '@moldwright/contracts'
+import { CONNECTION_TOKEN_KEY, CUSTOM_BASE_URL_AUTH_KEY, RERUN_CONNECTION_ID } from '@moldwright/contracts'
 import { childProcessEnv, envOverlay } from '../lib/child-env.js'
 import { newId } from '../lib/ids.js'
 import { resolveTransport } from '../tools/mcp.js'
@@ -276,6 +276,7 @@ function claudeProvider(agent: LoadedAgent, tools?: ToolSet, mcpServers: RunMcpS
     const { mcpServers: servers, allowedTools, toolAliases } = claudeMcpConfig(tools, mcpServers, options.screenshots)
     const { cwd, env: agentEnv } = agentProcessEnv(agent, options.labels)
     const thinking: NonNullable<ReturnType<typeof thinkingSettingsFor>['claudeThinking']> = thinkingSettingsFor('claude', '', agent.config.thinkingLevel).claudeThinking ?? CLAUDE_DEFAULT_THINKING
+    const auth = claudeAuthEnv(connectionEnv(agent))
     return createClaudeCode({
         defaultSettings: {
             persistSession: false,
@@ -288,12 +289,16 @@ function claudeProvider(agent: LoadedAgent, tools?: ToolSet, mcpServers: RunMcpS
             thinking: { type: thinking.type, display: thinking.display },
             ...(thinking.effort ? { effort: thinking.effort } : {}),
             env: {
-                ...agentEnv,
-                ...CLAUDE_HARNESS_ENV,
-                ...claudeAuthEnv(connectionEnv(agent)),
+                ...envOverlay(
+                    childProcessEnv(agentEnv, {
+                        ...CLAUDE_HARNESS_ENV,
+                        CLAUDE_CODE_OAUTH_TOKEN: auth.CLAUDE_CODE_OAUTH_TOKEN,
+                        MCP_TOOL_TIMEOUT: String(BRIDGE_TOOL_TIMEOUT_SEC * 1000),
+                        ...compactEnvFor(options.compactAt ?? compactAtTokens(agent.config.contextSize) ?? 'off'),
+                    }),
+                ),
                 ANTHROPIC_API_KEY: undefined,
-                MCP_TOOL_TIMEOUT: String(BRIDGE_TOOL_TIMEOUT_SEC * 1000),
-                ...compactEnvFor(options.compactAt ?? compactAtTokens(agent.config.contextSize) ?? 'off'),
+                CLAUDE_CODE_OAUTH_SCOPES: auth.CLAUDE_CODE_OAUTH_SCOPES,
             },
             ...(options.system !== undefined ? { systemPrompt: options.system } : {}),
             ...(allowedTools.length ? { mcpServers: servers, allowedTools } : {}),
@@ -368,10 +373,13 @@ function openrouterCompatibleOptions(agent: LoadedAgent, provider: 'rerun' | 'op
 }
 
 function customOptions(agent: LoadedAgent): Parameters<typeof createOpenAI>[0] {
+    const env = connectionEnv(agent)
+    const basicAuth = env[CUSTOM_BASE_URL_AUTH_KEY]
     return {
-        apiKey: connectionEnv(agent)[CONNECTION_TOKEN_KEY.custom] || 'none',
+        apiKey: env[CONNECTION_TOKEN_KEY.custom] || 'none',
         baseURL: (agent.resolved.connection?.config.baseUrl ?? '').trim().replace(/\/+$/, ''),
         fetch: customEndpointFetch(),
+        ...(basicAuth && !env[CONNECTION_TOKEN_KEY.custom] ? { headers: { Authorization: `Basic ${Buffer.from(basicAuth).toString('base64')}` } } : {}),
     }
 }
 

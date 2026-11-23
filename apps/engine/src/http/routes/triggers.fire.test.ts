@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-trigger-fire-'))
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 const { describe, expect, it, beforeAll } = await import('vitest')
 const { createServer } = await import('../server.js')

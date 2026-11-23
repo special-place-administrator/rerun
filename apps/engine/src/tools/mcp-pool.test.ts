@@ -18,12 +18,14 @@ const mcp = vi.hoisted(() => ({
     rejections: [] as unknown[],
     answer: null as unknown,
     listed: ['search'],
+    stdioEnv: {} as Record<string, Record<string, string> | undefined>,
 }))
 
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
     StdioClientTransport: class {
-        constructor(options: { command: string }) {
+        constructor(options: { command: string; env?: Record<string, string> }) {
             Object.assign(this, { target: options.command })
+            mcp.stdioEnv[options.command] = options.env
         }
     },
 }))
@@ -64,7 +66,9 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
 
 const { afterEach, beforeEach, describe, expect, it } = await import('vitest')
 const { McpError } = await import('@modelcontextprotocol/sdk/types.js')
-const { MCP_CONNECT_TIMEOUT_MS, MCP_IDLE_MS, acquireMcp, closeAllMcp, mcpLastToolCounts, mcpSessionStates, pooledMcpCount, reconnectMcp, releaseAgentMcp } = await import('./mcp-pool.js')
+const { writeSharedEnv } = await import('../agents/shared-env.js')
+const { MCP_CONNECT_TIMEOUT_MS, MCP_IDLE_MS, acquireMcp, agentMcpSpawn, closeAllMcp, mcpLastToolCounts, mcpSessionStates, pooledMcpCount, pooledMcpServers, reconnectMcp, releaseAgentMcp } = await import('./mcp-pool.js')
+const { probeMcpStatuses } = await import('./mcp-status.js')
 
 type Server = Parameters<typeof acquireMcp>[1]
 
@@ -91,6 +95,17 @@ afterEach(() => {
 })
 
 describe('acquireMcp', () => {
+    it('spawns every server in an empty engine-owned directory outside the agent, with none of the agent variables', async () => {
+        const { agentDir, workspaceDir } = await import('../config/paths.js')
+        const { readdirSync } = await import('node:fs')
+        const { relative } = await import('node:path')
+        const own = agentMcpSpawn({ id: 'cwd-agent', env: { LINEAR_API_KEY: 'lin', PATH: '.' }, config: { tools: { sharedDb: false } } } as never)
+        expect(relative(agentDir('cwd-agent'), own.cwd).startsWith('..')).toBe(true)
+        expect(readdirSync(own.cwd)).toEqual([])
+        expect(own.env).not.toHaveProperty('LINEAR_API_KEY')
+        expect([own.env.PATH, own.env.RERUN_WORKSPACE]).toEqual([process.env.PATH, workspaceDir('cwd-agent')])
+    })
+
     it('keeps one connection per agent and server across runs', async () => {
         const first = await acquireMcp('a1', server('gh'), spawn)
         const second = await acquireMcp('a1', server('gh'), spawn)
@@ -458,5 +473,36 @@ describe('releaseAgentMcp failures', () => {
         expect(mcpSessionStates('a1')).toHaveLength(1)
         releaseAgentMcp('a1')
         expect(mcpSessionStates('a1')).toEqual([])
+    })
+})
+
+describe('agentMcpSpawn secret isolation', () => {
+    it('excludes unreferenced shared.env and agent.env secrets from stdio MCP spawn', async () => {
+        await writeSharedEnv({ GH_TOKEN: 'shared-gh-token-value' })
+        const out = agentMcpSpawn({ id: 'a1', env: { AGENT_SECRET: 'agent-secret-value' }, config: { tools: { sharedDb: false } } as never })
+        expect(out.env.GH_TOKEN).toBeUndefined()
+        expect(out.env.AGENT_SECRET).toBeUndefined()
+    })
+})
+
+describe('stdio env refs', () => {
+    it('migrates known-package refs, reports every unresolved ref sorted in missingEnv and starts the other servers', async () => {
+        const servers = [server('github', { url: undefined, command: 'github-mcp-server' }), server('needs-token', { url: undefined, command: 'needs-token-bin', env: { TOKEN: '${ZED_TOKEN}', AUTH: 'Bearer ${ALPHA_TOKEN}', AGAIN: '${ZED_TOKEN}' } }), server('bad-shape', { url: undefined, command: 'bad-shape-bin', env: { LOADER: '--require ${BETA_TOKEN}' } }), server('fine')]
+        const agent = { id: 'a-env-ref', env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_value', AWS_SECRET_ACCESS_KEY: 'unrelated' }, config: { tools: {}, mcpServers: servers } } as unknown as Parameters<typeof pooledMcpServers>[0]
+        const statuses = await probeMcpStatuses(agent.id, servers, agent.env, spawn)
+        expect(statuses.find(s => s.name === 'needs-token')).toMatchObject({ status: 'config_error', code: 'env_ref_unresolved', missingEnv: ['ALPHA_TOKEN', 'ZED_TOKEN'] })
+        expect(statuses.find(s => s.name === 'bad-shape')).toMatchObject({ status: 'config_error', code: 'env_ref_unresolved', missingEnv: ['BETA_TOKEN'] })
+        expect(statuses.find(s => s.name === 'fine')?.missingEnv).toBeUndefined()
+        const pooled = await pooledMcpServers(agent)
+        expect(pooled.map(p => p.name)).toEqual(['github', 'fine'])
+        expect(mcp.stdioEnv['github-mcp-server']).toMatchObject({ GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_value' })
+        expect(mcp.stdioEnv['github-mcp-server']?.AWS_SECRET_ACCESS_KEY).toBeUndefined()
+    })
+
+    it('hands a CLI provider every server it can prepare and skips the one with an unresolved ref', async () => {
+        const { preparedMcpServers } = await import('./mcp-pool.js')
+        const servers = [server('bad', { url: undefined, command: 'bad-bin', env: { T: '${CLI_MISSING_VAR}' } }), server('ok')]
+        const agent = { id: 'a-cli-ref', env: {}, config: { tools: {}, mcpServers: servers } } as unknown as Parameters<typeof preparedMcpServers>[0]
+        expect((await preparedMcpServers(agent)).map(prepared => prepared.name)).toEqual(['ok'])
     })
 })

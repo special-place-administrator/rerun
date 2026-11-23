@@ -99,6 +99,15 @@ describe('GET /auth/callback', () => {
 
         expect(response.headers.get('location')).toBe('https://moldwright.robagentic.tech/auth/auth-code-error')
     })
+    it('ignores an untrusted or comma-separated x-forwarded-host header when building callback redirects', async () => {
+        const response = await GET(new Request('http://localhost:8080/auth/callback?error=access_denied', {
+            headers: { 'x-forwarded-host': 'evil.example.com, moldwright.robagentic.tech' },
+        }))
+
+        expect(response.headers.get('location')).toBe('https://moldwright.robagentic.tech/auth/auth-code-error')
+        expect(response.headers.get('location')).not.toContain('evil.example.com')
+    })
+
 
     it('signs a visitor into the account their Google identity already belongs to', async () => {
         const response = await callback('?error=server_error&error_code=identity_already_exists')

@@ -68,10 +68,6 @@ describe('shell_exec child environment', () => {
         expect(options.env?.RERUN_AGENT_DB).toBe(agentDataDbPath('env-agent'))
     })
 
-    it('lets an agent variable replace an engine variable such as PATH', async () => {
-        expect((await optionsSeenBy({ PATH: '/agent/bin' })).env?.PATH).toBe('/agent/bin')
-    })
-
     it('keeps the engine hub credentials and data dir out of every command', async () => {
         const options = await optionsSeenBy({})
         expect(options.env).not.toHaveProperty('RERUN_API_KEY')

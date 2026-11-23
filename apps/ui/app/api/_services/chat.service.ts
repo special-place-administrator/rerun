@@ -9,6 +9,7 @@ import { createServiceRoleClient } from '@/supabase/serviceRole'
 import { selectMany, selectManyWithJoins, selectMaybeSingle, selectMaybeSingleWithJoins } from '@/supabase/supabase-helpers'
 import { isTemplateContentLocked } from '@/lib/templates/content-lock'
 import { isPlanLimited } from './capacity.service'
+import { isSubscriptionEntitled } from '@moldwright/cloud/billing'
 import { findWorkspaceEngine, NoEngineError, type WorkspaceEngine } from './workspace-engine.service'
 
 export type AgentChatTarget = {
@@ -69,6 +70,7 @@ function buildTarget(row: NonNullable<Awaited<ReturnType<typeof fetchAgentRow>>>
 export async function resolveAgentTargetForTrigger(agentId: string): Promise<AgentChatTarget | null> {
     const row = await fetchAgentRow(agentId)
     if (!row || row.disabled_at || !row.engine_agent_id) return null
+    if (!isSubscriptionEntitled(row.workspaces?.subscription_status)) return null
     const engine = await findWorkspaceEngine(row.workspace_id)
     if (!engine) return null
     return {

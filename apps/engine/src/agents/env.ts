@@ -1,5 +1,6 @@
 import { agentEnvPath } from '../config/paths.js'
 import { readEnvFile, writeEnvFile } from '../lib/env-file.js'
+import { withoutLoaderEnvKeys } from './env-policy.js'
 
 export { parseEnvFile, serializeEnv } from '../lib/env-file.js'
 
@@ -8,5 +9,5 @@ export async function readAgentEnv(id: string): Promise<Record<string, string>> 
 }
 
 export async function writeAgentEnv(id: string, env: Record<string, string>): Promise<void> {
-    await writeEnvFile(agentEnvPath(id), env)
+    await writeEnvFile(agentEnvPath(id), withoutLoaderEnvKeys(env, `agent ${id}`))
 }

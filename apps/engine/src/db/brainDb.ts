@@ -1,6 +1,6 @@
 import type { Client } from '@libsql/client'
 import { brainDbDir, brainDbPath } from '../config/paths.js'
-import { latestVersion, migrateSqlite, type SqliteMigration } from './ladder.js'
+import { latestVersion, migrateSqlite, type MigrationClient, type SqliteMigration } from './ladder.js'
 import { openStore } from './sqlStore.js'
 
 const STORE_KEY = 'brain'
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS brain_revisions (
 CREATE INDEX IF NOT EXISTS brain_revisions_slug_idx ON brain_revisions(slug, created_at);
 `
 
-async function addColumn(client: Client, table: string, column: string, type: string): Promise<void> {
+async function addColumn(client: MigrationClient, table: string, column: string, type: string): Promise<void> {
     const existing = await client.execute(`PRAGMA table_info('${table}')`)
     if (existing.rows.some(r => r.name === column)) return
     await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)

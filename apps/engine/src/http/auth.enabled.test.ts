@@ -1,14 +1,34 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
+import type * as CryptoModule from 'node:crypto'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-auth-enabled-'))
 process.env.RERUN_API_KEY = 'k'
 
-const { describe, expect, it } = await import('vitest')
-const { createServer } = await import('./server.js')
+const digestComparisons = vi.hoisted(() => [] as Array<[number, number]>)
 
+vi.mock('node:crypto', async importOriginal => {
+    const actual = await importOriginal<typeof CryptoModule>()
+    return {
+        ...actual,
+        timingSafeEqual: (left: NodeJS.ArrayBufferView, right: NodeJS.ArrayBufferView) => {
+            digestComparisons.push([left.byteLength, right.byteLength])
+            return actual.timingSafeEqual(left, right)
+        },
+    }
+})
+
+const { setEnv } = await import('../config/env.js')
+const { createServer } = await import('./server.js')
 const app = createServer()
+
+afterEach(() => {
+    setEnv({ RERUN_API_KEY: 'k' })
+    delete process.env.RERUN_INSECURE_NO_AUTH
+    digestComparisons.length = 0
+})
 
 describe('API key enforcement', () => {
     it('refuses a request with no authorization header', async () => {
@@ -51,5 +71,27 @@ describe('API key enforcement', () => {
             body: JSON.stringify({ token: 't', method: 'POST' }),
         })
         expect(res.status).toBe(401)
+    })
+
+    it('fails closed with 401 when RERUN_API_KEY is unset unless RERUN_INSECURE_NO_AUTH=1', async () => {
+        setEnv({ RERUN_API_KEY: '' })
+        const denied = await app.request('/tools')
+        expect(denied.status).toBe(401)
+        expect(await denied.json()).toEqual({ error: 'Unauthorized' })
+        expect((await app.request('/agents/foreman/sessions')).status).toBe(401)
+
+        process.env.RERUN_INSECURE_NO_AUTH = '1'
+        expect((await app.request('/tools')).status).toBe(200)
+    })
+
+    it('compares bearer tokens in constant time via SHA-256 digests', async () => {
+        digestComparisons.length = 0
+        expect((await app.request('/tools', { headers: { authorization: 'Bearer k' } })).status).toBe(200)
+        expect((await app.request('/tools', { headers: { authorization: 'Bearer much-longer-token-value' } })).status).toBe(401)
+        expect(digestComparisons.length).toBeGreaterThanOrEqual(2)
+        for (const [leftBytes, rightBytes] of digestComparisons) {
+            expect(leftBytes).toBe(32)
+            expect(rightBytes).toBe(32)
+        }
     })
 })

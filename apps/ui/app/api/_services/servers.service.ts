@@ -6,6 +6,8 @@ import { attachCustomEngine, findWorkspaceEngine } from '@/app/api/_services/wor
 import { buildBaseUrl } from '@/lib/engine/base-url'
 import { getEngineHealth, listConnections } from '@/lib/engine/client'
 import type { EngineHealth } from '@/lib/engine/types'
+import { SERVERS_ENABLED } from '@moldwright/cloud/servers'
+import { isPublicHttpUrl } from '@/lib/net/public-fetch'
 import { createServiceRoleClient } from '@/supabase/serviceRole'
 import { selectMaybeSingle } from '@/supabase/supabase-helpers'
 import { AppError, type ErrorCode, type ErrorParams } from '@/lib/i18n/action-error'
@@ -38,7 +40,24 @@ export async function createPairingToken(workspaceId: number, userId: string): P
     return { token, expiresAt }
 }
 
+async function assertAllowedEngineUrl(baseUrl: string): Promise<void> {
+    let parsed: URL
+    try {
+        parsed = new URL(baseUrl)
+    } catch {
+        throw new ServerPairingError('baseUrlNotPublic', 422)
+    }
+    if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+        throw new ServerPairingError('baseUrlNotPublic', 422)
+    }
+    const enforcePublic = (SERVERS_ENABLED || process.env.SELF_HOST_MULTI_SERVER === '1') && process.env.RERUN_ALLOW_PRIVATE_ENGINE_URLS !== '1'
+    if (enforcePublic && !(await isPublicHttpUrl(baseUrl))) {
+        throw new ServerPairingError('baseUrlNotPublic', 422)
+    }
+}
+
 async function checkReachable(baseUrl: string, apiKey: string): Promise<EngineHealth> {
+    await assertAllowedEngineUrl(baseUrl)
     const conn = { baseUrl, apiKey }
     let health: EngineHealth
     try {
@@ -72,7 +91,8 @@ export async function redeemPairingToken(input: { token: string; url: string | n
     if (Date.parse(row.expires_at) < Date.now()) throw new ServerPairingError('pairingTokenExpired', 401)
     if (await findWorkspaceEngine(row.workspace_id)) throw new ServerPairingError('workspaceHasServerRemoveFirst', 409)
 
-    await checkReachable(input.url, input.apiKey)
+    const baseUrl = buildBaseUrl(input.url)
+    await checkReachable(baseUrl, input.apiKey)
 
     const { data: claimed, error } = await supabase
         .from('engine_pairing_tokens')
@@ -83,7 +103,7 @@ export async function redeemPairingToken(input: { token: string; url: string | n
     if (error) throw new Error(error.message)
     if (!claimed?.length) throw new ServerPairingError('pairingTokenUsed', 401)
 
-    await attachCustomEngine(row.workspace_id, { engineHost: input.url, engineApiKey: input.apiKey })
+    await attachCustomEngine(row.workspace_id, { engineHost: baseUrl, engineApiKey: input.apiKey })
     return { workspaceId: row.workspace_id }
 }
 

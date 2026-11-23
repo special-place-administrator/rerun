@@ -194,14 +194,14 @@ describe('buildAuthorizeUrl', () => {
 describe('registerClient', () => {
     it('returns the registered client', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ client_id: 'c', client_secret: 's' })))
-        await expect(registerClient('https://auth/register', CTX.redirectUri)).resolves.toEqual({ clientId: 'c', clientSecret: 's' })
+        await expect(registerClient('https://auth.example.com/register', CTX.redirectUri)).resolves.toEqual({ clientId: 'c', clientSecret: 's' })
     })
 
     it('throws on a refused registration or a missing client id', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 400 })))
-        await expect(registerClient('https://auth/register', CTX.redirectUri)).rejects.toThrow('client registration failed (400)')
+        await expect(registerClient('https://auth.example.com/register', CTX.redirectUri)).rejects.toThrow('client registration failed (400)')
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({})))
-        await expect(registerClient('https://auth/register', CTX.redirectUri)).rejects.toThrow('no client_id')
+        await expect(registerClient('https://auth.example.com/register', CTX.redirectUri)).rejects.toThrow('no client_id')
     })
 })
 
@@ -233,7 +233,7 @@ describe('resolveClient', () => {
 
     it('falls back to a Client ID Metadata Document when DCR is refused', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 400 })))
-        const metadata = { ...NO_REGISTRATION, registrationEndpoint: 'https://auth/register', clientIdMetadataDocumentSupported: true }
+        const metadata = { ...NO_REGISTRATION, registrationEndpoint: 'https://auth.example.com/register', clientIdMetadataDocumentSupported: true }
         await expect(resolveClient(metadata, 'https://mcp.example/mcp', request)).resolves.toEqual({ clientId: 'https://moldwright.robagentic.tech/api/mcp/oauth/client-metadata' })
     })
 
@@ -247,7 +247,7 @@ describe('resolveClient', () => {
 
     it('keeps a successful DCR for other servers that also support a Client ID Metadata Document', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ client_id: 'dcr-id' }, { status: 201 })))
-        const metadata = { ...NO_REGISTRATION, registrationEndpoint: 'https://auth/register', clientIdMetadataDocumentSupported: true }
+        const metadata = { ...NO_REGISTRATION, registrationEndpoint: 'https://auth.example.com/register', clientIdMetadataDocumentSupported: true }
         await expect(resolveClient(metadata, 'https://mcp.example/mcp', request)).resolves.toEqual({ clientId: 'dcr-id' })
     })
 })

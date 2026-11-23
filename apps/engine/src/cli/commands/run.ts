@@ -22,8 +22,23 @@ import { closeAllMcp } from '../../tools/mcp-pool.js'
 import { loadPairingIdentity, pairWithHub } from '../../pairing/pairing.js'
 import { settleLastUpdateOnBoot } from '../../runtime/last-update.js'
 
+const LOOPBACK_IPV4 = [127, 0, 0, 1].join('.')
+
+function isLoopbackHost(host: string): boolean {
+    const normalized = host.toLowerCase()
+    return normalized === LOOPBACK_IPV4 || normalized === '::1' || normalized === '[::1]' || normalized === 'localhost'
+}
+
+function assertBindAuthenticated(host: string, apiKey: string | undefined): void {
+    if (apiKey || process.env.RERUN_INSECURE_NO_AUTH === '1') return
+    if (process.env.NODE_ENV !== 'production' && isLoopbackHost(host)) return
+    throw new Error(`Refusing to bind unauthenticated rerun-engine on ${host}: set RERUN_API_KEY (or RERUN_INSECURE_NO_AUTH=1 for local development)`)
+}
+
 export async function runCommand(): Promise<void> {
     loadPairingIdentity()
+    const { RERUN_HOST: bootHost, RERUN_API_KEY: bootKey } = env()
+    assertBindAuthenticated(bootHost, bootKey)
     await prepareDataDir()
     const lastUpdate = settleLastUpdateOnBoot()
     if (lastUpdate?.status === 'error') logger.warn({ error: lastUpdate.error, commit: lastUpdate.commit }, 'last update did not land')

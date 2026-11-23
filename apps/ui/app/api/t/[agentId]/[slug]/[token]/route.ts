@@ -9,20 +9,55 @@ export const runtime = 'nodejs'
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 const FIRE_TIMEOUT_MS = 15_000
+const RATE_LIMIT_WINDOW_MS = 60_000
+const RATE_LIMIT_MAX_REQUESTS = 60
+const MAX_TRACKED_TRIGGERS = 10_000
 
-type Params = { params: Promise<{ agentId: string; slug: string; token: string }> }
+const rateLimits = new Map<string, number[]>()
+
+function isRateLimited(key: string, now = Date.now()): boolean {
+    const timestamps = rateLimits.get(key)?.filter(t => now - t < RATE_LIMIT_WINDOW_MS) ?? []
+    if (timestamps.length >= RATE_LIMIT_MAX_REQUESTS) {
+        rateLimits.set(key, timestamps)
+        return true
+    }
+    timestamps.push(now)
+    if (rateLimits.size >= MAX_TRACKED_TRIGGERS) {
+        const oldestKey = rateLimits.keys().next().value
+        if (oldestKey) rateLimits.delete(oldestKey)
+    }
+    rateLimits.set(key, timestamps)
+    return false
+}
+
+type Params = { params: Promise<{ agentId: string; slug: string; token?: string }> }
 
 function notFound(): Response {
     return Response.json({ error: 'Not found' }, { status: 404 })
 }
 
+function extractTriggerToken(req: Request, pathToken?: string): string {
+    const auth = req.headers.get('authorization')
+    if (auth?.toLowerCase().startsWith('bearer ')) {
+        const bearer = auth.slice(7).trim()
+        if (bearer) return bearer
+    }
+    const custom = req.headers.get('x-rerun-trigger-token')?.trim()
+    if (custom) return custom
+    return pathToken ?? ''
+}
 async function handle(req: Request, ctx: Params): Promise<Response> {
-    const { agentId, slug, token } = await ctx.params
+    const { agentId, slug, token: pathToken } = await ctx.params
+    const token = extractTriggerToken(req, pathToken)
     if (!SLUG_RE.test(slug) || !token) return notFound()
 
     if (isPassiveVisit(req.headers)) {
         console.info(`[trigger] ${agentId}/${slug} not fired: passive visit from "${req.headers.get('user-agent') ?? 'unknown'}"`)
         return new Response(null, { status: 204 })
+    }
+
+    if (isRateLimited(`${agentId}:${slug}`)) {
+        return Response.json({ error: 'Too many requests' }, { status: 429, headers: { 'Retry-After': '60' } })
     }
 
     const raw = await readBodyCapped(req, MAX_TRIGGER_BODY_BYTES)

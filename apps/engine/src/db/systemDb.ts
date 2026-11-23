@@ -3,7 +3,7 @@ import { createClient, type Client } from '@libsql/client'
 import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql'
 import { agentDataDir, systemDbPath } from '../config/paths.js'
 import { sessions, messages, runs, runSteps, toolCalls, compactionCheckpoints, skillProposals } from './schema.js'
-import { latestVersion, migrateSqlite, type SqliteMigration } from './ladder.js'
+import { latestVersion, migrateSqlite, type MigrationClient, type SqliteMigration } from './ladder.js'
 import { scheduleBackfillPaidSources } from '../paid-data/backfill.js'
 
 const schema = { sessions, messages, runs, runSteps, toolCalls, compactionCheckpoints, skillProposals }
@@ -148,7 +148,7 @@ CREATE INDEX IF NOT EXISTS skill_proposals_agent_idx ON skill_proposals(agent_id
 const pool = new Map<string, PooledSystemDb>()
 const opening = new Map<string, Promise<SystemDb>>()
 
-async function ensureSessionSourceColumn(client: Client): Promise<void> {
+async function ensureSessionSourceColumn(client: MigrationClient): Promise<void> {
     const info = await client.execute("PRAGMA table_info('sessions')")
     const hasSource = info.rows.some(row => row.name === 'source')
     if (hasSource) return
@@ -160,7 +160,7 @@ async function ensureSessionSourceColumn(client: Client): Promise<void> {
     `)
 }
 
-async function ensureColumns(client: Client, table: string, columns: string[]): Promise<void> {
+async function ensureColumns(client: MigrationClient, table: string, columns: string[]): Promise<void> {
     const info = await client.execute(`PRAGMA table_info('${table}')`)
     const existing = new Set(info.rows.map(row => row.name))
     for (const column of columns) {

@@ -8,6 +8,7 @@ import { sendNotification } from '../../runtime/notify.js'
 import type { RunContext } from '../../runtime/context.js'
 import type { AgentRow } from '../../db/schema.js'
 import { beginSubRun, endSubRun, followSubRun, renderSubRunOutcome, snapshotSubRun, startHeartbeat, type SubRunProgress } from './sub-run-watch.js'
+import { taintRefusal } from './taint.js'
 
 type CallProgress = SubRunProgress & { agentName: string; sessionId?: string }
 
@@ -64,6 +65,8 @@ export function callAgentTools(ctx: RunContext): ToolSet {
                 branch: z.string().max(200).optional().describe('the git branch this work is for, when you know it'),
             }),
             execute: async ({ agent, message, context, wait, branch }, { toolCallId, abortSignal }) => {
+                const refusal = taintRefusal(ctx, 'call_agent')
+                if (refusal) return refusal
                 const resolved = resolveTargetAgent(agent, targets)
 
                 const progress: CallProgress = { agentName: 'agent' in resolved ? resolved.agent.name : agent, status: 'queued', steps: 0, toolCalls: 0, failures: 0, calls: [] }

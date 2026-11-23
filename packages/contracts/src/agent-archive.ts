@@ -80,5 +80,6 @@ export const agentImportResultSchema = z.object({
     triggers: z.array(z.string()).default([]),
     memoriesIndexed: z.number().int().nonnegative().default(0),
     skippedPaths: z.array(z.string()).default([]),
+    mcpDisabled: z.array(z.object({ name: z.string(), reason: z.enum(['stdio_runtime_unpinned']), command: z.string() })).default([]),
 })
 export type AgentImportResult = z.infer<typeof agentImportResultSchema>

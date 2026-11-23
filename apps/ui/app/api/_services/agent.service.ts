@@ -1,10 +1,11 @@
-import { BOX_MANAGE_ONLY, BOX_NOT_FOUND, COWORKER_NOT_FOUND, enforce, readSpaceAccess, type Actor } from '@/app/api/_auth/access'
+import { AccessDeniedError, BOX_MANAGE_ONLY, BOX_NOT_FOUND, COWORKER_NOT_FOUND, enforce, readCanEnableTeamTools, readSpaceAccess, type Actor } from '@/app/api/_auth/access'
 import { AuthorizationError } from '@/app/api/_auth/ownership'
 import type { Database } from '@/app/api/database.types'
 import {
     createAgent as engineCreateAgent,
     deleteAgent as engineDeleteAgent,
     duplicateAgent as engineDuplicateAgent,
+    getAgent as engineGetAgent,
     importAgentArchive,
     listSchedules,
     patchAgent as enginePatchAgent,
@@ -65,9 +66,21 @@ export async function findFreeCellsInSpace(supabase: ReturnType<typeof createSer
     return cells
 }
 
-export async function moveAgentToBox(agentId: string, spaceId: string, actor: Actor): Promise<{ ok: true; position: GridPosition } | ActionFailure> {
+async function cellFitsInSpace(supabase: ReturnType<typeof createServiceRoleClient>, spaceId: string, cell: GridPosition): Promise<boolean> {
+    const { data: space } = await selectSingle(supabase, 'spaces', ['col_start', 'row_start', 'col_end', 'row_end'] as const, { id: spaceId })
+    if (!space) return false
+    const colMin = Math.min(space.col_start, space.col_end)
+    const colMax = Math.max(space.col_start, space.col_end)
+    const rowMin = Math.min(space.row_start, space.row_end)
+    const rowMax = Math.max(space.row_start, space.row_end)
+    if (cell.col < colMin || cell.col > colMax - (AGENT_SPAN - 1) || cell.row < rowMin || cell.row > rowMax - (AGENT_SPAN - 1)) return false
+    const { data: occupants } = await selectMany(supabase, 'agents', ['col', 'row'] as const, { space_id: spaceId })
+    return !(occupants ?? []).filter(a => isPlaced(a)).some(o => agentsOverlap(cell, { col: o.col, row: o.row }))
+}
+
+export async function moveAgentToBox(agentId: string, spaceId: string, actor: Actor, cell?: GridPosition): Promise<{ ok: true; position: GridPosition } | ActionFailure> {
     const supabase = createServiceRoleClient()
-    const { data: agent } = await selectSingle(supabase, 'agents', ['space_id', 'workspace_id'] as const, { id: agentId })
+    const { data: agent } = await selectSingle(supabase, 'agents', ['space_id', 'workspace_id', 'engine_agent_id'] as const, { id: agentId })
     if (!agent || agent.workspace_id !== actor.workspaceId) return failure(COWORKER_NOT_FOUND)
     if (agent.space_id === spaceId) return failure('coworkerAlreadyInBox')
     const [from, to] = await Promise.all([readSpaceAccess(actor, agent.space_id), readSpaceAccess(actor, spaceId)])
@@ -75,8 +88,16 @@ export async function moveAgentToBox(agentId: string, spaceId: string, actor: Ac
     if (to === 'none') return failure(BOX_NOT_FOUND)
     if (from !== 'manage' || to !== 'manage') return failure(BOX_MANAGE_ONLY)
 
-    const position = await findFreeCellInSpace(supabase, spaceId)
-    if (!position) return failure('boxFull')
+    const free = await findFreeCellInSpace(supabase, spaceId)
+    if (!free) return failure('boxFull')
+    if (cell && !(await cellFitsInSpace(supabase, spaceId, cell))) return failure('moveCoworkerFailed')
+    const position = cell ?? free
+
+    if (agent.engine_agent_id && !(await readCanEnableTeamTools(actor, spaceId))) {
+        const conn = await getSpaceConnection(agent.space_id)
+        const { config } = await engineGetAgent(conn, agent.engine_agent_id)
+        if (config.tools.team === true) await enginePatchAgent(conn, agent.engine_agent_id, { tools: { team: false } })
+    }
 
     const { error } = await supabase.from('agents').update<Database['public']['Tables']['agents']['Update']>({ space_id: spaceId, col: position.col, row: position.row }).eq('id', agentId)
     if (error) return { ok: false, error: `Failed to move agent: ${error.message}` }
@@ -87,6 +108,12 @@ export async function moveAgentToBox(agentId: string, spaceId: string, actor: Ac
 async function assertCanCreateIn(actor: Actor, workspaceId: number, spaceId: string): Promise<void> {
     if (actor.workspaceId !== workspaceId) throw new AuthorizationError(BOX_NOT_FOUND)
     enforce(await readSpaceAccess(actor, spaceId), 'manage', BOX_NOT_FOUND)
+}
+
+async function createdTeamTools(actor: Actor, spaceId: string, tools: Record<string, boolean> | undefined): Promise<Record<string, boolean> | undefined> {
+    if (await readCanEnableTeamTools(actor, spaceId)) return tools
+    if (tools?.team === true) throw new AccessDeniedError()
+    return { ...tools, team: false }
 }
 
 function allocateHandle(displayName: string, taken: Set<string>): string {
@@ -119,6 +146,7 @@ export async function createAgent(params: CreateAgentParams) {
         throw new Error('name, workspaceId and spaceId are required')
     }
     await assertCanCreateIn(params.actor, workspaceId, spaceId)
+    const tools = await createdTeamTools(params.actor, spaceId, config?.tools)
 
     const enabled = params.enabled ?? (await hasFreeAgentSlot(workspaceId))
 
@@ -128,7 +156,7 @@ export async function createAgent(params: CreateAgentParams) {
 
     const language = config?.language ?? (await coworkerLanguageFor(supabase, workspaceId))
     const detail = await engineCreateAgent(conn, {
-        config: { ...config, name: handle, displayName: name, description: description || undefined, enabled, ...(language ? { language } : {}) },
+        config: { ...config, ...(tools ? { tools } : {}), name: handle, displayName: name, description: description || undefined, enabled, ...(language ? { language } : {}) },
         soul: soulMd || undefined,
         install: installMd || undefined,
     })
@@ -173,6 +201,7 @@ type ImportAgentParams = {
 export async function importAgent(params: ImportAgentParams) {
     const { archive, name, handle, workspaceId, spaceId, position, templateId } = params
     await assertCanCreateIn(params.actor, workspaceId, spaceId)
+    const teamOff = !(await readCanEnableTeamTools(params.actor, spaceId))
 
     const enabled = await hasFreeAgentSlot(workspaceId)
 
@@ -180,7 +209,7 @@ export async function importAgent(params: ImportAgentParams) {
     const supabase = createServiceRoleClient()
 
     const imported = await importAgentArchive(conn, archive, handle, name)
-    await enginePatchAgent(conn, imported.id, { ...(enabled ? {} : { enabled: false }), language: await coworkerLanguageFor(supabase, workspaceId) })
+    await enginePatchAgent(conn, imported.id, { ...(enabled ? {} : { enabled: false }), ...(teamOff ? { tools: { team: false } } : {}), language: await coworkerLanguageFor(supabase, workspaceId) })
 
     const cell = position ?? (await findFreeCellInSpace(supabase, spaceId))
     const { data: agent, error } = await supabase
@@ -237,6 +266,7 @@ export async function duplicateAgent(params: DuplicateAgentParams): Promise<Dupl
     if (!source || source.workspace_id !== workspaceId || !source.engine_agent_id) throw new AppError(COWORKER_NOT_FOUND)
     enforce(await readSpaceAccess(params.actor, source.space_id), 'manage', COWORKER_NOT_FOUND)
     await assertCanCreateIn(params.actor, workspaceId, spaceId)
+    const teamOff = !(await readCanEnableTeamTools(params.actor, spaceId))
     const enabled = await hasFreeAgentSlot(workspaceId)
     const name = duplicateAgentName(source.name)
     const handle = await deriveUniqueHandle(supabase, workspaceId, name)
@@ -249,7 +279,7 @@ export async function duplicateAgent(params: DuplicateAgentParams): Promise<Dupl
         throw isMissingDuplicateRoute(err) ? new AppError('engineTooOldToDuplicate') : err
     }
 
-    if (!enabled) await enginePatchAgent(conn, copy.id, { enabled: false })
+    if (!enabled || teamOff) await enginePatchAgent(conn, copy.id, { ...(enabled ? {} : { enabled: false }), ...(teamOff ? { tools: { team: false } } : {}) })
 
     const cell = position ?? (await findFreeCellInSpace(supabase, spaceId))
     const { data: agent, error } = await supabase

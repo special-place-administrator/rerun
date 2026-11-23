@@ -71,8 +71,50 @@ describe('shared database tools', () => {
         expect(await run(bob, 'shared_db_execute', {})).toBe('Execution failed: Provide either sql or statements.')
     })
 
-    it('forgets the owner of a dropped table and hides its own bookkeeping', async () => {
-        await run(alice, 'shared_db_execute', { sql: 'DROP TABLE deals' })
+    it("guards another coworker's rows by the table's row_write policy and its schema always, and backfills existing tables to owner", async () => {
+        const refused = (out: string, op: string) => {
+            expect(out).toContain('shared_table_permission_denied')
+            expect(out).toContain(`op=${op}`)
+            expect(out).toContain('owner=alice')
+        }
+        refused(await run(bob, 'shared_db_execute', { sql: 'DELETE FROM LEADS' }), 'delete')
+        refused(await run(bob, 'shared_db_execute', { sql: "UPDATE leads SET email = ''" }), 'update')
+        refused(await run(bob, 'shared_db_execute', { sql: "REPLACE INTO leads VALUES ('a@x.io', 0)" }), 'replace')
+        refused(await run(bob, 'shared_db_execute', { sql: "INSERT OR REPLACE INTO leads VALUES ('a@x.io', 0)" }), 'replace')
+        refused(await run(bob, 'shared_db_execute', { statements: [{ sql: 'SELECT 1' }, { sql: "INSERT INTO [leads] VALUES ('a@x.io', 0) ON CONFLICT DO UPDATE SET score = 0" }] }), 'upsert')
+        refused(await run(bob, 'shared_db_execute', { sql: 'CREATE INDEX leads_by_score ON leads (score)' }), 'create_index')
+        expect(await run(bob, 'shared_db_execute', { sql: "INSERT INTO leads VALUES ('q@x.io', 1)" })).toMatch(/^OK/)
+        refused(await run(bob, 'shared_db_set_table_access', { table: 'leads', access: 'shared' }), 'set_access')
+        expect(await run(alice, 'shared_db_set_table_access', { table: 'leads', access: 'shared' })).toMatch(/shared/)
+        expect(await run(alice, 'shared_db_schema', {})).toContain('shared queue')
+        expect(await run(bob, 'shared_db_execute', { sql: "DELETE FROM leads WHERE email = 'q@x.io'" })).toMatch(/^OK/)
+        refused(await run(bob, 'shared_db_execute', { sql: 'ALTER TABLE main.leads ADD COLUMN stage TEXT' }), 'alter')
+        refused(await run(bob, 'shared_db_execute', { sql: 'DROP TABLE IF EXISTS "leads"' }), 'drop')
+        await run(alice, 'shared_db_set_table_access', { table: 'leads', access: 'owner' })
+        expect(await run(bob, 'shared_db_query', { sql: 'SELECT count(*) AS c FROM leads' })).toBe('1 row(s)\n[{"c":3}]')
+
+        const { createClient } = await import('@libsql/client')
+        const { SHARED_DB_MIGRATIONS } = await import('../../db/sharedDb.js')
+        const { migrateSqlite } = await import('../../db/ladder.js')
+        const old = createClient({ url: ':memory:' })
+        await SHARED_DB_MIGRATIONS[0]!.up(old)
+        await old.execute('PRAGMA user_version = 1')
+        await old.execute("INSERT INTO _rerun_shared_tables (table_name, created_by, created_at) VALUES ('queue', 'alice', 'now')")
+        await migrateSqlite(old, SHARED_DB_MIGRATIONS, ':memory:')
+        await old.execute("INSERT INTO _rerun_shared_tables (table_name, created_by, created_at) VALUES ('fresh', 'alice', 'now')")
+        expect((await old.execute('SELECT table_name, row_write FROM _rerun_shared_tables ORDER BY table_name')).rows.map(r => [r.table_name, r.row_write])).toEqual([['fresh', 'owner'], ['queue', 'owner']])
+
+        const interrupted = createClient({ url: ':memory:' })
+        await SHARED_DB_MIGRATIONS[0]!.up(interrupted)
+        await interrupted.execute('PRAGMA user_version = 1')
+        await interrupted.execute("ALTER TABLE _rerun_shared_tables ADD COLUMN row_write TEXT NOT NULL DEFAULT 'owner'")
+        await migrateSqlite(interrupted, SHARED_DB_MIGRATIONS, ':memory:')
+        expect(Number((await interrupted.execute('PRAGMA user_version')).rows[0]!.user_version)).toBe(2)
+    })
+
+    it('blocks another coworker from dropping an owned table, forgets the owner when its creator drops it, and hides its own bookkeeping', async () => {
+        expect(await run(alice, 'shared_db_execute', { sql: 'DROP TABLE deals' })).toContain('owner=bob')
+        await run(bob, 'shared_db_execute', { sql: 'DROP TABLE deals' })
         const schema = await run(alice, 'shared_db_schema', {})
         expect(schema).toBe('leads(email TEXT, score INTEGER) created by alice')
         expect(schema).not.toContain('_rerun_shared_tables')

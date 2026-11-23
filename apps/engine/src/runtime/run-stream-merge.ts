@@ -4,6 +4,7 @@ import { QUICK_REPLIES_TOOL, withHitlVersion } from '@moldwright/contracts'
 import { canonicalHitlName, isHitlToolName } from '../tools/builtin/hitl.js'
 import type { QuickRepliesCapture } from '../agents/quick-replies-stream.js'
 import type { AgentRun, RunOutcome } from './loop.js'
+import { redactSecrets, redactSecretsDeep } from '../lib/redact-secrets.js'
 
 const CUT_GRACE_MS = 2_000
 
@@ -33,6 +34,52 @@ function normalizeHitlStream(stream: ReadableStream<UIMessageChunk>): ReadableSt
                     return
                 }
                 controller.enqueue(chunk)
+            },
+        }),
+    )
+}
+
+const STREAMED_TEXT: Record<string, { field: 'delta' | 'inputTextDelta'; key: 'id' | 'toolCallId' }> = {
+    'text-delta': { field: 'delta', key: 'id' },
+    'reasoning-delta': { field: 'delta', key: 'id' },
+    'tool-input-delta': { field: 'inputTextDelta', key: 'toolCallId' },
+}
+const STREAM_ENDS: Record<string, { delta: string; key: 'id' | 'toolCallId' }> = {
+    'text-end': { delta: 'text-delta', key: 'id' },
+    'reasoning-end': { delta: 'reasoning-delta', key: 'id' },
+    'tool-input-available': { delta: 'tool-input-delta', key: 'toolCallId' },
+    'tool-input-error': { delta: 'tool-input-delta', key: 'toolCallId' },
+}
+
+function withSecretsRedacted(stream: ReadableStream<UIMessageChunk>, secrets: readonly string[] | undefined): ReadableStream<UIMessageChunk> {
+    if (!secrets?.length) return stream
+    const holdBack = Math.max(...secrets.map(secret => secret.length)) - 1
+    const pending = new Map<string, { chunk: Record<string, unknown>; field: string; text: string }>()
+    const release = (controller: TransformStreamDefaultController<UIMessageChunk>, slot: string) => {
+        const held = pending.get(slot)
+        pending.delete(slot)
+        if (held?.text) controller.enqueue({ ...held.chunk, [held.field]: held.text } as UIMessageChunk)
+    }
+    return stream.pipeThrough(
+        new TransformStream<UIMessageChunk, UIMessageChunk>({
+            transform(chunk, controller) {
+                const fields = chunk as Record<string, unknown>
+                const type = String(fields.type)
+                const streamed = STREAMED_TEXT[type]
+                if (streamed && typeof fields[streamed.field] === 'string') {
+                    const slot = `${type}:${String(fields[streamed.key])}`
+                    const text = redactSecrets(`${pending.get(slot)?.text ?? ''}${fields[streamed.field] as string}`, secrets)
+                    const cut = Math.max(0, text.length - holdBack)
+                    pending.set(slot, { chunk: fields, field: streamed.field, text: text.slice(cut) })
+                    if (cut > 0) controller.enqueue({ ...chunk, [streamed.field]: text.slice(0, cut) } as UIMessageChunk)
+                    return
+                }
+                const end = STREAM_ENDS[type]
+                if (end) release(controller, `${end.delta}:${String(fields[end.key])}`)
+                controller.enqueue(redactSecretsDeep(chunk, secrets))
+            },
+            flush(controller) {
+                for (const slot of [...pending.keys()]) release(controller, slot)
             },
         }),
     )
@@ -104,17 +151,20 @@ export function mergeRunStream(writer: UIMessageStreamWriter, run: AgentRun, met
     writer.merge(
         cutOffWhenSettled(
             withQuickReplies(
-                normalizeHitlStream(
-                    run.result.toUIMessageStream({
-                        messageMetadata: ({ part }) => {
-                            if (part.type === 'finish-step') {
-                                const usage = addUsage(undefined, part.usage)
-                                const context = run.contextUsage?.()
-                                return { ...meta, usage: context ? { ...usage, context } : usage }
-                            }
-                            return undefined
-                        },
-                    }),
+                withSecretsRedacted(
+                    normalizeHitlStream(
+                        run.result.toUIMessageStream({
+                            messageMetadata: ({ part }) => {
+                                if (part.type === 'finish-step') {
+                                    const usage = addUsage(undefined, part.usage)
+                                    const context = run.contextUsage?.()
+                                    return { ...meta, usage: context ? { ...usage, context } : usage }
+                                }
+                                return undefined
+                            },
+                        }),
+                    ),
+                    run.secrets,
                 ),
                 run.quickReplies,
             ),

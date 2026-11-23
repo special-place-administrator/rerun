@@ -7,9 +7,9 @@ process.env.RERUN_DATA_DIR = dataDir
 
 const { beforeEach, describe, expect, it } = await import('vitest')
 const { chmod, mkdir, readFile, rm, stat, symlink, writeFile } = await import('node:fs/promises')
-const { existsSync } = await import('node:fs')
+const { existsSync, readFileSync, readdirSync } = await import('node:fs')
 const { RERUN_CONNECTION_ID } = await import('@moldwright/contracts')
-const { agentEnvPath, agentDir, agentsDir, boxPlanPath, configPath, connectionsDir, connectionsMigratedPath, dataVersionPath, mcpDir, mcpPackagesDir, mcpPendingPath, mcpTokenPath } = await import('../config/paths.js')
+const { agentEnvPath, agentDir, agentsDir, boxPlanPath, codexAuthPath, codexHomeDir, configPath, connectionConfigPath, connectionDir, connectionEnvPath, connectionsDir, connectionsMigratedPath, dataVersionPath, mcpDir, mcpPackagesDir, mcpPendingPath, mcpTokenPath } = await import('../config/paths.js')
 const { writeEnvFile, readEnvFile } = await import('../lib/env-file.js')
 const { raw } = await import('../db/client.js')
 const { buildCommit } = await import('../runtime/build-info.js')
@@ -182,7 +182,7 @@ describe('v3 to v4: secret-file-modes', () => {
         await legacyAgent('alpha')
         await writeDataVersion(3)
         await migrateDataDir()
-        expect(readDataVersion()).toBe(4)
+        expect(readDataVersion()).toBe(DATA_DIR_VERSION)
         expect(await mode(configPath('alpha'))).toBe(0o600)
         expect(await mode(mcpDir('alpha'))).toBe(0o700)
         expect(await mode(mcpTokenPath('alpha', 'srv'))).toBe(0o600)
@@ -226,6 +226,70 @@ describe('v3 to v4: secret-file-modes', () => {
     })
 })
 
+describe('v4 to v5: connection-file-modes', () => {
+    const mode = async (path: string) => (await stat(path)).mode & 0o777
+
+    async function legacyConnection(id: string) {
+        await mkdir(codexHomeDir(id), { recursive: true })
+        await chmod(connectionDir(id), 0o755)
+        await chmod(codexHomeDir(id), 0o755)
+        for (const path of [connectionConfigPath(id), connectionEnvPath(id), codexAuthPath(id)]) {
+            await writeFile(path, '{}', 'utf8')
+            await chmod(path, 0o644)
+        }
+    }
+
+    it('closes connection folders, connection.json, .env and codex auth to other users, from v4', async () => {
+        await legacyConnection('openai-1')
+        await writeDataVersion(4)
+        await migrateDataDir()
+        expect(readDataVersion()).toBe(DATA_DIR_VERSION)
+        expect(await mode(connectionDir('openai-1'))).toBe(0o700)
+        expect(await mode(connectionConfigPath('openai-1'))).toBe(0o600)
+        expect(await mode(connectionEnvPath('openai-1'))).toBe(0o600)
+        expect(await mode(codexHomeDir('openai-1'))).toBe(0o700)
+        expect(await mode(codexAuthPath('openai-1'))).toBe(0o600)
+    })
+
+    it('replays without harm and skips a connection without codex files', async () => {
+        const step = DATA_DIR_MIGRATIONS.find(s => s.id === 'connection-file-modes')!
+        await mkdir(connectionDir('plain'), { recursive: true })
+        await writeFile(connectionConfigPath('plain'), '{}', 'utf8')
+        await chmod(connectionConfigPath('plain'), 0o644)
+        await step.up()
+        await step.up()
+        expect(await mode(connectionConfigPath('plain'))).toBe(0o600)
+        expect(existsSync(codexHomeDir('plain'))).toBe(false)
+    })
+})
+
+describe('v5 to v6: everos-direct', () => {
+    const repo = resolve(import.meta.dirname, '../../../..')
+    const direct = JSON.parse(readFileSync(resolve(repo, 'deploy/vps/everos-mcp.json'), 'utf8'))
+
+    it('rewrites a wrapper everos server to the direct definition once, and no shipped definition keeps the wrapper or its token file', async () => {
+        await mkdir(agentDir('boss'), { recursive: true })
+        const other = { name: 'other', command: 'node', args: ['x.js'], env: {}, headers: {} }
+        await writeFile(configPath('boss'), JSON.stringify({ name: 'boss', mcpServers: [{ name: 'everos', command: '/data/tools/bin/everos-mcp', args: [], env: {}, headers: {} }, other] }), 'utf8')
+        await writeDataVersion(5)
+        await migrateDataDir()
+        expect(readDataVersion()).toBe(DATA_DIR_VERSION)
+        const migrated = await readFile(configPath('boss'), 'utf8')
+        expect(JSON.parse(migrated)).toEqual({ name: 'boss', mcpServers: [direct, other] })
+        await DATA_DIR_MIGRATIONS.find(s => s.id === 'everos-direct')!.up()
+        expect(await readFile(configPath('boss'), 'utf8')).toBe(migrated)
+        const shipped = [readFileSync(resolve(repo, 'supabase/seed.sql'), 'utf8'), ...readdirSync(resolve(repo, 'deploy/vps')).filter(f => f.endsWith('.json')).map(f => readFileSync(resolve(repo, 'deploy/vps', f), 'utf8'))]
+        expect(shipped.filter(text => text.includes('/data/tools/bin/everos-mcp') || text.includes('everos/token'))).toEqual([])
+    })
+
+    it('keeps the owner tools allowlist on the server it rewrites', async () => {
+        await mkdir(agentDir('boss'), { recursive: true })
+        await writeFile(configPath('boss'), JSON.stringify({ name: 'boss', mcpServers: [{ name: 'everos', command: '/data/tools/bin/everos-mcp', args: [], env: {}, headers: {}, tools: ['memory_search'] }] }), 'utf8')
+        await DATA_DIR_MIGRATIONS.find(s => s.id === 'everos-direct')!.up()
+        expect(JSON.parse(await readFile(configPath('boss'), 'utf8')).mcpServers).toEqual([{ ...direct, tools: ['memory_search'] }])
+    })
+})
+
 describe('data-dir ladder', () => {
     it('numbers its steps from 1 without gaps', () => {
         expect(DATA_DIR_MIGRATIONS.map(s => s.version)).toEqual(DATA_DIR_MIGRATIONS.map((_, i) => i + 1))
@@ -250,6 +314,14 @@ describe('data-dir ladder', () => {
             [
               4,
               "secret-file-modes",
+            ],
+            [
+              5,
+              "connection-file-modes",
+            ],
+            [
+              6,
+              "everos-direct",
             ],
           ]
         `)

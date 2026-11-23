@@ -20,7 +20,7 @@ const { describe, expect, it } = await import('vitest')
 const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
 const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
 const { relayMcpServer, withPooledRelays } = await import('./mcp-relay.js')
-const { workspaceDir } = await import('../config/paths.js')
+const { dataDir } = await import('../config/paths.js')
 
 type Relay = Parameters<typeof relayMcpServer>[0]
 
@@ -143,8 +143,8 @@ describe('withPooledRelays', () => {
         expect(relayed[0]!.relay?.name).toBe('discord')
         expect(relayed[1]).toEqual(servers[1])
         expect(pool.acquired).toEqual([
-            { agentId: 'relay-agent', name: 'discord', cwd: workspaceDir('relay-agent') },
-            { agentId: 'relay-agent', name: 'down', cwd: workspaceDir('relay-agent') },
+            { agentId: 'relay-agent', name: 'discord', cwd: resolve(dataDir(), 'mcp-cwd', 'relay-agent') },
+            { agentId: 'relay-agent', name: 'down', cwd: resolve(dataDir(), 'mcp-cwd', 'relay-agent') },
         ])
     })
 })

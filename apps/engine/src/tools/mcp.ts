@@ -1,4 +1,5 @@
 import { dynamicTool, jsonSchema, type ToolSet } from 'ai'
+import { outsideAgentDir, spawnSafeEnv, templateRefusedEnvKeys, withEngineOwnedEnv } from '../lib/child-env.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
@@ -8,11 +9,12 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { Provider } from '@moldwright/contracts'
 import { CLI_PROVIDERS, type LoadedAgent, type McpServer } from '../agents/types.js'
-import { workspaceDir } from '../config/paths.js'
+import { agentDir, workspaceDir } from '../config/paths.js'
 import { withAuth } from './mcp-auth.js'
 import { withHubHeaders } from './mcp-hub-headers.js'
 import { withInstalledPackage } from './mcp-packages.js'
-import { resolveServerSecrets } from './mcp-resolve.js'
+import { withKnownEnvRefs } from './mcp-env-refs.js'
+import { McpEnvRefError, resolveServerSecrets, unsetEnvRefs } from './mcp-resolve.js'
 import { toToolInputSchema } from './mcp-schema.js'
 import { logger } from '../lib/logger.js'
 import { readSharedEnvSync } from '../agents/shared-env.js'
@@ -22,7 +24,7 @@ export type McpTool = Awaited<ReturnType<Client['listTools']>>['tools'][number]
 export type McpCallResult = Awaited<ReturnType<Client['callTool']>>
 export type McpCall = (name: string, args: Record<string, unknown>) => Promise<McpCallResult>
 export type McpTransport = 'stdio' | 'sse' | 'http'
-export type McpProbe = { ok: boolean; transport: McpTransport; toolNames: string[]; error?: string }
+export type McpProbe = { ok: boolean; transport: McpTransport; toolNames: string[]; error?: string; code?: 'env_ref_unresolved'; missingEnv?: string[] }
 
 export function mcpToolNameFor(provider: Provider | undefined, serverName: string, toolName: string): string {
     return provider && CLI_PROVIDERS.has(provider) ? `mcp__${serverName}__${toolName}` : `${serverName}_${toolName}`
@@ -36,10 +38,11 @@ export function resolveTransport(server: McpServer): McpTransport {
 }
 
 function buildTransport(server: McpServer, spawn: McpSpawn): Transport | null {
+    if (!isEnabledMcpServer(server)) throw new McpServerDisabledError(server.name)
     const kind = resolveTransport(server)
     if (kind === 'stdio') {
         if (!server.command) return null
-        const env = { ...spawn.env, ...server.env }
+        const env = withEngineOwnedEnv(spawn.env, server.env)
         return new StdioClientTransport({ command: server.command, args: server.args, env, cwd: spawn.cwd })
     }
     if (!server.url) return null
@@ -61,6 +64,9 @@ async function listAllTools(client: Client): Promise<McpTool[]> {
         if (page.tools.length === 0) break
         cursor = page.nextCursor && !seenCursors.has(page.nextCursor) ? page.nextCursor : undefined
         if (!cursor) break
+        if (pages === MAX_TOOL_PAGES - 1) {
+            logger.warn({ pages: MAX_TOOL_PAGES, tools: tools.length }, 'mcp tool list hit page cap')
+        }
         seenCursors.add(cursor)
     }
     return tools
@@ -107,9 +113,28 @@ export function mcpToolSet(serverName: string, tools: McpTool[], call: McpCall):
     return set
 }
 
+export const isEnabledMcpServer = (server: McpServer): boolean => server.disabledReason === undefined
+
+export class McpServerDisabledError extends Error {
+    constructor(name: string) {
+        super(`server "${name}" is disabled until it is enabled`)
+    }
+}
+
+const AGENT_ONLY_ENV_KEYS = new Set(['EVEROS_TOKEN'])
+
+const sharedEnvForMcp = (): Record<string, string> => Object.fromEntries(Object.entries(readSharedEnvSync()).filter(([key]) => !AGENT_ONLY_ENV_KEYS.has(key)))
+
 export async function prepareMcpServer(agentId: string, server: McpServer, env: Record<string, string>, hubAgentId = agentId): Promise<McpServer> {
-    const resolvable = { ...readSharedEnvSync(), ...env, RERUN_WORKSPACE: workspaceDir(agentId) }
-    return withInstalledPackage(withHubHeaders(resolveServerSecrets(await withAuth(agentId, server), resolvable), hubAgentId))
+    if (!isEnabledMcpServer(server)) throw new McpServerDisabledError(server.name)
+    const resolvable = { ...sharedEnvForMcp(), ...env, RERUN_WORKSPACE: workspaceDir(agentId) }
+    const known = withKnownEnvRefs(await withAuth(agentId, server), resolvable)
+    const declared = { ...known, env: spawnSafeEnv(known.env) }
+    const refused = templateRefusedEnvKeys(known.env)
+    if (refused.length) throw new McpEnvRefError(server.name, unsetEnvRefs([...refused.map(key => known.env[key]!), ...Object.values(declared.env)], resolvable), refused)
+    const prepared = await withInstalledPackage(withHubHeaders(resolveServerSecrets(declared, resolvable), hubAgentId))
+    const allowed = Object.fromEntries(Object.entries(prepared.env).filter(([key]) => Object.hasOwn(declared.env, key)))
+    return { ...prepared, env: outsideAgentDir(allowed, agentDir(agentId)) }
 }
 
 export class McpProbeTimeoutError extends Error {
@@ -142,6 +167,7 @@ function probeErrorMessage(e: unknown): string {
 
 export async function probeMcp(agentId: string, server: McpServer, env: Record<string, string>, opts: { spawn: McpSpawn; timeoutMs?: number }): Promise<McpProbe> {
     const transport = resolveTransport(server)
+    if (!isEnabledMcpServer(server)) return { ok: false, transport, toolNames: [], error: new McpServerDisabledError(server.name).message }
     try {
         const opening = prepareMcpServer(agentId, server, env).then(prepared => openMcpClient(prepared, opts.spawn))
         const { client, tools } = await withDeadline(opening, opts.timeoutMs)
@@ -149,6 +175,7 @@ export async function probeMcp(agentId: string, server: McpServer, env: Record<s
         await client.close().catch(() => {})
         return { ok: true, transport, toolNames }
     } catch (e) {
+        if (e instanceof McpEnvRefError) return { ok: false, transport, toolNames: [], error: e.message, code: e.code, missingEnv: e.refs }
         return { ok: false, transport, toolNames: [], error: probeErrorMessage(e) }
     }
 }

@@ -193,4 +193,15 @@ describe('POST /api/hub', () => {
         expect(response.status).toBe(403)
         expect(dispatchAccountTool).not.toHaveBeenCalled()
     })
+    it('rejects foreman hub calls without x-rerun-foreman-token by default when token is required', async () => {
+        vi.stubEnv('FOREMAN_HUB_TOKEN_REQUIRED', '')
+        vi.stubEnv('FOREMAN_HUB_TOKEN_SECRET', '')
+        vi.stubEnv('SUPABASE_SECRET_KEY', 'fallback-key')
+
+        const response = await POST(hubRequest({ agent: FOREMAN_AGENT_ID, body: { tool: 'list_agents', args: {} } }))
+
+        expect(response.status).toBe(403)
+        expect(await response.text()).toBe('Missing foreman token')
+        expect(dispatchAccountTool).not.toHaveBeenCalled()
+    })
 })

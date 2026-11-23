@@ -98,3 +98,40 @@ describe('fetchPublic', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 })
+
+describe('fetchPublic against DNS rebinding', () => {
+    it('connects only to the address it validated when the name resolves to loopback at connect time', async () => {
+        const { createServer } = await import('node:http')
+        const { Agent, getGlobalDispatcher, setGlobalDispatcher } = await import('undici')
+        let hits = 0
+        const server = createServer((_req, res) => {
+            hits++
+            res.end('internal')
+        })
+        await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
+        const { port } = server.address() as { port: number }
+        mocks.lookup.mockReset()
+        mocks.lookup.mockResolvedValueOnce([{ address: '203.0.113.10', family: 4 }]).mockResolvedValue([{ address: '127.0.0.1', family: 4 }])
+        const systemResolver = new Agent({
+            connect: {
+                lookup: (hostname, options, callback) => {
+                    void (mocks.lookup(hostname, { all: true }) as Promise<{ address: string; family: number }[]>).then(addresses => {
+                        if (options.all) callback(null, addresses)
+                        else callback(null, addresses[0]!.address, addresses[0]!.family)
+                    })
+                },
+            },
+        })
+        const previous = getGlobalDispatcher()
+        setGlobalDispatcher(systemResolver)
+        try {
+            await fetchPublic(`http://rebind.test:${port}/secret`, {}, { timeoutMs: 500 }).catch(() => null)
+            expect(mocks.lookup.mock.calls.length).toBeGreaterThanOrEqual(1)
+            expect(hits).toBe(0)
+        } finally {
+            setGlobalDispatcher(previous)
+            await systemResolver.close()
+            await new Promise(done => server.close(done))
+        }
+    })
+})

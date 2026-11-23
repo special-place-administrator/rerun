@@ -5,6 +5,7 @@ import { vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-schedules-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 process.env.RERUN_HUB_BASE_URL = ''
 
 const fired = vi.hoisted(() => [] as { agentId: string; slug: string; opts: unknown }[])

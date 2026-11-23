@@ -91,6 +91,32 @@ describe('mergeRunStream', () => {
         expect(chunks[1].input).toEqual(plain)
     })
 
+    it('masks a secret split across stream chunks and inside tool-input deltas and errors', async () => {
+        const secret = 'sk_live_SPLITSECRET42'
+        const { run, writer, merged } = fakeRun([
+            { type: 'text-start', id: 't1' },
+            { type: 'text-delta', id: 't1', delta: `token ${secret.slice(0, 9)}` },
+            { type: 'text-delta', id: 't1', delta: `${secret.slice(9)} done` },
+            { type: 'text-end', id: 't1' },
+            { type: 'tool-input-start', toolCallId: 'c1', toolName: 'shell_exec' },
+            { type: 'tool-input-delta', toolCallId: 'c1', inputTextDelta: `{"command":"echo ${secret.slice(0, 5)}` },
+            { type: 'tool-input-delta', toolCallId: 'c1', inputTextDelta: `${secret.slice(5)}"}` },
+            { type: 'tool-input-error', toolCallId: 'c1', toolName: 'shell_exec', input: { command: `echo ${secret}` }, errorText: 'bad input' },
+        ] as UIMessageChunk[])
+        Object.assign(run, { secrets: [secret] })
+
+        mergeRunStream(writer, run, { provider: 'claude', model: 'opus' })
+        const chunks = await drain(merged())
+        const text = chunks.flatMap(c => ((c as { type: string }).type === 'text-delta' ? [(c as { delta: string }).delta] : [])).join('')
+        const toolInput = chunks.flatMap(c => ((c as { type: string }).type === 'tool-input-delta' ? [(c as { inputTextDelta: string }).inputTextDelta] : [])).join('')
+
+        expect(JSON.stringify(chunks)).not.toContain(secret.slice(0, 9))
+        expect(JSON.stringify(chunks)).not.toContain(secret.slice(9))
+        expect(text).toBe('token [redacted] done')
+        expect(toolInput).toBe('{"command":"echo [redacted]"}')
+        expect(chunks.map(c => (c as { type: string }).type).indexOf('text-end')).toBeGreaterThan(chunks.map(c => (c as { type: string }).type).lastIndexOf('text-delta'))
+    })
+
     it('stamps each finished step with the provider, the model and its usage', () => {
         const { run, writer, captured } = fakeRun([])
         mergeRunStream(writer, run, { provider: 'rerun', model: 'rerun-max' })

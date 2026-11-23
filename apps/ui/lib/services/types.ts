@@ -132,8 +132,9 @@ export type CustomMcpServer = {
     host: string | null
     icon: string | null
     signInUrl: string | null
+    command?: string
 }
 
-export type CustomMcpLiveStatus = 'connected' | 'needs_auth' | 'error' | 'unknown'
+export type CustomMcpLiveStatus = 'connected' | 'needs_auth' | 'error' | 'config_error' | 'unknown' | 'disabled'
 
-export type CustomMcpStatus = { name: string; status: CustomMcpLiveStatus; toolCount: number; error?: string }
+export type CustomMcpStatus = { name: string; status: CustomMcpLiveStatus; toolCount: number; error?: string; code?: 'stdio_runtime_unpinned' | 'env_ref_unresolved'; missingEnv?: string[] }

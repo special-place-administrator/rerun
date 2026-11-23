@@ -14,6 +14,7 @@ const { insertAgentIndex } = await import('../db/repos/agents.js')
 const { getSystemDb, closeSystemDb } = await import('../db/systemDb.js')
 const { prepareDataDir } = await import('./ladder.js')
 const { runDataDirChecks } = await import('./checks.js')
+const { DATA_DIR_VERSION } = await import('./migrations.js')
 const { createServer } = await import('../http/server.js')
 
 async function seedAgent(id: string, { indexed = true } = {}) {
@@ -41,7 +42,7 @@ describe('runDataDirChecks', () => {
         const report = await runDataDirChecks()
 
         expect(failing(report)).toEqual([])
-        expect(report).toMatchObject({ ok: true, dataVersion: 4, dataVersionTarget: 4, agentIds: ['alpha'] })
+        expect(report).toMatchObject({ ok: true, dataVersion: DATA_DIR_VERSION, dataVersionTarget: DATA_DIR_VERSION, agentIds: ['alpha'] })
     })
 
     it('flags a data-dir the ladder has not reached', async () => {
@@ -106,6 +107,6 @@ describe('GET /doctor', () => {
     it('returns the report', async () => {
         const res = await app.request('/doctor', { headers: { Authorization: 'Bearer secret' } })
         expect(res.status).toBe(200)
-        expect(await res.json()).toMatchObject({ ok: true, dataVersion: 4 })
+        expect(await res.json()).toMatchObject({ ok: true, dataVersion: DATA_DIR_VERSION })
     })
 })

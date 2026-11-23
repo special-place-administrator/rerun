@@ -8,7 +8,7 @@ function ticket(claims: Record<string, unknown>, key = KEY): string {
     return `${payload}.${createHmac('sha256', key).update(payload).digest('base64url')}`
 }
 
-async function verifierWith(key: string) {
+async function verifierWith(key?: string) {
     vi.resetModules()
     vi.stubEnv('RERUN_API_KEY', key)
     return (await import('./ticket.js')).verifyDesktopTicket
@@ -51,10 +51,14 @@ describe('verifyDesktopTicket', () => {
         expect(verify(ticket({ agent: 'a1' }), 1_000)).toBeNull()
     })
 
-    it('skips the signature on an engine that runs without a key, like the HTTP API skips the bearer', async () => {
-        const verify = await verifierWith('')
-        const unsigned = Buffer.from(JSON.stringify({ exp: 2_000, agent: 'a1' })).toString('base64url')
-        expect(verify(unsigned, 1_000)).toEqual({ agentId: 'a1', mode: 'drive' })
-        expect(verify(null, 1_000)).toBeNull()
+    it('rejects unsigned desktop VNC tickets when RERUN_API_KEY is unset and compares bearer tokens in constant time', async () => {
+        const verifyEmpty = await verifierWith('')
+        const forged = `${Buffer.from(JSON.stringify({ agent: 'a', exp: Date.now() + 60_000, mode: 'drive' })).toString('base64url')}.forged`
+        expect(verifyEmpty(forged)).toBeNull()
+        expect(verifyEmpty(Buffer.from(JSON.stringify({ exp: 2_000, agent: 'a1' })).toString('base64url'), 1_000)).toBeNull()
+        expect(verifyEmpty(null, 1_000)).toBeNull()
+
+        const verifyUnset = await verifierWith(undefined)
+        expect(verifyUnset(forged)).toBeNull()
     })
 })

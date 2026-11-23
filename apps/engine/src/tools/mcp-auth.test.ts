@@ -10,6 +10,17 @@ process.env.RERUN_LOG_LEVEL = 'fatal'
 const { afterEach, describe, expect, it, vi } = await import('vitest')
 const auth = await import('./mcp-auth.js')
 const { mcpDir, mcpPendingPath, mcpTokenPath } = await import('../config/paths.js')
+vi.mock('../lib/public-fetch.js', () => ({
+    assertPublicUrl: vi.fn(async (url: string) => {
+        const parsed = new URL(url)
+        const host = parsed.hostname.toLowerCase()
+        if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '0.0.0.0') {
+            throw new Error(`${host} is not a public host`)
+        }
+        return parsed
+    }),
+    fetchPublic: vi.fn(async (url: string, init?: RequestInit) => globalThis.fetch(url, init)),
+}))
 const { HttpError } = await import('../lib/errors.js')
 
 type Server = Parameters<typeof auth.withAuth>[1]
@@ -97,13 +108,18 @@ describe('startDeviceFlow', () => {
     })
 
     it('keeps the interval and lifetime the server sends', async () => {
-        mockFetch(json({ device_code: 'dc', verification_uri: 'u', interval: 2, expires_in: 60 }))
+        mockFetch(json({ device_code: 'dc', verification_uri: 'https://a.x/verify', interval: 2, expires_in: 60 }))
         expect(await auth.startDeviceFlow(endpoints)).toMatchObject({ interval: 2, expiresIn: 60 })
     })
 
     it('throws on a non-OK response', async () => {
         mockFetch(new Response('', { status: 500 }))
         await expect(auth.startDeviceFlow(endpoints)).rejects.toThrow('device authorization request failed (500)')
+    })
+
+    it.each(['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,hi', 'verify', '', undefined])('refuses a verification URI that is not http(s): %s', async uri => {
+        mockFetch(json({ device_code: 'dc', verification_uri: uri }))
+        await expect(auth.startDeviceFlow(endpoints)).rejects.toThrow('device authorization returned an unusable verification URI')
     })
 })
 
@@ -231,13 +247,15 @@ describe('token and pending storage', () => {
         const pending = { auth: { deviceEndpoint: 'd', tokenEndpoint: 't' }, start: { deviceCode: 'dc', verificationUri: 'u', interval: 5, expiresIn: 900 }, startedAt: 7 }
         await auth.saveToken('mode-agent', 'srv', token)
         await auth.savePending('mode-agent', 'srv', pending)
-        expect(await mode(mcpDir('mode-agent'))).toBe(0o700)
-        expect(await mode(mcpTokenPath('mode-agent', 'srv'))).toBe(0o600)
-        expect(await mode(mcpPendingPath('mode-agent', 'srv'))).toBe(0o600)
+        if (process.platform !== 'win32') {
+            expect(await mode(mcpDir('mode-agent'))).toBe(0o700)
+            expect(await mode(mcpTokenPath('mode-agent', 'srv'))).toBe(0o600)
+            expect(await mode(mcpPendingPath('mode-agent', 'srv'))).toBe(0o600)
+        }
 
         await chmod(mcpTokenPath('mode-agent', 'srv'), 0o644)
         await auth.saveToken('mode-agent', 'srv', { ...token, accessToken: 'rotated' })
-        expect(await mode(mcpTokenPath('mode-agent', 'srv'))).toBe(0o600)
+        if (process.platform !== 'win32') expect(await mode(mcpTokenPath('mode-agent', 'srv'))).toBe(0o600)
         expect(await auth.loadToken('mode-agent', 'srv')).toMatchObject({ accessToken: 'rotated' })
     })
 

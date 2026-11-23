@@ -18,6 +18,7 @@ export const triggerSchema = z.object({
     model: z.string().nullable(),
     body: z.string().default(''),
     createdAt: z.string(),
+    trustedPayload: z.boolean().default(false),
 })
 export type Trigger = z.infer<typeof triggerSchema>
 
@@ -32,6 +33,7 @@ export const createTriggerSchema = z.object({
     connectionId: z.string().nullable().optional(),
     provider: providerSchema.nullable().default(null),
     model: z.string().nullable().default(null),
+    trustedPayload: z.boolean().optional(),
 })
 
 export const updateTriggerSchema = z.object({
@@ -42,6 +44,7 @@ export const updateTriggerSchema = z.object({
     connectionId: z.string().nullable().optional(),
     provider: providerSchema.nullable().optional(),
     model: z.string().nullable().optional(),
+    trustedPayload: z.boolean().optional(),
 })
 
 export const triggerFireSchema = z.object({

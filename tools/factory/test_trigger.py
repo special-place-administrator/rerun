@@ -42,8 +42,11 @@ class Fake(BaseHTTPRequestHandler):
             if len(p) == 3 and self.command == "POST":
                 slug = data["name"]
                 st.creates.append((agent, slug))
-                mine[slug] = {"slug": slug, "name": slug, "enabled": True, "token": TOKEN + "-" + slug, "body": data["body"], "model": data["model"]}
+                mine[slug] = {"slug": slug, "name": slug, "enabled": True, "token": TOKEN + "-" + slug, "body": data["body"], "model": data["model"], "trustedPayload": data.get("trustedPayload", False)}
                 return self._send(201, mine[slug])
+            if len(p) == 4 and self.command == "PATCH" and p[3] in mine:
+                mine[p[3]].update(data)
+                return self._send(200, mine[p[3]])
             if len(p) == 5 and p[4] == "fire":
                 t = mine.get(p[3])
                 st.fires.append((agent, p[3], data))
@@ -55,7 +58,7 @@ class Fake(BaseHTTPRequestHandler):
             return self._send(200, row) if row else self._send(404, {"error": "run not found"})
         self._send(404, {"error": "no"})
 
-    do_GET = do_POST = _handle
+    do_GET = do_POST = do_PATCH = _handle
 
 
 class Base(unittest.TestCase):
@@ -101,6 +104,14 @@ class TestEnsure(Base):
         self.assertEqual(T.load_tokens(self.tokfile), tokens)
         with open(self.tokfile) as f:
             self.assertNotIn(KEY, f.read())
+        row = self.st.triggers["agent-da"]["factory-challenge"]
+        self.assertIs(row["trustedPayload"], True)
+        row.update(trustedPayload=False, body="Agent rewrote this.")
+        T.ensure_triggers(self.eng, self.cfg)
+        self.assertIs(row["trustedPayload"], False)
+        row.update(body=BODY + "\n")
+        T.ensure_triggers(self.eng, self.cfg)
+        self.assertIs(row["trustedPayload"], True)
 
     def test_new_trigger_carries_body_and_model(self):
         T.ensure_triggers(self.eng, self.cfg)

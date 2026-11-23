@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path to public, extensions;
 
-select plan(28);
+select plan(33);
 
 -- Fixtures: one workspace, an admin, a member scoped to `all`, a member scoped to `assigned`.
 insert into auth.users (id, email) values
@@ -81,8 +81,9 @@ select throws_ok(
 select throws_ok(
     $$ insert into public.space_members (space_id, user_id, workspace_id, access) values ('00000000-0000-0000-0000-0000000b0002', '00000000-0000-0000-0000-00000000a002', 990001, 'manage') $$,
     '42501', null, 'a member cannot grant themselves access');
-update public.workspace_members set role = 'admin' where user_id = '00000000-0000-0000-0000-00000000a002';
-select is((select role::text from public.workspace_members where user_id = '00000000-0000-0000-0000-00000000a002'), 'member', 'a member cannot promote themselves');
+select throws_ok(
+    $$ update public.workspace_members set role = 'admin' where user_id = '00000000-0000-0000-0000-00000000a002' $$,
+    '42501', null, 'a member cannot promote themselves');
 
 -- Member scoped to assigned: only what is named to them, and they manage it.
 select pg_temp.act_as('00000000-0000-0000-0000-00000000a003');
@@ -94,9 +95,9 @@ update public.spaces set name = 'Mine' where id = '00000000-0000-0000-0000-00000
 select is((select name from public.spaces where id = '00000000-0000-0000-0000-0000000b0004'), 'Mine', 'manager renames their Box');
 update public.agents set col = 5 where id = '00000000-0000-0000-0000-0000000c0004';
 select is((select col from public.agents where id = '00000000-0000-0000-0000-0000000c0004'), 5, 'manager moves a coworker inside their Box');
-select lives_ok(
-    $$ insert into public.agents (workspace_id, space_id, name) values (990001, '00000000-0000-0000-0000-0000000b0004', 'made-by-manager') $$,
-    'manager creates a coworker in their Box');
+select throws_ok(
+    $$ insert into public.agents (workspace_id, space_id, name, engine_agent_id) values (990001, '00000000-0000-0000-0000-0000000b0004', 'made-by-manager', 'foreman') $$,
+    '42501', null, 'a browser token cannot create a coworker, even in a Box it manages (migration 20261123110000)');
 select throws_ok(
     $$ update public.agents set space_id = '00000000-0000-0000-0000-0000000b0001' where id = '00000000-0000-0000-0000-0000000c0004' $$,
     '42501', null, 'manager cannot move a coworker into a Box they do not manage');
@@ -113,6 +114,27 @@ select is((select count(*)::int from public.space_members where space_id = '0000
 -- Defaults keep today's behaviour.
 insert into public.spaces (workspace_id, name, col_start, row_start, col_end, row_end) values (990001, 'Default', 20, 0, 23, 3);
 select is((select visibility from public.spaces where name = 'Default' and workspace_id = 990001), 'workspace', 'a new Box is open to the workspace');
+
+-- Moving a coworker to another Box is the server's job (migration 20261123100000): a browser token
+-- may not write space_id even where it manages both Boxes, but still edits the rest of the row.
+set local role authenticated;
+select pg_temp.act_as('00000000-0000-0000-0000-00000000a001');
+select throws_ok(
+    $$ update public.agents set space_id = '00000000-0000-0000-0000-0000000b0002' where id = '00000000-0000-0000-0000-0000000c0001' $$,
+    '42501', null, 'a browser token cannot move a coworker to another Box, even an admin one');
+select throws_ok(
+    $$ update public.agents set engine_agent_id = 'foreman' where id = '00000000-0000-0000-0000-0000000c0001' $$,
+    '42501', null, 'a browser token cannot point a coworker at another engine agent');
+update public.agents set name = 'renamed-open-agent' where id = '00000000-0000-0000-0000-0000000c0001';
+select is((select name from public.agents where id = '00000000-0000-0000-0000-0000000c0001'), 'renamed-open-agent', 'a browser token still renames a coworker');
+reset role;
+set local role service_role;
+update public.agents set space_id = '00000000-0000-0000-0000-0000000b0002' where id = '00000000-0000-0000-0000-0000000c0001';
+select is((select space_id from public.agents where id = '00000000-0000-0000-0000-0000000c0001'), '00000000-0000-0000-0000-0000000b0002'::uuid, 'the server moves a coworker to another Box');
+select lives_ok(
+    $$ insert into public.agents (workspace_id, space_id, name) values (990001, '00000000-0000-0000-0000-0000000b0002', 'made-by-server') $$,
+    'the server creates a coworker');
+reset role;
 
 select * from finish();
 rollback;

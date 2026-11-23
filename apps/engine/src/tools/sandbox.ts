@@ -44,17 +44,29 @@ export async function resolveWithinReal(root: string, path: string, { followLast
     const realRoot = await realpathExisting(root)
     const real = followLast ? await realpathExisting(target) : join(await realpathExisting(dirname(target)), basename(target))
     assertInside(realRoot, real, path)
-    return target
+    return followLast ? real : target
 }
 
 export function resolveInWorkspace(agentId: string, path: string): Promise<string> {
     return resolveWithinReal(workspaceDir(agentId), path)
 }
 
-const BLOCKED = [/\brm\s+-rf\s+\/(?:\s|$)/, /\bmkfs\b/, /\b(shutdown|halt|poweroff|kexec)\b/, /\b(?:tel)?init\s+[06]\b/, /sysrq-trigger/, /\bdd\s+if=/, /:\(\)\s*\{/, /\bchown\s+-R\s+\//]
+const BLOCKED = [
+    /\brm\b[^\n;|&]*(?:\s-[a-zA-Z]*[rR]|\s--recursive)[^\n;|&]*\s\/(?:data(?:\s|\/?\*?$)|\*?(?:\s|$))/,
+    /\bmkfs\b/,
+    /(?:^|[;&|]\s*|(?:sudo|systemctl)\s+)(?:\/usr\/sbin\/|\/sbin\/)?(?:shutdown|halt|poweroff|kexec)\b/,
+    /\b(?:tel)?init\s+[06]\b/,
+    /sysrq-trigger/,
+    /\bdd\b[^\n;|&]*\bof=\/dev\//,
+    /:\(\)\s*\{/,
+    /\bchown\s+-R\s+\/(?:\s|data\b|$)/,
+]
+
+const normalizedForPolicy = (command: string): string => command.replace(/["']/g, '').replace(/\/{2,}/g, '/').replace(/(\S)\/+(?=\s|$)/g, '$1')
 
 export function assertCommandAllowed(command: string): void {
+    const normalized = normalizedForPolicy(command)
     for (const pattern of BLOCKED) {
-        if (pattern.test(command)) throw new Error(`Command blocked by policy: ${command}`)
+        if (pattern.test(command) || pattern.test(normalized)) throw new Error(`Command blocked by policy: ${command}`)
     }
 }

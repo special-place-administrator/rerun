@@ -95,6 +95,10 @@
     "agentPanelServices": {
         "uninstallFailed": "App konnte nicht deinstalliert werden",
         "removeServerFailed": "Server konnte nicht entfernt werden",
+        "enableServerFailed": "Server konnte nicht aktiviert werden",
+        "enableUnpinnedTitle": "{name} ohne fixierte Version aktivieren?",
+        "enableUnpinnedDescription": "Dieser Befehl lässt sich nicht auf eine Version fixieren. Er läuft genau wie angegeben und kann sich zwischen Ausführungen ändern. Aktiviere ihn nur, wenn du ihm vertraust.",
+        "enableUnpinnedConfirm": "Trotzdem aktivieren",
         "loadServerFailed": "Dieser Server konnte nicht von der Engine geladen werden.",
         "alternativeLoadFailed": "{name} konnte nicht geladen werden.",
         "signInHint": "Melde dich bei {host} an, damit der Coworker die Tools nutzen kann.",

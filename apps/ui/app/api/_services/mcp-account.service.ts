@@ -58,6 +58,7 @@ import { MAX_TRIGGER_BODY_BYTES, triggerWebhookUrl } from '@/lib/triggers/webhoo
 import { createServiceRoleClient } from '@/supabase/serviceRole'
 import { selectCount, selectMany, selectMaybeSingle } from '@/supabase/supabase-helpers'
 import { changeAgentHandle, createAgent, deleteAgent, duplicateAgent, moveAgentToBox, renameAgent } from './agent.service'
+import { assertTeamToolsSwitch } from './team-tools.service'
 import { declareService, installServiceSlugs } from './agent-setup.service'
 import { LOCKED_NOTICE, LOCKED_WRITE_ERROR } from './agent-content.service'
 import { ensureSessionRow, resolveAgentTarget } from './chat.service'
@@ -499,6 +500,7 @@ export async function dispatchAccountTool(actor: Actor, name: string, args: Reco
             const requestedSpaceId = asString(args.spaceId)
             const moved = requestedSpaceId ? await moveAgentToBox(agentId, await resolveSpaceId(actor, requestedSpaceId), actor) : null
             if (moved && !moved.ok) throw new Error(moved.error)
+            await assertTeamToolsSwitch(actor, agentId, conn, engineAgentId, patch.tools)
 
             let patched: EngineAgentDetail | null = null
             if (Object.keys(patch).length > 0) {

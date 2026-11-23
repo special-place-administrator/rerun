@@ -174,6 +174,10 @@
     "agentPanelServices": {
         "uninstallFailed": "Failed to uninstall app",
         "removeServerFailed": "Failed to remove the server",
+        "enableServerFailed": "Failed to enable the server",
+        "enableUnpinnedTitle": "Enable {name} without a pinned version?",
+        "enableUnpinnedDescription": "This command cannot be pinned to a release, so it runs exactly as written and may change between runs. Only enable it if you trust it.",
+        "enableUnpinnedConfirm": "Enable anyway",
         "loadServerFailed": "Could not load this server from the engine.",
         "alternativeLoadFailed": "{name} could not be loaded.",
         "signInHint": "Sign in to {host} so the coworker can use its tools.",

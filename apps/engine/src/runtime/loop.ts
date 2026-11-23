@@ -37,11 +37,12 @@ import { logger } from '../lib/logger.js'
 import { newId, nowIso } from '../lib/ids.js'
 import { buildTools } from '../tools/registry.js'
 import { callTargetsOf } from '../tools/builtin/call-agent.js'
+import { startsTainted } from '../tools/builtin/taint.js'
 import { toolPayloadChars } from '../tools/payload.js'
 import { wrapToolsWithResultHandle } from '../tools/result-handle.js'
 import { sentToolNames } from '../tools/mcp-search.js'
 import { mcpWireMiddleware } from '../tools/mcp-wire.js'
-import { prepareMcpServer } from '../tools/mcp.js'
+import { preparedMcpServers } from '../tools/mcp-pool.js'
 import { withPooledRelays } from '../tools/mcp-relay.js'
 import { HostBreaker } from '../tools/host-breaker.js'
 import { checkGoal } from './goal-check.js'
@@ -58,7 +59,8 @@ import { authorMetadata, sendNotification, type NotificationKind } from './notif
 import { emitRunTerminal } from './run-events.js'
 import { ClaudeSignInRenewedError, classifyFinishReason, classifyProviderError, errorMessageOf, isFailedFinish, openAiCreditsError, ProviderRefusedError, ProviderStreamCutError, RUN_ERROR_CODES, refusalReason, unreachableEndpointError, type RunErrorCode } from './provider-errors.js'
 import { createLiveCounter, type LiveCounter } from './live-counter.js'
-import { readSharedEnvSync, secretValuesOf } from '../agents/shared-env.js'
+import { agentSecretValues } from '../agents/shared-env.js'
+import { redactSecrets, redactSecretsDeep } from '../lib/redact-secrets.js'
 
 export type RunOutcome = { kind: 'done' | 'error' | 'cancelled'; error?: string; errorCode?: RunErrorCode | null }
 
@@ -68,6 +70,7 @@ export type AgentRun = {
     settled: Promise<RunOutcome>
     contextUsage?: () => ContextOccupancy | undefined
     quickReplies?: () => QuickRepliesCapture | undefined
+    secrets?: string[]
 }
 
 export type { RunTrigger }
@@ -177,12 +180,8 @@ function toolErrorText(error: unknown, secrets: string[]): string {
     return redactSecrets(text, secrets).slice(0, TOOL_ERROR_CHARS)
 }
 
-function redactSecrets(text: string, secrets: string[]): string {
-    return secrets.reduce((out, secret) => out.split(secret).join('[redacted]'), text)
-}
-
 function runSecrets(agent: LoadedAgent): string[] {
-    return [...Object.values(agent.env), ...Object.values(agent.resolved.connection?.env ?? {}), ...secretValuesOf(readSharedEnvSync())].filter(value => value.length >= 8)
+    return agentSecretValues(agent)
 }
 
 async function recordStepTelemetry(agentId: string, sessionId: string, runId: string, provider: string, model: string, stepNumber: number, durationMs: number, step: StepLike, costMicros: number | null, effort: string | null, secrets: string[], liveCalls: Map<string, string>): Promise<void> {
@@ -213,7 +212,7 @@ async function recordStepTelemetry(agentId: string, sessionId: string, runId: st
     for (const call of calls) {
         const result = results.find(r => r.toolCallId === call.toolCallId)
         const failure = result ? undefined : step.content?.find(part => part.type === 'tool-error' && part.toolCallId === call.toolCallId)
-        const resultJson = result ? safeJson(result.output) : safeJson(failure ? toolErrorText(failure.error, secrets) : NO_TOOL_RESULT)
+        const resultJson = result ? redactSecretsDeep(safeJson(result.output), secrets) : safeJson(failure ? toolErrorText(failure.error, secrets) : NO_TOOL_RESULT)
         const isError = result ? 0 : 1
         const liveId = call.toolCallId ? liveCalls.get(call.toolCallId) : undefined
         if (liveId) {
@@ -228,7 +227,7 @@ async function recordStepTelemetry(agentId: string, sessionId: string, runId: st
             stepNumber,
             toolCallId: call.toolCallId ?? null,
             toolName: call.toolName,
-            inputJson: safeJson(call.input),
+            inputJson: redactSecretsDeep(safeJson(call.input), secrets),
             resultJson,
             isError,
             durationMs: null,
@@ -239,15 +238,15 @@ async function recordStepTelemetry(agentId: string, sessionId: string, runId: st
 
 type LiveToolChunk = { type: 'tool-call' | 'tool-result'; toolCallId: string; toolName: string; input?: unknown; output?: unknown }
 
-async function recordLiveToolCall(agentId: string, sessionId: string, runId: string, stepNumber: number, chunk: LiveToolChunk, liveCalls: Map<string, string>): Promise<void> {
+async function recordLiveToolCall(agentId: string, sessionId: string, runId: string, stepNumber: number, chunk: LiveToolChunk, liveCalls: Map<string, string>, secrets: string[]): Promise<void> {
     const known = liveCalls.get(chunk.toolCallId)
     if (chunk.type === 'tool-result') {
-        if (known) await updateToolCall(agentId, known, { resultJson: safeJson(chunk.output), isError: 0 })
+        if (known) await updateToolCall(agentId, known, { resultJson: redactSecretsDeep(safeJson(chunk.output), secrets), isError: 0 })
         return
     }
     if (known) return
     const id = newId()
-    await insertToolCall(agentId, { id, runId, agentId, sessionId, stepNumber, toolCallId: chunk.toolCallId, toolName: chunk.toolName, inputJson: safeJson(chunk.input), resultJson: null, isError: 0, durationMs: null, createdAt: nowIso() })
+    await insertToolCall(agentId, { id, runId, agentId, sessionId, stepNumber, toolCallId: chunk.toolCallId, toolName: chunk.toolName, inputJson: redactSecretsDeep(safeJson(chunk.input), secrets), resultJson: null, isError: 0, durationMs: null, createdAt: nowIso() })
     liveCalls.set(chunk.toolCallId, id)
 }
 
@@ -331,7 +330,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
         let costMicros: number | null = null
 
         if (settlement.kind === 'done') {
-            const messages = canonicalizeHitlNames(settlement.messages)
+            const messages = redactSecretsDeep(canonicalizeHitlNames(settlement.messages), runSecrets(agent))
             let answerRow: MessageRow | undefined
             for (const message of messages) {
                 const row = await appendMessage(agent.id, sessionId, message).catch(() => undefined)
@@ -351,7 +350,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
             }
             await finishRun(agent.id, run.id, plusDelegated(settlement.usage, delegated), stepsToWrite(), settlement.costMicros, contextUsage?.(), goalChecked).catch(() => {})
             await touchSession(agent.id, sessionId).catch(() => {})
-            text = settlement.text
+            text = redactSecrets(settlement.text, runSecrets(agent))
             usage = settlement.usage
             costMicros = settlement.costMicros
             if (connection) {
@@ -373,7 +372,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
             const outOfCredits = settlement.errorCode === RUN_ERROR_CODES.usageLimit ? openAiCreditsError(provider, settlement.error) : null
             if (outOfCredits) settlement = { ...settlement, error: outOfCredits }
             const errorCode = settlement.errorCode ?? null
-            const errorMessage = errorMessageOf(settlement.error)
+            const errorMessage = redactSecrets(errorMessageOf(settlement.error), runSecrets(agent))
             forgetCodexThread(agent.id, sessionId)
             logger.error({ err: errorMessage, errorCode, agent: agent.id, run: run.id }, 'run error')
             if (errorCode === RUN_ERROR_CODES.usageLimit && connection && connection.id !== RERUN_CONNECTION_ID) armPlanLimitLatch(connection.id)
@@ -383,7 +382,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
                 recordRefusedModel(refusedOn.id, model)
                 await repairBoxDefault(refusedOn).catch(err => logger.warn({ err: String(err), connection: refusedOn.id }, 'box default repair failed'))
             }
-            if (settlement.messages) for (const message of canonicalizeHitlNames(settlement.messages)) await appendMessage(agent.id, sessionId, message).catch(() => {})
+            if (settlement.messages) for (const message of redactSecretsDeep(canonicalizeHitlNames(settlement.messages), runSecrets(agent))) await appendMessage(agent.id, sessionId, message).catch(() => {})
             await failRun(agent.id, run.id, errorMessage).catch(() => {})
             outcome = { kind: 'error', error: errorMessage, errorCode }
         }
@@ -442,7 +441,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
         const t0 = Date.now()
         const order = turnOrder(provider, await answeringModel(provider, model))
         const callableAgentIds = trigger.source === 'chat' ? trigger.callableAgentIds : undefined
-        const ctx: RunContext = { agent, sessionId, logger, provider, model, turnOrder: order, author, writer, abortSignal: controller.signal, callTargets: [], callableAgentIds, hostBreaker: new HostBreaker(), partialResults, delegated, skillProposals }
+        const ctx: RunContext = { agent, sessionId, logger, provider, model, turnOrder: order, author, writer, abortSignal: controller.signal, callTargets: [], callableAgentIds, hostBreaker: new HostBreaker(), partialResults, delegated, skillProposals, taintedByUntrustedInput: startsTainted(trigger) }
 
         ctx.runId = run.id
         const triggerSlug = 'slug' in trigger ? trigger.slug : null
@@ -467,7 +466,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
             ctx.callTargets = callTargets
             return buildTools(ctx)
         })
-        const preparedP = CLI_PROVIDERS.has(provider) ? Promise.all(agent.config.mcpServers.map(s => prepareMcpServer(agent.id, s, agent.env, agent.hubAgentId))) : Promise.resolve([])
+        const preparedP = CLI_PROVIDERS.has(provider) ? preparedMcpServers(agent) : Promise.resolve([])
         const mcpServersP = provider === 'claude' ? preparedP.then(servers => withPooledRelays(agent, servers)) : preparedP
         cliAuthP = ensureCliAuth(provider, connection)
 
@@ -558,7 +557,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
             onChunk: async ({ chunk }) => {
                 if (chunk.type === 'tool-call') live?.addToolCall()
                 if (!live || (chunk.type !== 'tool-call' && chunk.type !== 'tool-result')) return
-                await recordLiveToolCall(agent.id, sessionId, run.id, steps + 1, chunk, liveCalls).catch(err => logger.warn({ err: String(err), agent: agent.id }, 'record live tool call failed'))
+                await recordLiveToolCall(agent.id, sessionId, run.id, steps + 1, chunk, liveCalls, runSecrets(agent)).catch(err => logger.warn({ err: String(err), agent: agent.id }, 'record live tool call failed'))
             },
             onStepFinish: async step => {
                 steps += 1
@@ -624,7 +623,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
             )
         })().catch(err => logger.warn({ err: String(err), agent: agent.id, run: run.id }, 'run drain failed'))
 
-        return { result, runId: run.id, settled: settledPromise, contextUsage, quickReplies }
+        return { result, runId: run.id, settled: settledPromise, contextUsage, quickReplies, secrets: runSecrets(agent) }
     } catch (err) {
         if (controller.signal.aborted) {
             await settle({ kind: 'cancelled' })

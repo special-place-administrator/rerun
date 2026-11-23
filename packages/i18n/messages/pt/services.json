@@ -55,9 +55,13 @@
         "removeTitle": "Remover {name}?",
         "removeDescription": "O coworker perde todas as ferramentas que este servidor oferece, e o login dele é apagado.",
         "removeConfirm": "Remover",
+        "enable": "Ativar",
         "status": {
             "connected": "Conectado · {count, plural, one {# ferramenta} other {# ferramentas}}",
             "needsAuth": "Login necessário",
+            "disabledUnpinned": "Desativado: ambiente sem versão fixa",
+            "needsConfig": "Configuração necessária",
+            "needsEnv": "Precisa de {names}",
             "unreachable": "Inacessível",
             "noAnswer": "O servidor não respondeu."
         }

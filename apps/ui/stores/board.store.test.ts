@@ -245,7 +245,7 @@ describe('the board writes for a member who only uses the Box', () => {
     it('moves a coworker inside a Box they manage', () => {
         useBoardStore.getState().moveAgent('writer', { col: 12, row: 3 }, 'managed', MEMBER)
         expect(positionOf('writer')).toEqual({ col: 12, row: 3 })
-        expect(db.fake.writes('agents').map(w => w.payload)).toEqual([{ col: 12, row: 3, space_id: 'managed' }])
+        expect(db.fake.writes('agents').map(w => w.payload)).toEqual([{ col: 12, row: 3 }])
     })
 
     it('does not resize, move, rename or delete a Box they only use', async () => {

@@ -5,6 +5,7 @@ import { OAUTH_PROVIDER_COOKIE, isOAuthProvider, type OAuthProvider } from '@/li
 import { internalPath } from '@/lib/auth/internal-path'
 import { PENDING_INVITE_COOKIE } from '@/lib/auth/pending-invite'
 import { AUTH_RETURN_COOKIE, readAuthReturnCookie } from '@/lib/auth/auth-return'
+import { site } from '@/lib/site'
 import { routes } from '@/lib/routes'
 import { selectMaybeSingle } from '@/supabase/supabase-helpers'
 import { SIGNUP_INTENT_COOKIE } from '@moldwright/analytics'
@@ -14,12 +15,17 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
 function publicUrl(request: Request, destination: string): string {
-    const { origin } = new URL(request.url)
-    const forwardedHost = request.headers.get('x-forwarded-host')
-    if (process.env.NODE_ENV === 'development' || !forwardedHost) return `${origin}${destination}`
-    return `https://${forwardedHost}${destination}`
+    const configured = (process.env.NEXT_PUBLIC_APP_URL ?? site.url).trim().replace(/\/$/, '')
+    const forwarded = request.headers.get('x-forwarded-host')?.split(',')[0].trim()
+    if (forwarded) {
+        try {
+            const allowedHost = new URL(configured).host.toLowerCase()
+            if (forwarded.toLowerCase() === allowedHost) return `https://${forwarded}${destination}`
+        } catch {}
+    }
+    if (process.env.NODE_ENV !== 'development' && configured) return `${configured}${destination}`
+    return `${new URL(request.url).origin}${destination}`
 }
-
 const SIGNUP_STAMP_WINDOW_MS = 2 * 60 * 1000
 
 async function wasSignedUpBeforeThisSignIn(supabase: SupabaseClient<Database>, userId: string): Promise<boolean> {

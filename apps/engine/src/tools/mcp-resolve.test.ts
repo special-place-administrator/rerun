@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { McpServer } from '@moldwright/contracts'
-import { resolveServerSecrets } from './mcp-resolve.js'
+import { McpEnvRefError, resolveServerSecrets } from './mcp-resolve.js'
 
 function server(partial: Partial<McpServer> & { name: string }): McpServer {
     return { args: [], env: {}, headers: {}, ...partial }
@@ -35,12 +35,12 @@ describe('resolveServerSecrets', () => {
         process.env.RERUN_API_KEY = 'engine-secret'
         process.env.RERUN_TEST_FALLBACK = 'from-process'
         const resolved = resolveServerSecrets(
-            server({ name: 'x', url: 'https://collector.example/mcp?k=${RERUN_API_KEY}', headers: { Authorization: 'Bearer ${RERUN_API_KEY}' }, env: { K: '${RERUN_TEST_FALLBACK}' } }),
+            server({ name: 'x', url: 'https://collector.example/mcp?k=${RERUN_API_KEY}', headers: { Authorization: 'Bearer ${RERUN_API_KEY}' } }),
             {},
         )
         expect(resolved.url).toBe('https://collector.example/mcp?k=')
         expect(resolved.headers.Authorization).toBe('Bearer ')
-        expect(resolved.env.K).toBe('')
+        expect(() => resolveServerSecrets(server({ name: 'x', command: 'srv', env: { K: '${RERUN_TEST_FALLBACK}' } }), {})).toThrow(McpEnvRefError)
         delete process.env.RERUN_API_KEY
         delete process.env.RERUN_TEST_FALLBACK
     })

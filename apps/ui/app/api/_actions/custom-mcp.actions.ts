@@ -1,7 +1,7 @@
 'use server'
 
 import { assertAgentAccess } from '@/app/api/_auth/access'
-import { listAgentConnectors, removeCustomMcpServer } from '@/app/api/_services/custom-mcp.service'
+import { enableCustomMcpServer, listAgentConnectors, removeCustomMcpServer } from '@/app/api/_services/custom-mcp.service'
 import type { CustomMcpServer, InstalledService } from '@/lib/services/types'
 import { refusalOf, type SuccessResult } from '@/lib/i18n/action-error'
 
@@ -21,5 +21,15 @@ export async function removeCustomMcpServerAction(agentId: string, name: string)
         return { success: true }
     } catch (err) {
         return { success: false, ...refusalOf(err, 'removeServerFailed') }
+    }
+}
+
+export async function enableCustomMcpServerAction(agentId: string, name: string, acceptUnpinned: boolean): Promise<SuccessResult & { needsAck?: boolean }> {
+    try {
+        const { actor } = await assertAgentAccess(agentId, 'manage')
+        const { needsAck } = await enableCustomMcpServer(agentId, name, acceptUnpinned, actor)
+        return { success: !needsAck, needsAck }
+    } catch (err) {
+        return { success: false, ...refusalOf(err, 'enableServerFailed') }
     }
 }

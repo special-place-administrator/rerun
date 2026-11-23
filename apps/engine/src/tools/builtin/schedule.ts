@@ -5,6 +5,7 @@ import { deleteSchedule, listSchedules, readSchedule, scheduleExists, updateSche
 import { isValidCron, isValidTimezone, nextRunAt } from '../../schedules/cron.js'
 import type { RunContext } from '../../runtime/context.js'
 import { PROVIDER_WITHOUT_MODEL, pinnedModel } from './automation-model.js'
+import { taintRefusal } from './taint.js'
 
 export function scheduleTools(ctx: RunContext): ToolSet {
     const id = ctx.agent.id
@@ -60,6 +61,8 @@ export function scheduleTools(ctx: RunContext): ToolSet {
                 model: z.string().optional().describe("Model id to run this task under, e.g. 'claude-opus-4-8'. Only if the user asks for one: left out, the task follows your model."),
             }),
             execute: async ({ name, description, body, cron, runAt, timezone, provider, model }) => {
+                const refusal = taintRefusal(ctx, 'schedule_create')
+                if (refusal) return refusal
                 if (!cron && !runAt) return 'Provide either cron (recurring) or runAt (one-shot).'
                 if (cron && runAt) return 'Provide only one of cron or runAt, not both.'
                 if (cron && !isValidCron(cron)) return `Invalid cron expression: ${cron}`
@@ -86,6 +89,8 @@ export function scheduleTools(ctx: RunContext): ToolSet {
                 model: z.string().optional().describe("Model id to run this task under, e.g. 'claude-opus-4-8'. Only if the user asks for one."),
             }),
             execute: async ({ slug, description, body, cron, runAt, timezone, enabled, provider, model }) => {
+                const refusal = taintRefusal(ctx, 'schedule_update')
+                if (refusal) return refusal
                 if (!scheduleExists(id, slug)) return `Schedule not found: ${slug}`
                 if (cron && !isValidCron(cron)) return `Invalid cron expression: ${cron}`
                 if (runAt && Number.isNaN(new Date(runAt).getTime())) return `Invalid runAt timestamp: ${runAt}`
@@ -109,6 +114,8 @@ export function scheduleTools(ctx: RunContext): ToolSet {
                 replaceAll: z.boolean().default(false).describe('Replace every occurrence instead of requiring a unique match'),
             }),
             execute: async ({ slug, oldString, newString, replaceAll }) => {
+                const refusal = taintRefusal(ctx, 'schedule_edit')
+                if (refusal) return refusal
                 if (!scheduleExists(id, slug)) return `Schedule not found: ${slug}`
                 if (oldString === newString) return 'oldString and newString are identical; nothing to do.'
                 const current = await readSchedule(id, slug)

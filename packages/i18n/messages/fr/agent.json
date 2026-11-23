@@ -95,6 +95,10 @@
     "agentPanelServices": {
         "uninstallFailed": "Impossible de désinstaller l'app",
         "removeServerFailed": "Impossible de supprimer le serveur",
+        "enableServerFailed": "Impossible d'activer le serveur",
+        "enableUnpinnedTitle": "Activer {name} sans version épinglée ?",
+        "enableUnpinnedDescription": "Cette commande ne peut pas être épinglée à une version : elle s'exécute telle quelle et peut changer d'une exécution à l'autre. Activez-la seulement si vous lui faites confiance.",
+        "enableUnpinnedConfirm": "Activer quand même",
         "loadServerFailed": "Impossible de charger ce serveur depuis l'engine.",
         "alternativeLoadFailed": "Impossible de charger {name}.",
         "signInHint": "Connectez-vous à {host} pour que le coworker puisse utiliser ses outils.",

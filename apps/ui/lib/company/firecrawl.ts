@@ -4,7 +4,7 @@ const FIRECRAWL_BASE_URL = process.env.RERUN_FIRECRAWL_BASE_URL ?? 'https://api.
 const SCRAPE_TIMEOUT_MS = 20_000
 const MAX_MARKDOWN = 15_000
 
-const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[?::1\]?$)/i
+const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\[?(::1|::ffff:.*|fc[0-9a-f]{2}:.*|fe[89ab][0-9a-f]:.*)\]?$)/i
 
 export function companySiteUrl(input: string): string | null {
     const domain = normalizeDomain(input)

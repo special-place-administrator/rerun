@@ -11,6 +11,7 @@ type FsToolsOptions = {
     rootDir: string | ((input: Record<string, unknown>) => Promise<string>)
     scope?: z.ZodRawShape
     extraRoots?: string[]
+    extraRootsNow?: () => string[]
 }
 
 function isWithin(root: string, path: string): boolean {
@@ -24,8 +25,8 @@ function isWithin(root: string, path: string): boolean {
 
 const READ_CHARS = 100_000
 
-export function makeFsTools({ prefix, label: baseLabel, rootDir, scope = {}, extraRoots = [] }: FsToolsOptions): ToolSet {
-    const extraRootOf = (path: unknown) => (typeof path === 'string' && isAbsolute(path) ? extraRoots.find(root => isWithin(root, path)) : undefined)
+export function makeFsTools({ prefix, label: baseLabel, rootDir, scope = {}, extraRoots = [], extraRootsNow = () => extraRoots }: FsToolsOptions): ToolSet {
+    const extraRootOf = (path: unknown) => (typeof path === 'string' && isAbsolute(path) ? extraRootsNow().find(root => isWithin(root, path)) : undefined)
     const rootOf = async (input: Record<string, unknown>) => extraRootOf(input.path) ?? (typeof rootDir === 'string' ? rootDir : rootDir(input))
     const extra = extraRoots.join(' or ')
     const label = extraRoots.length ? `${baseLabel} (or, by absolute path, a job folder under ${extra})` : baseLabel

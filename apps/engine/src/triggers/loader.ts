@@ -22,6 +22,7 @@ export type Trigger = {
     model: string | null
     body: string
     createdAt: string
+    trustedPayload: boolean
 }
 
 export type TriggerInput = {
@@ -33,6 +34,7 @@ export type TriggerInput = {
     connectionId?: string | null
     provider?: Provider | null
     model?: string | null
+    trustedPayload?: boolean
 }
 
 const PROVIDERS: Provider[] = providerSchema.options
@@ -80,6 +82,7 @@ function toTrigger(slug: string, raw: string): Trigger {
         model: str(data.model),
         body: parsed.content.trim(),
         createdAt: typeof data.createdAt === 'string' ? data.createdAt : '',
+        trustedPayload: data.trustedPayload === true,
     }
 }
 
@@ -96,11 +99,12 @@ function serialize(trigger: Trigger): string {
         provider: trigger.provider,
         model: trigger.model,
         createdAt: trigger.createdAt,
+        trustedPayload: trigger.trustedPayload,
     })
 }
 
 export function redactTriggerForArchive(trigger: Trigger): string {
-    return serialize({ ...trigger, token: '', enabled: false, lastFiredAt: null, fireCount: 0 })
+    return serialize({ ...trigger, token: '', enabled: false, lastFiredAt: null, fireCount: 0, trustedPayload: false })
 }
 
 export function triggerExists(agentId: string, slug: string): boolean {
@@ -119,6 +123,13 @@ export async function listTriggers(agentId: string): Promise<Trigger[]> {
         triggers.push(toTrigger(slug, await readFile(triggerFile(agentId, slug), 'utf8')))
     }
     return triggers
+}
+
+export async function listTriggerSlugs(agentId: string): Promise<string[]> {
+    const root = triggersDir(agentId)
+    if (!existsSync(root)) return []
+    const entries = await readdir(root, { withFileTypes: true })
+    return entries.filter(entry => entry.isFile() && entry.name.endsWith('.md')).map(entry => entry.name.slice(0, -3)).filter(isSafeSlug)
 }
 
 export async function readTrigger(agentId: string, slug: string): Promise<Trigger> {
@@ -156,6 +167,7 @@ export async function writeTrigger(agentId: string, input: TriggerInput, author?
             model: input.model !== undefined ? input.model : (existing?.model ?? null),
             body: input.body,
             createdAt: existing?.createdAt || nowIso(),
+            trustedPayload: input.trustedPayload ?? false,
         }
         await mkdir(triggersDir(agentId), { recursive: true })
         await writeFileAtomic(triggerFile(agentId, slug), serialize(next))
@@ -181,12 +193,23 @@ export async function deleteTrigger(agentId: string, slug: string): Promise<void
     await rm(triggerFile(agentId, slug), { force: true })
 }
 
-export async function rotateTriggerToken(agentId: string, slug: string): Promise<Trigger> {
+export async function rotateTriggerToken(agentId: string, slug: string, options: { clearTrust?: boolean } = {}): Promise<Trigger> {
     return withTriggerLock(agentId, slug, async () => {
         const trigger = await readTriggerForUpdate(agentId, slug)
         trigger.token = newTriggerToken()
+        if (options.clearTrust) trigger.trustedPayload = false
         await writeFileAtomic(triggerFile(agentId, slug), serialize(trigger))
         return trigger
+    })
+}
+
+export async function clearTriggerTrust(agentId: string, slug: string): Promise<void> {
+    if (!triggerExists(agentId, slug)) return
+    await withTriggerLock(agentId, slug, async () => {
+        const trigger = await readTriggerForUpdate(agentId, slug)
+        if (!trigger.trustedPayload) return
+        trigger.trustedPayload = false
+        await writeFileAtomic(triggerFile(agentId, slug), serialize(trigger))
     })
 }
 

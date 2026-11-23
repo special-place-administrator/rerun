@@ -352,7 +352,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
     }
 
     async function fetchWorkspace() {
-        const { data } = await selectSingle(supabase, 'workspaces', WORKSPACE_COLUMNS, { id: user?.workspace_id })
+        if (!user?.workspace_id) return
+        const { data } = await selectSingle(supabase, 'workspaces', WORKSPACE_COLUMNS, { id: user.workspace_id })
         setWorkspace(data)
         setWorkspaceLoading(false)
     }

@@ -134,6 +134,10 @@ describe('sqlite ladders', () => {
               1,
               "baseline",
             ],
+            [
+              2,
+              "row-write-policy",
+            ],
           ]
         `)
         expect(BRAIN_DB_MIGRATIONS.map(s => [s.version, s.id])).toMatchInlineSnapshot(`

@@ -1,6 +1,6 @@
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
-import { getSharedDb, readSharedDbSchema, recordTableOwnership, SHARED_HIDDEN_TABLES } from '../../db/sharedDb.js'
+import { assertSharedTableOwnership, getSharedDb, readSharedDbSchema, recordTableOwnership, setSharedTableAccess, SharedTablePermissionError, SHARED_HIDDEN_TABLES } from '../../db/sharedDb.js'
 import { assertNoAttach, assertReadOnlySql, executeStore, listTables, serializeRow } from '../../db/sqlStore.js'
 import type { RunContext } from '../../runtime/context.js'
 
@@ -60,11 +60,14 @@ export function sharedDbTools(ctx: RunContext): ToolSet {
             execute: async ({ sql, params, statements }) => {
                 try {
                     const client = await getSharedDb()
+                    const sqlList = statements?.map(s => s.sql) ?? (sql ? [sql] : [])
+                    await assertSharedTableOwnership(client, sqlList, agentName)
                     const result = await executeStore(client, { sql, params, statements })
-                    await recordTableOwnership(client, statements?.map(s => s.sql) ?? (sql ? [sql] : []), agentName)
+                    await recordTableOwnership(client, sqlList, agentName)
                     const lastId = result.lastInsertRowid !== null ? `, lastInsertRowid=${result.lastInsertRowid}` : ''
                     return `OK, ${result.statements} statement(s), ${result.rowsAffected} row(s) affected${lastId}`
                 } catch (e) {
+                    if (e instanceof SharedTablePermissionError) return `Execution failed: ${permissionDenied(e)}`
                     return `Execution failed: ${await withCurrentShape((e as Error).message)}`
                 }
             },
@@ -81,5 +84,22 @@ export function sharedDbTools(ctx: RunContext): ToolSet {
                 }
             },
         }),
+        shared_db_set_table_access: tool({
+            description: "Set who may change or delete rows of a shared table you created. 'shared' makes it a queue or worklist: every coworker can claim, update and delete its rows. 'owner' lets other coworkers only insert and read. Dropping or altering the table always stays yours alone.",
+            inputSchema: z.object({ table: z.string().min(1), access: z.enum(['shared', 'owner']) }),
+            execute: async ({ table, access }) => {
+                try {
+                    await setSharedTableAccess(await getSharedDb(), table, access, agentName)
+                    return access === 'shared' ? `"${table}" is now a shared queue: every coworker can update and delete its rows.` : `"${table}" is now owner-only: other coworkers can only insert and read its rows.`
+                } catch (e) {
+                    if (e instanceof SharedTablePermissionError) return `Access change failed: ${permissionDenied(e)}`
+                    return `Access change failed: ${(e as Error).message}`
+                }
+            },
+        }),
     }
+}
+
+function permissionDenied(e: SharedTablePermissionError): string {
+    return `${e.message} [${e.code} table=${e.table} op=${e.op} owner=${e.owner}]`
 }

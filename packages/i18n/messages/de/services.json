@@ -55,9 +55,13 @@
         "removeTitle": "{name} entfernen?",
         "removeDescription": "Der Coworker verliert alle Tools dieses Servers, und seine Anmeldung wird gelöscht.",
         "removeConfirm": "Entfernen",
+        "enable": "Aktivieren",
         "status": {
             "connected": "Verbunden · {count, plural, one {# Tool} other {# Tools}}",
             "needsAuth": "Anmeldung nötig",
+            "disabledUnpinned": "Deaktiviert: Laufzeit nicht fixiert",
+            "needsConfig": "Einrichtung nötig",
+            "needsEnv": "Benötigt {names}",
             "unreachable": "Nicht erreichbar",
             "noAnswer": "Der Server hat nicht geantwortet."
         }

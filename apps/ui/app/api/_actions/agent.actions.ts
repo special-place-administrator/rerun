@@ -7,6 +7,7 @@ import { requireWorkspaceId } from '@/app/api/_auth/ownership'
 import { activateAgent } from '@/app/api/_services/agent-activation.service'
 import { getAgentChatTarget, resolveRunTarget, sessionRowOf } from '@/app/api/_services/chat.service'
 import { assertModelEntitled } from '@/app/api/_services/engine-plan.service'
+import { assertTeamToolsSwitch } from '@/app/api/_services/team-tools.service'
 import { getWorkspaceConnection, NoEngineError } from '@/app/api/_services/workspace-engine.service'
 import { followCoworker } from '@/app/api/_services/notification-audience.service'
 import { getServerSession } from '@/supabase/session/getServerSession'
@@ -114,14 +115,14 @@ export async function duplicateAgentAction(input: unknown): Promise<DuplicateAge
     }
 }
 
-const moveInputSchema = z.object({ agentId: z.string().uuid(), spaceId: z.string().uuid() })
+const moveInputSchema = z.object({ agentId: z.string().uuid(), spaceId: z.string().uuid(), position: z.object({ col: z.number().int(), row: z.number().int() }).optional() })
 
 export type MoveAgentResult = { ok: true; position: { col: number; row: number } } | ActionFailure
 
 export async function moveAgentAction(input: unknown): Promise<MoveAgentResult> {
     try {
-        const { agentId, spaceId } = moveInputSchema.parse(input)
-        return await moveAgentToBox(agentId, spaceId, await requireLightSessionActor())
+        const { agentId, spaceId, position } = moveInputSchema.parse(input)
+        return await moveAgentToBox(agentId, spaceId, await requireLightSessionActor(), position)
     } catch (err) {
         return failureOf(err, 'moveCoworkerFailed')
     }
@@ -171,6 +172,7 @@ export async function updateAgentConfigAction(agentId: string, patch: EngineAgen
     try {
         const { conn, engineAgentId, contentLocked } = await resolveRunTarget(agentId, 'manage')
         await assertModelEntitled(patch.model)
+        await assertTeamToolsSwitch(await requireLightSessionActor(), agentId, conn, engineAgentId, patch.tools)
         await enginePatchAgent(conn, engineAgentId, contentLocked ? { ...patch, soul: undefined } : patch)
         return { success: true }
     } catch (err) {

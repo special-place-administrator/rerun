@@ -30,11 +30,13 @@ import { installTools } from './builtin/install.js'
 import { foremanTools } from './builtin/foreman.js'
 import { agentFilesTools } from './builtin/agent-files.js'
 import { hasPendingSetup } from '../agents/setup.js'
+import { isEnabledMcpServer } from './mcp.js'
 import { pooledMcpServers, pooledMcpToolSet } from './mcp-pool.js'
 import { MCP_CALL_TOOL, MCP_SEARCH_TOOL, mcpSearchTool, mcpToolCatalog, mcpToolsAreDeferred, type McpCatalogEntry } from './mcp-search.js'
 import { mcpCallTool } from './mcp-wire.js'
 import { CLI_PROVIDERS } from '../agents/providers.js'
 import type { RunContext } from '../runtime/context.js'
+import { markTainted } from './builtin/taint.js'
 
 export async function buildTools(ctx: RunContext): Promise<{ tools: ToolSet; heldBackMcp?: McpCatalogEntry[]; close: () => Promise<void> }> {
     const cfg = ctx.agent.config.tools
@@ -75,9 +77,9 @@ export async function buildTools(ctx: RunContext): Promise<{ tools: ToolSet; hel
     if (hasPendingSetup(ctx.agent)) Object.assign(tools, installTools(ctx))
 
     let heldBackMcp: McpCatalogEntry[] | undefined
-    if (!CLI_PROVIDERS.has(ctx.provider) && ctx.agent.config.mcpServers.length > 0) {
+    if (!CLI_PROVIDERS.has(ctx.provider) && ctx.agent.config.mcpServers.some(isEnabledMcpServer)) {
         const servers = await pooledMcpServers(ctx.agent)
-        const mcpTools = pooledMcpToolSet(servers)
+        const mcpTools = pooledMcpToolSet(servers, () => markTainted(ctx))
         Object.assign(tools, mcpTools)
         if (mcpToolsAreDeferred(mcpTools)) {
             heldBackMcp = mcpToolCatalog(servers).filter(entry => entry.name !== MCP_SEARCH_TOOL && entry.name !== MCP_CALL_TOOL)

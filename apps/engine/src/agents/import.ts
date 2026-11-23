@@ -15,12 +15,15 @@ import { indexMemory } from '../db/repos/memories.js'
 import { embedText } from '../memory/embed.js'
 import { listMemoryFiles } from '../memory/files.js'
 import { clearScheduleModel, listSchedules, markFired } from '../schedules/loader.js'
-import { clearTriggerModel, deleteTrigger, listTriggers, rotateTriggerToken } from '../triggers/loader.js'
+import { clearTriggerModel, clearTriggerTrust, deleteTrigger, listTriggerSlugs, rotateTriggerToken } from '../triggers/loader.js'
 import { agentConfigSchema, type AgentConfig } from './types.js'
 import { activateAutomations } from './automations.js'
 import { hasPendingSetup } from './setup.js'
 import { ARCHIVE_LIMITS, ARCHIVE_ROOTS, MANIFEST_PATH, mcpAuthServers, registryConnectorSlugs, requiredEnvKeys } from './archive.js'
 import { readRegistry } from '../services/registry.js'
+import { resolveTransport } from '../tools/mcp.js'
+import { isRegistryExactSpec, parseNpxLaunch } from '../tools/mcp-packages.js'
+import { mcpLaunchLine } from '../tools/mcp-pin.js'
 import { parseEnvFile, writeAgentEnv } from './env.js'
 import { writeAgentConfig } from './config-write.js'
 import { loadAgentFromDisk } from './loader.js'
@@ -90,12 +93,19 @@ async function extractArchive(tarball: string, staging: string): Promise<Extract
     return { skipped }
 }
 
+function isImportableMcpServer(server: McpServer): boolean {
+    if (resolveTransport(server) !== 'stdio') return true
+    const launch = server.command === 'npx' ? parseNpxLaunch(server) : null
+    return launch !== null && isRegistryExactSpec(launch.spec)
+}
+
 function rebindAgentId(config: AgentConfig, id: string): AgentConfig {
     const bind = (value: string) => value.replaceAll('${agent.id}', id)
     const bindRecord = (record: Record<string, string>) => Object.fromEntries(Object.entries(record).map(([key, value]) => [key, bind(value)]))
 
     const mcpServers: McpServer[] = config.mcpServers.map(server => ({
         ...server,
+        ...(isImportableMcpServer(server) ? { disabledReason: undefined } : { disabledReason: 'stdio_runtime_unpinned' as const }),
         ...(server.command === undefined ? {} : { command: bind(server.command) }),
         ...(server.url === undefined ? {} : { url: bind(server.url) }),
         args: server.args.map(bind),
@@ -165,14 +175,15 @@ export async function rebaselineSchedules(id: string, clearModel: boolean): Prom
 
 export async function rotateTriggers(id: string, clearModel: boolean): Promise<string[]> {
     const slugs: string[] = []
-    for (const trigger of await listTriggers(id).catch(() => [])) {
+    for (const slug of await listTriggerSlugs(id).catch(() => [])) {
         try {
-            if (clearModel) await clearTriggerModel(id, trigger.slug)
-            await rotateTriggerToken(id, trigger.slug)
-            slugs.push(trigger.slug)
+            if (clearModel) await clearTriggerModel(id, slug)
+            await clearTriggerTrust(id, slug)
+            await rotateTriggerToken(id, slug)
+            slugs.push(slug)
         } catch (err) {
-            logger.error({ agentId: id, trigger: trigger.slug, err: String(err) }, 'trigger token remint failed, dropping the trigger')
-            await deleteTrigger(id, trigger.slug).catch(() => {})
+            logger.error({ agentId: id, trigger: slug, err: String(err) }, 'trigger token remint failed, dropping the trigger')
+            await deleteTrigger(id, slug).catch(() => {})
         }
     }
     return slugs
@@ -227,6 +238,7 @@ export async function importAgent(input: ImportAgentInput): Promise<AgentImportR
             triggers,
             memoriesIndexed: await reindexMemories(id),
             skippedPaths: skipped,
+            mcpDisabled: config.mcpServers.flatMap(server => (server.disabledReason ? [{ name: server.name, reason: server.disabledReason, command: mcpLaunchLine(server) }] : [])),
         })
 
         await insertAgentIndex(id, config.name)

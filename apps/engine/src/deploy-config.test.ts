@@ -75,4 +75,16 @@ describe('deploy config', () => {
     expect(offenders(b)).toEqual(['e'])
     expect(offenders(c)).toEqual([])
   })
+
+  it('runs apps/ui/Dockerfile as non-root user node', () => {
+    const dockerfile = read('apps/ui/Dockerfile')
+    expect(dockerfile).toMatch(/USER node/)
+  })
+
+  it('runs webgate as non-root and pins searxng image in docker-compose.vps.yml', () => {
+    const text = read('deploy/vps/docker-compose.vps.yml')
+    expect(text).toMatch(/webgate:[\s\S]*?user:\s*["']?node["']?/)
+    expect(text).not.toMatch(/searxng\/searxng:latest/)
+    expect(text).toMatch(/image:\s*ghcr\.io\/special-place-ai-heaven\/searxng:[0-9a-f]{40}@sha256:[0-9a-f]{64}\n/)
+  })
 })

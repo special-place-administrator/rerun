@@ -13,7 +13,7 @@ vi.mock('@/supabase/serviceRole', () => ({ createServiceRoleClient: () => ({}) }
 vi.mock('@/supabase/supabase-helpers', () => ({ selectSingle: vi.fn(), selectMaybeSingle: mocks.selectMaybeSingle, selectMaybeSingleWithJoins: mocks.selectMaybeSingleWithJoins, selectMany: mocks.selectMany, selectAll: mocks.selectAll }))
 
 const { AuthorizationError } = await import('./ownership')
-const { AccessDeniedError, assertAgentAccess, assertSessionInWorkspace, boxAccessOf, callableEngineAgentIds, hasAccess, keepVisible, visibleSpaceIds, workspaceActor } = await import('./access')
+const { AccessDeniedError, assertAgentAccess, agentActor, assertSessionInWorkspace, boxAccessOf, callableEngineAgentIds, hasAccess, keepVisible, visibleSpaceIds, workspaceActor } = await import('./access')
 type Actor = import('./access').Actor
 
 const admin: Actor = { kind: 'user', userId: 'u-admin', workspaceId: 1, role: 'admin', boxScope: 'all' }
@@ -33,6 +33,15 @@ describe('boxAccessOf', () => {
 
     it('lets a member of scope all use a Box open to the workspace', () => {
         expect(boxAccessOf(member('all'), openBox, null)).toBe('use')
+    })
+
+    it('lets a coworker in an open Box use other open Boxes, and keeps restricted Boxes to their own coworkers', () => {
+        const fromOpen = agentActor({ workspace_id: 1, space_id: 'open-a' }, 'workspace')
+        const fromRestricted = agentActor({ workspace_id: 1, space_id: 'restricted-r' }, 'restricted')
+        expect(boxAccessOf(fromOpen, { id: 'open-b', ...openBox }, null)).toBe('use')
+        expect(boxAccessOf(fromOpen, { id: 'restricted-r', ...restrictedBox }, null)).toBe('none')
+        expect(boxAccessOf(fromRestricted, { id: 'restricted-r', ...restrictedBox }, null)).toBe('use')
+        expect(boxAccessOf(fromRestricted, { id: 'open-b', ...openBox }, null)).toBe('none')
     })
 
     it('closes a restricted Box to a member of scope all without a grant', () => {

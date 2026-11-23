@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fakeSupabase, writeMethodOf, type FakeSupabase, type SupabaseResult } from '@/test/supabase-fake'
 
@@ -10,11 +10,11 @@ vi.mock('@/lib/engine/client', () => ({ getEngineHealth: vi.fn(), listConnection
 const { createServiceRoleClient } = await import('@/supabase/serviceRole')
 const { attachCustomEngine, findWorkspaceEngine } = await import('@/app/api/_services/workspace-engine.service')
 const { getEngineHealth, listConnections } = await import('@/lib/engine/client')
-const { createPairingToken, detachWorkspaceServer, engineAddress, redeemPairingToken } = await import('./servers.service')
+const { attachServerManually, createPairingToken, detachWorkspaceServer, engineAddress, redeemPairingToken, ServerPairingError } = await import('./servers.service')
 
 const TOKEN = 'rrn_pair_abc'
 const KEY = 'k'.repeat(64)
-const URL = 'http://10.0.0.5:3000'
+const URL = 'http://93.184.216.34:3000'
 
 let db: FakeSupabase
 let tokenRow: Record<string, unknown> | null
@@ -34,6 +34,10 @@ beforeEach(() => {
     vi.mocked(findWorkspaceEngine).mockResolvedValue(null)
     vi.mocked(getEngineHealth).mockResolvedValue({ status: 'ok', activeAgents: 0, capabilities: [] })
     vi.mocked(listConnections).mockResolvedValue({ connections: [] } as never)
+})
+
+afterEach(() => {
+    vi.unstubAllEnvs()
 })
 
 describe('createPairingToken', () => {
@@ -67,7 +71,7 @@ describe('redeemPairingToken', () => {
     it('says the server cannot be reached, and leaves the token for another try', async () => {
         vi.mocked(getEngineHealth).mockRejectedValue(new Error('ECONNREFUSED'))
 
-        await expect(redeemPairingToken({ token: TOKEN, url: URL, apiKey: KEY })).rejects.toThrow('cannot reach your server at http://10.0.0.5:3000')
+        await expect(redeemPairingToken({ token: TOKEN, url: URL, apiKey: KEY })).rejects.toThrow('cannot reach your server at http://93.184.216.34:3000')
         expect(db.writes('engine_pairing_tokens')).toHaveLength(0)
     })
 
@@ -82,6 +86,36 @@ describe('redeemPairingToken', () => {
 
         await expect(redeemPairingToken({ token: TOKEN, url: URL, apiKey: KEY })).rejects.toThrow('already used')
         expect(attachCustomEngine).not.toHaveBeenCalled()
+    })
+})
+
+describe('server URL validation', () => {
+    it('refuses internal loopback, metadata, and Docker-internal URLs in attachServerManually and redeemPairingToken', async () => {
+        vi.stubEnv('SELF_HOST_MULTI_SERVER', '1')
+
+        for (const internalUrl of [
+            'http://169.254.169.254',
+            'http://127.0.0.1:3000',
+            'http://10.0.0.5:3000',
+            'http://[::ffff:127.0.0.1]:3000',
+            'http://localhost:3000',
+            'http://engine:3000',
+            'http://webgate:8080',
+        ]) {
+            await expect(attachServerManually(7, { url: internalUrl, apiKey: 'a'.repeat(32) })).rejects.toThrow(ServerPairingError)
+            await expect(redeemPairingToken({ token: TOKEN, url: internalUrl, apiKey: KEY })).rejects.toThrow(ServerPairingError)
+        }
+
+        expect(getEngineHealth).not.toHaveBeenCalled()
+        expect(attachCustomEngine).not.toHaveBeenCalled()
+        expect(db.writes('engine_pairing_tokens')).toHaveLength(0)
+    })
+
+    it('allows private engine URLs only when RERUN_ALLOW_PRIVATE_ENGINE_URLS=1 is explicitly set', async () => {
+        vi.stubEnv('RERUN_ALLOW_PRIVATE_ENGINE_URLS', '1')
+
+        await expect(attachServerManually(7, { url: 'http://10.0.0.5:3000', apiKey: KEY })).resolves.toBeUndefined()
+        expect(getEngineHealth).toHaveBeenCalledWith({ baseUrl: 'http://10.0.0.5:3000', apiKey: KEY })
     })
 })
 

@@ -6,6 +6,14 @@ import { dbExecuteSchema, dbQuerySchema, rowFilterSchema, rowUpdateSchema, table
 import { deleteTableRows, dropTable, executeStore, exportTableRows, groupTableRows, listTables, purgeTable, queryStore, readTableRows, updateTableRow } from '../../db/sqlStore.js'
 import { deleteTableViews, deleteView, listViews, saveView } from '../../db/tableViews.js'
 import { lookupPaidSources } from '../../db/repos/paid-sources.js'
+import type { RowWrite, TablePolicy } from '../../db/sharedDb.js'
+
+export type TableAccess = {
+    policies: (client: Client) => Promise<Map<string, TablePolicy>>
+    set: (client: Client, table: string, rowWrite: RowWrite) => Promise<{ table: string; rowWrite: RowWrite; owner: string } | null>
+}
+
+const tableAccessBodySchema = z.object({ rowWrite: z.enum(['owner', 'shared']) })
 
 const MAX_GROUPS = 50
 
@@ -26,12 +34,13 @@ function failure(c: Context, err: unknown, fallback: string) {
 
 function toCsvValue(value: unknown): string {
     if (value === null || value === undefined) return ''
-    const str = typeof value === 'object' ? JSON.stringify(value) : String(value)
+    const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
+    const str = typeof value !== 'number' && /^[=+\-@\t\r]/.test(text) && !/^[-+]?\d+(?:\.\d+)?$/.test(text) ? `'${text}` : text
     if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`
     return str
 }
 
-export function createDataRouter(getClient: (c: Context) => Promise<Client>, hidden: string[] = [], sourceAgentIds?: (c: Context) => string[] | Promise<string[]>): Hono {
+export function createDataRouter(getClient: (c: Context) => Promise<Client>, hidden: string[] = [], sourceAgentIds?: (c: Context) => string[] | Promise<string[]>, access?: TableAccess): Hono {
     const routes = new Hono()
 
     if (sourceAgentIds) {
@@ -42,8 +51,22 @@ export function createDataRouter(getClient: (c: Context) => Promise<Client>, hid
     }
 
     routes.get('/tables', async c => {
-        return c.json({ tables: await listTables(await getClient(c), hidden) })
+        const client = await getClient(c)
+        const tables = await listTables(client, hidden)
+        if (!access) return c.json({ tables })
+        const policies = await access.policies(client)
+        return c.json({ tables: tables.map(table => ({ ...table, rowWrite: policies.get(table.name.toLowerCase())?.rowWrite ?? null, owner: policies.get(table.name.toLowerCase())?.owner ?? null })) })
     })
+
+    if (access) {
+        routes.put('/tables/:name/access', async c => {
+            const body = tableAccessBodySchema.safeParse(await c.req.json().catch(() => null))
+            if (!body.success) return c.json({ error: 'rowWrite must be owner or shared' }, 400)
+            const updated = await access.set(await getClient(c), c.req.param('name'), body.data.rowWrite)
+            if (!updated) return c.json({ error: `No shared table named "${c.req.param('name')}" has a recorded creator.`, code: 'shared_table_not_found' }, 404)
+            return c.json(updated)
+        })
+    }
 
     routes.post('/query', async c => {
         const client = await getClient(c)

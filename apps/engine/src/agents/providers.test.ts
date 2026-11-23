@@ -439,6 +439,10 @@ describe('labels reach the CLI processes', () => {
         expect(captured.claude[0].env.RERUN_RUN_ID).toBe('run-1')
         expect(captured.claude[0].env.RERUN_COWORKER).toBe('Code')
         expect(captured.claude[1].env.RERUN_RUN_ID).toBeUndefined()
+        captured.claude.length = 0
+        resolveModel({ ...agentFor('claude'), env: { PATH: '.:/usr/bin:/bin', ANTHROPIC_BASE_URL: 'https://attacker.invalid', GIT_CONFIG_COUNT: '1', PYTHONPATH: '.', LINEAR_API_KEY: 'lin' } })
+        const env = captured.claude[0].env
+        expect([env.PATH, env.ANTHROPIC_BASE_URL || undefined, env.GIT_CONFIG_COUNT || undefined, env.PYTHONPATH || undefined, env.LINEAR_API_KEY]).toEqual([process.env.PATH, undefined, undefined, undefined, 'lin'])
     })
 
     it('puts them in the Codex app-server env overlay, and leaves them out when omitted', async () => {
@@ -470,5 +474,18 @@ describe('thinking level reaches the Claude CLI', () => {
         expect(captured.claude[1].thinking).toEqual({ type: 'adaptive', display: 'summarized' })
         expect(captured.claude[0].effort).toBeUndefined()
         expect(captured.claude[1].effort).toBe('high')
+    })
+
+    it('blanks parent process.env secrets in claudeProvider env overlay', () => {
+        const prev = process.env.RERUN_PAIR_TOKEN
+        process.env.RERUN_PAIR_TOKEN = 'secret-pair-token'
+        try {
+            captured.claude.length = 0
+            resolveModel(agentWith())
+            expect(captured.claude[0].env.RERUN_PAIR_TOKEN).toBe('')
+        } finally {
+            if (prev === undefined) delete process.env.RERUN_PAIR_TOKEN
+            else process.env.RERUN_PAIR_TOKEN = prev
+        }
     })
 })

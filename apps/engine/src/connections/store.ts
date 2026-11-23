@@ -1,4 +1,5 @@
-import { mkdir, rm, writeFile, rename } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
+import { writeFileAtomic } from '../lib/atomic-write.js'
 import {
     PROVIDER_LABELS,
     RERUN_CONNECTION_ID,
@@ -12,7 +13,7 @@ import {
 } from '@moldwright/contracts'
 import { connectionConfigPath, connectionDir, connectionEnvPath, connectionsDir } from '../config/paths.js'
 import { readEnvFile, serializeEnv, writeEnvFile } from '../lib/env-file.js'
-import { badRequest } from '../lib/errors.js'
+import { badRequest, HttpError } from '../lib/errors.js'
 import { newId, nowIso } from '../lib/ids.js'
 import { forgetCredentialRejected } from './credential-rejections.js'
 import { connectionExists } from './loader.js'
@@ -27,14 +28,22 @@ import { getConnection, reloadConnection, unloadConnection } from './registry.js
 import type { LoadedConnection } from './types.js'
 
 async function writeConfig(id: string, config: ConnectionConfig): Promise<void> {
-    const target = connectionConfigPath(id)
-    const tmp = `${target}.tmp`
-    await writeFile(tmp, `${JSON.stringify(config, null, 4)}\n`, 'utf8')
-    await rename(tmp, target)
+    await writeFileAtomic(connectionConfigPath(id), `${JSON.stringify(config, null, 4)}\n`, { mode: 0o600 })
 }
 
 function assertCustomHasBaseUrl(config: ConnectionConfig): void {
     if (config.provider === 'custom' && !config.baseUrl) throw badRequest('A custom connection needs a base URL')
+}
+
+function assertNoInlineCredentials(baseUrl: string | undefined): void {
+    if (!baseUrl) return
+    let parsed: URL
+    try {
+        parsed = new URL(baseUrl)
+    } catch {
+        throw badRequest('Invalid base URL')
+    }
+    if (parsed.username || parsed.password) throw new HttpError(400, "A base URL cannot carry a username or password: put user:password in the connection's base URL credentials field (CUSTOM_BASE_URL_AUTH) instead.", 'base_url_inline_credentials')
 }
 
 export async function createConnection(input: CreateConnectionInput, id = newId()): Promise<LoadedConnection> {
@@ -49,6 +58,7 @@ export async function createConnection(input: CreateConnectionInput, id = newId(
         createdAt: nowIso(),
     })
     assertCustomHasBaseUrl(config)
+    assertNoInlineCredentials(config.baseUrl)
     serializeEnv(input.keys)
     await mkdir(connectionDir(id), { recursive: true, mode: 0o700 })
     await writeConfig(id, config)
@@ -63,6 +73,7 @@ export async function patchConnection(id: string, patch: UpdateConnectionInput):
         const current = await getConnection(id)
         const next = connectionConfigSchema.parse({ ...current.config, ...patch })
         assertCustomHasBaseUrl(next)
+        if (next.baseUrl !== current.config.baseUrl) assertNoInlineCredentials(next.baseUrl)
         await writeConfig(id, next)
         if (next.baseUrl !== current.config.baseUrl) {
             forgetCustomCatalog(id)

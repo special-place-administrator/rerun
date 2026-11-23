@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-patch-'))
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 const { beforeAll, describe, expect, it, beforeEach } = await import('vitest')
 const { agentRoutes } = await import('./agents.js')

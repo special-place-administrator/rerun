@@ -28,8 +28,8 @@ export const getServerSession = cache(async () => {
     const { supabase, user, workspaceRefused } = await getSessionWorkspace()
 
     const [{ data: workspace }, { data: authUser }] = await Promise.all([
-        !workspaceRefused
-            ? selectSingle(supabase, 'workspaces', ['id', 'name', 'icon_url', 'plan', 'max_agents', 'max_seats', 'model_access', 'custom_integrations', 'subscription_status', 'current_period_end', 'trial_ends_at', 'is_sandbox', 'onboarded_at', 'price_arm', 'locale'] as const, { id: user?.workspace_id })
+        user && !workspaceRefused
+            ? selectSingle(supabase, 'workspaces', ['id', 'name', 'icon_url', 'plan', 'max_agents', 'max_seats', 'model_access', 'custom_integrations', 'subscription_status', 'current_period_end', 'trial_ends_at', 'is_sandbox', 'onboarded_at', 'price_arm', 'locale'] as const, { id: user.workspace_id })
             : Promise.resolve({ data: null }),
         getRequestAccessToken().then(token => supabase.auth.getUser(token ?? undefined)),
     ])

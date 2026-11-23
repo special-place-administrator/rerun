@@ -16,6 +16,7 @@ import { PUBLIC_HTTP_URL_MESSAGE, publicHttpUrl } from '../url.js'
 import type { RunContext } from '../../runtime/context.js'
 import { joinableBrowser } from '../../desktop/takeover.js'
 import { savePage } from './page-file.js'
+import { markTainted } from './taint.js'
 
 const TEXT_LIMIT = 50_000
 const LINKS_LIMIT = 300
@@ -213,6 +214,7 @@ export function browserTools(ctx: RunContext): ToolSet {
                 timeoutMs: z.number().int().positive().max(120_000).default(30_000),
             }),
             execute: async (visit: Visit) => {
+                markTainted(ctx)
                 const host = hostOf(visit.url)
                 return withHostBreaker(breaker, host ? [host] : [], async (): Promise<HostAttempt> => {
                     try {

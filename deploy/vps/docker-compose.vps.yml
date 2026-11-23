@@ -27,6 +27,7 @@ services:
 
   webgate:
     image: node:26-alpine
+    user: "node"
     command: node /srv/webgate/server.mjs
     volumes:
       - ./deploy/vps/webgate:/srv/webgate:ro
@@ -38,7 +39,7 @@ services:
     restart: unless-stopped
 
   searxng:
-    image: searxng/searxng:latest
+    image: ghcr.io/special-place-ai-heaven/searxng:a7163d091037cae586c444b05f22ecca162bb492@sha256:926b5c9dbf0000a623934b54d6afe47c3d6c77636b982d781cd053db6d51d84d
     volumes:
       - ./deploy/vps/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:

@@ -5,7 +5,7 @@ import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import type { McpServer } from '../agents/types.js'
 import { mcpPackagesDir } from '../config/paths.js'
-import { childProcessEnv } from '../lib/child-env.js'
+import { childProcessEnv, engineNpmEnv } from '../lib/child-env.js'
 import { logger } from '../lib/logger.js'
 
 export const PACKAGE_REFRESH_MS = 24 * 60 * 60 * 1000
@@ -33,6 +33,10 @@ export function isPinnedSpec(spec: string): boolean {
     return /^\d+\.\d+\.\d+(?:[-+][\w.+-]*)?$/.test(spec.slice(versionAt + 1))
 }
 
+export function isRegistryExactSpec(spec: string): boolean {
+    return /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(spec)
+}
+
 const specDir = (spec: string) => resolve(mcpPackagesDir(), createHash('sha256').update(spec).digest('hex').slice(0, 24))
 const currentPath = (spec: string) => resolve(specDir(spec), 'current.json')
 
@@ -58,7 +62,7 @@ function binOf(installDir: string): string | null {
 
 function npmInstall(spec: string, installDir: string): Promise<void> {
     return new Promise((done, fail) => {
-        const child = spawn('npm', ['install', '--prefix', installDir, '--no-audit', '--no-fund', '--loglevel=error', spec], { stdio: ['ignore', 'ignore', 'pipe'], env: childProcessEnv({}) })
+        const child = spawn('npm', ['install', '--prefix', installDir, '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error', spec], { stdio: ['ignore', 'ignore', 'pipe'], env: childProcessEnv({}, engineNpmEnv()) })
         let stderr = ''
         child.stderr.on('data', chunk => (stderr = (stderr + String(chunk)).slice(-2000)))
         const timer = setTimeout(() => child.kill('SIGKILL'), INSTALL_TIMEOUT_MS)

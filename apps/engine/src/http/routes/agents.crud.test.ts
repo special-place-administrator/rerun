@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-agents-crud-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 process.env.RERUN_HUB_BASE_URL = ''
 
 const { describe, expect, it, beforeAll } = await import('vitest')
@@ -161,5 +162,13 @@ describe('PATCH /agents/:id/keys', () => {
         expect(res.status).toBe(200)
         expect(await res.json()).toEqual({ keys: ['BOTH', 'KEEP'] })
         expect(await readAgentEnv(id)).toEqual({ BOTH: 'new', KEEP: 'y' })
+    })
+
+    it.each(['LD_PRELOAD', 'node_options', 'GIT_SSH_COMMAND', 'BASH_ENV'])('refuses the loader or shell hook variable %s and keeps the env unchanged', async key => {
+        const id = await createAgent('Hooks')
+        await send('PATCH', `/agents/${id}/keys`, { set: { KEEP: 'y' } })
+        const res = await send('PATCH', `/agents/${id}/keys`, { set: { [key]: '/tmp/x' } })
+        expect(res.status).toBe(400)
+        expect(await readAgentEnv(id)).toEqual({ KEEP: 'y' })
     })
 })

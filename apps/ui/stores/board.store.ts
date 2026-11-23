@@ -211,6 +211,25 @@ const initialState = {
     hydrated: false,
 }
 
+function moveAcrossBoxes(id: string, spaceId: string, pos: GridPosition, previous: IsoAgent | undefined) {
+    const rollback = () => {
+        if (!previous) return
+        useBoardStore.setState(state => ({
+            agents: state.agents.map(a => (a.id === id && a.spaceId === spaceId && a.position.col === pos.col && a.position.row === pos.row ? { ...a, position: previous.position, spaceId: previous.spaceId } : a)),
+        }))
+    }
+    moveAgentAction({ agentId: id, spaceId, position: pos })
+        .then(res => {
+            if (res.ok) return
+            rollback()
+            toast.error(translated('builder.boardToasts.moveAgentFailed'), { description: refusalText(res) })
+        })
+        .catch(() => {
+            rollback()
+            toast.error(translated('builder.boardToasts.moveAgentFailed'))
+        })
+}
+
 export const useBoardStore = create<BoardState>((set, get) => ({
     ...initialState,
     recenterSignal: 0,
@@ -403,11 +422,16 @@ export const useBoardStore = create<BoardState>((set, get) => ({
             return
         }
 
+        const previous = get().agents.find(a => a.id === placingAgentId)
         set(state => ({
             agents: state.agents.map(a => (a.id === placingAgentId ? { ...a, position: pos, spaceId: target.id } : a)),
             placingAgentId: null,
         }))
-        supabase.from('agents').update<Database['public']['Tables']['agents']['Update']>({ col: pos.col, row: pos.row, space_id: target.id }).eq('id', placingAgentId).then()
+        if (previous?.spaceId !== target.id) {
+            moveAcrossBoxes(placingAgentId, target.id, pos, previous)
+            return
+        }
+        supabase.from('agents').update<Database['public']['Tables']['agents']['Update']>({ col: pos.col, row: pos.row }).eq('id', placingAgentId).then()
     },
 
     cancelPlacement: () => {
@@ -437,10 +461,13 @@ export const useBoardStore = create<BoardState>((set, get) => ({
             agents: state.agents.map(a => (a.id === id ? { ...a, position: pos, spaceId: target ?? a.spaceId } : a)),
         }))
 
-        const patch: Database['public']['Tables']['agents']['Update'] = target ? { col: pos.col, row: pos.row, space_id: target } : { col: pos.col, row: pos.row }
+        if (target && target !== previous?.spaceId) {
+            moveAcrossBoxes(id, target, pos, previous)
+            return
+        }
         supabase
             .from('agents')
-            .update<Database['public']['Tables']['agents']['Update']>(patch)
+            .update<Database['public']['Tables']['agents']['Update']>({ col: pos.col, row: pos.row })
             .eq('id', id)
             .then(({ error }) => {
                 if (!error || !previous) return

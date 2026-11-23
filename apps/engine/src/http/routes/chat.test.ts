@@ -5,6 +5,7 @@ import { vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-chat-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 const state = vi.hoisted(() => ({
     calls: [] as { agent: { id: string; brief?: unknown; config?: { thinkingLevel?: string | null } }; sessionId: string; message: string; override: unknown; runId: string; trigger?: { userLanguage?: string; callableAgentIds?: string[] } }[],

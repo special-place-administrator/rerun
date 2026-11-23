@@ -111,6 +111,25 @@ If the engine is rolled back to a release that reads the key files, the files ar
 
 The release PR that carries this runbook copies this section into its Deploy notes.
 
+## EverOS token from the UI
+
+The engine release that carries data-dir step 6 (`everos-direct`) rewrites, on its first boot, every coworker and Boss whose `everos` server still runs `/data/tools/bin/everos-mcp` to the direct definition in `deploy/vps/everos-mcp.json`. A second boot changes nothing. After that, the `everos` server takes `EVEROS_TOKEN` only from the coworker's own key (UI, agent `.env`). A shared `EVEROS_TOKEN` is ignored for MCP servers, and no file on the host sets it. The shared `EVEROS_TOKEN` stays set, because the rollback above rebuilds `/data/tools/everos/token` from it.
+
+Before deploying that release, check that the shared values the direct definition needs are set, because a missing one now shows the server as `config_error` with the missing name:
+
+    docker compose exec -T engine node dist/cli/bin.js shared-env list
+
+Expected: `EVEROS_URL`, `EVEROS_USER_ID` and `EVEROS_APP` are listed. If one is missing, set it as in Step 2.
+
+Also before deploying, open every coworker and Boss that has an `everos` server in the UI and set its own `EVEROS_TOKEN` key. One without its own key loses EverOS after the deploy, even when the shared `EVEROS_TOKEN` is set.
+
+After the deploy, the old wrapper must not stay where a hand-made definition could still call it. If Step 4 has not run yet, move it aside now:
+
+    mkdir -p /data/tools/bin.pre-1284
+    mv /data/tools/bin/everos-mcp /data/tools/bin.pre-1284/
+
+Then restart the engine and run check 3 of Step 6 for one coworker. A coworker without a key of its own shows `config_error` with `EVEROS_TOKEN` as the missing name, whether or not a shared `EVEROS_TOKEN` is set.
+
 ## Rotation
 
 Set the name again with `shared-env set <NAME>`, value on stdin. New processes read it straight away; no restart is needed.

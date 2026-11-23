@@ -5,6 +5,7 @@ import { vi } from 'vitest'
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-cancel-session-'))
 process.env.RERUN_API_KEY = ''
+process.env.RERUN_INSECURE_NO_AUTH = '1'
 
 vi.mock('../../runtime/notify.js', async importOriginal => ({
     ...(await importOriginal<typeof import('../../runtime/notify.js')>()),

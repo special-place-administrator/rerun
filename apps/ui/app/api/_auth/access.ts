@@ -10,7 +10,7 @@ export type BoxAccess = 'none' | 'use' | 'manage'
 export type AccessLevel = 'use' | 'manage'
 export type SpaceVisibility = 'workspace' | 'restricted'
 
-export type Actor = { kind: 'user'; userId: string; workspaceId: number; role: WorkspaceRole; boxScope: BoxScope } | { kind: 'workspace'; workspaceId: number }
+export type Actor = { kind: 'user'; userId: string; workspaceId: number; role: WorkspaceRole; boxScope: BoxScope } | { kind: 'workspace'; workspaceId: number } | { kind: 'agent'; workspaceId: number; spaceId: string; boxOpen: boolean }
 
 export const BOX_MANAGE_ONLY = 'boxManagerOnly' satisfies ErrorCode
 export const COWORKER_NOT_FOUND = 'coworkerNotFound' satisfies ErrorCode
@@ -43,12 +43,16 @@ export function workspaceActor(workspaceId: number): Actor {
     return { kind: 'workspace', workspaceId }
 }
 
+export function agentActor(agent: { workspace_id: number; space_id: string }, boxVisibility: string | null): Actor {
+    return { kind: 'agent', workspaceId: agent.workspace_id, spaceId: agent.space_id, boxOpen: toVisibility(boxVisibility) === 'workspace' }
+}
+
 export function actorFromContext(ctx: Pick<WorkspaceContext, 'userId' | 'role' | 'boxScope'> & { workspace: { id: number } }): Actor {
     return { kind: 'user', userId: ctx.userId, workspaceId: ctx.workspace.id, role: ctx.role, boxScope: ctx.boxScope }
 }
 
 export function isAdminActor(actor: Actor): boolean {
-    return actor.kind === 'workspace' || actor.role === 'admin'
+    return actor.kind === 'workspace' || (actor.kind === 'user' && actor.role === 'admin')
 }
 
 export async function requireLightSessionActor(): Promise<Actor> {
@@ -58,9 +62,10 @@ export async function requireLightSessionActor(): Promise<Actor> {
     return { kind: 'user', userId: user.id, workspaceId: user.workspace_id, role: membership.role, boxScope: toBoxScope(membership.box_scope) }
 }
 
-export function boxAccessOf(actor: Actor, space: { workspace_id: number; visibility: string | null }, grant: AccessLevel | null): BoxAccess {
+export function boxAccessOf(actor: Actor, space: { id?: string; workspace_id: number; visibility: string | null }, grant: AccessLevel | null): BoxAccess {
     if (space.workspace_id !== actor.workspaceId) return 'none'
     if (isAdminActor(actor)) return 'manage'
+    if (actor.kind === 'agent') return space.id === actor.spaceId || (actor.boxOpen && toVisibility(space.visibility) === 'workspace') ? 'use' : 'none'
     if (grant) return grant
     if (actor.kind === 'user' && actor.boxScope === 'all' && toVisibility(space.visibility) === 'workspace') return 'use'
     return 'none'
@@ -80,6 +85,21 @@ async function grantOf(actor: Actor, spaceId: string): Promise<AccessLevel | nul
 export async function spaceAccessFor(actor: Actor, space: { id: string; workspace_id: number; visibility: string | null }): Promise<BoxAccess> {
     if (space.workspace_id !== actor.workspaceId) return 'none'
     return boxAccessOf(actor, space, await grantOf(actor, space.id))
+}
+
+export async function canEnableTeamTools(actor: Actor, boxA: { id: string; workspace_id: number; visibility: string | null }): Promise<boolean> {
+    if (boxA.workspace_id !== actor.workspaceId) return false
+    if (isAdminActor(actor)) return true
+    return actor.kind === 'user' && actor.boxScope === 'all' && boxAccessOf(actor, boxA, await grantOf(actor, boxA.id)) === 'manage'
+}
+
+export async function readCanEnableTeamTools(actor: Actor, spaceId: string): Promise<boolean> {
+    const { data: box } = await selectMaybeSingle(createServiceRoleClient(), 'spaces', ['id', 'workspace_id', 'visibility'] as const, { id: spaceId })
+    return !!box && (await canEnableTeamTools(actor, box))
+}
+
+export async function assertCanEnableTeamTools(actor: Actor, spaceId: string): Promise<void> {
+    if (!(await readCanEnableTeamTools(actor, spaceId))) throw new AccessDeniedError()
 }
 
 export async function readSpaceAccess(actor: Actor, spaceId: string): Promise<BoxAccess> {
@@ -196,4 +216,10 @@ export async function memberActor(workspaceId: number, userId: string): Promise<
     const { data: membership } = await selectMaybeSingle(createServiceRoleClient(), 'workspace_members', ['role', 'box_scope'] as const, { user_id: userId, workspace_id: workspaceId })
     if (!membership) return null
     return { kind: 'user', userId, workspaceId, role: membership.role, boxScope: toBoxScope(membership.box_scope) }
+}
+
+export async function readAgentActor(agentId: string, workspaceId: number): Promise<Actor> {
+    const agent = await assertAgentInWorkspace(agentId, 'use', workspaceActor(workspaceId))
+    const { data: box } = await selectMaybeSingle(createServiceRoleClient(), 'spaces', ['visibility'] as const, { id: agent.space_id })
+    return agentActor(agent, box ? box.visibility : 'restricted')
 }

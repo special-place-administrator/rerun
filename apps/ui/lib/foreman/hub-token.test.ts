@@ -12,6 +12,7 @@ function tamper(token: string, claims: Record<string, unknown>): string {
 
 beforeEach(() => {
     vi.stubEnv('FOREMAN_HUB_TOKEN_SECRET', 'test-secret')
+    vi.stubEnv('SUPABASE_SECRET_KEY', '')
     vi.useFakeTimers()
 })
 
@@ -53,14 +54,26 @@ describe('foreman hub token', () => {
         expect(verifyForemanHubToken(token, WORKSPACE_ID)).toBeNull()
     })
 
-    it('mints nothing and accepts nothing without a secret', () => {
+    it('mints nothing and accepts nothing without either secret', () => {
         const token = mintForemanHubToken(WORKSPACE_ID)
         vi.stubEnv('FOREMAN_HUB_TOKEN_SECRET', '')
+        vi.stubEnv('SUPABASE_SECRET_KEY', '')
         expect(mintForemanHubToken(WORKSPACE_ID)).toBeNull()
         expect(verifyForemanHubToken(token, WORKSPACE_ID)).toBeNull()
     })
 
-    it('is required as soon as the hub holds a secret, unless told to tolerate', () => {
+    it('derives a fallback secret from SUPABASE_SECRET_KEY when FOREMAN_HUB_TOKEN_SECRET is unset', () => {
+        vi.stubEnv('FOREMAN_HUB_TOKEN_SECRET', '')
+        vi.stubEnv('SUPABASE_SECRET_KEY', 'sb-secret')
+        const token = mintForemanHubToken(WORKSPACE_ID)
+        expect(token).not.toBeNull()
+        expect(verifyForemanHubToken(token, WORKSPACE_ID)).not.toBeNull()
+
+        vi.stubEnv('FOREMAN_HUB_TOKEN_SECRET', 'test-secret')
+        expect(verifyForemanHubToken(token, WORKSPACE_ID)).toBeNull()
+    })
+
+    it('is required by default unless explicitly told to tolerate with 0', () => {
         vi.stubEnv('FOREMAN_HUB_TOKEN_REQUIRED', '')
         expect(foremanHubTokenRequired()).toBe(true)
         vi.stubEnv('FOREMAN_HUB_TOKEN_REQUIRED', '1')
@@ -69,9 +82,8 @@ describe('foreman hub token', () => {
         expect(foremanHubTokenRequired()).toBe(false)
         vi.stubEnv('FOREMAN_HUB_TOKEN_REQUIRED', '')
         vi.stubEnv('FOREMAN_HUB_TOKEN_SECRET', '')
-        expect(foremanHubTokenRequired()).toBe(false)
+        expect(foremanHubTokenRequired()).toBe(true)
     })
-
     it('carries the member the turn speaks for, and none for a workspace token', () => {
         expect(verifyForemanHubToken(mintForemanHubToken(WORKSPACE_ID, 'user-7'), WORKSPACE_ID)?.uid).toBe('user-7')
         expect(verifyForemanHubToken(mintForemanHubToken(WORKSPACE_ID), WORKSPACE_ID)?.uid).toBeUndefined()

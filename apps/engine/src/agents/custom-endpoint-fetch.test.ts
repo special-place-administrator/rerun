@@ -29,6 +29,28 @@ describe('customEndpointFetch', () => {
         expect((error as Error).message).toBe('Provider returned error: Payment Required')
     })
 
+    it('reads at most 64 KiB of a 2 MiB 402 body and cancels the rest', async () => {
+        const chunk = new TextEncoder().encode('x'.repeat(16 * 1024))
+        let pulled = 0
+        let cancelled = false
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                if (pulled >= 2 * 1024 * 1024) return controller.close()
+                pulled += chunk.byteLength
+                controller.enqueue(chunk)
+            },
+            cancel() {
+                cancelled = true
+            },
+        }, { highWaterMark: 0 })
+        const inner = vi.fn(async () => new Response(body, { status: 402, statusText: 'Payment Required' }))
+        const response = await customEndpointFetch(inner as unknown as typeof fetch)('https://api.x.ai/v1/chat/completions')
+        const refusal = (await response.json()) as { error: { message: string } }
+        expect(pulled).toBeLessThanOrEqual(128 * 1024)
+        expect(cancelled).toBe(true)
+        expect(new TextEncoder().encode(refusal.error.message).byteLength).toBeLessThanOrEqual(64 * 1024 + 'Provider returned error: '.length)
+    })
+
     it('leaves any other answer untouched', async () => {
         const rateLimited = await customEndpointFetch(answering(429, '{"error":"slow down"}') as unknown as typeof fetch)('https://api.x.ai/v1/chat/completions')
         expect(rateLimited.status).toBe(429)

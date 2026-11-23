@@ -84,13 +84,16 @@ def ensure_triggers(eng, cfg=None, stages=None):
             listed[agent] = {t.get("slug"): t for t in eng.list_triggers(agent)}
         row = listed[agent].get(slug)
         if row is None:
-            row = eng.create_trigger(agent, slug, stage_body(e["stage"]), model=e.get("model"))
+            row = eng.create_trigger(agent, slug, stage_body(e["stage"]), model=e.get("model"), trusted_payload=True)
             if row.get("slug") != slug:
                 raise TriggerError("the engine derived another slug than %s from the trigger name" % slug)
             if e.get("model") and model_of(row) != e["model"]:
                 row = dict(row, **eng.set_trigger_model(agent, slug, e["model"]))
                 if model_of(row) != e["model"]:
                     raise TriggerError("trigger %s did not take the model" % slug)
+            listed[agent][slug] = row
+        if row.get("trustedPayload") is False and (row.get("body") or "").replace("\r\n", "\n").strip() == stage_body(e["stage"]):
+            row = dict(row, **eng.set_trigger_trust(agent, slug, True))
             listed[agent][slug] = row
         if not row.get("token"):
             raise TriggerError("trigger %s has no token" % slug)

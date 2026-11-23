@@ -7,14 +7,25 @@ import { selectAll, selectCount, selectMany, selectMaybeSingle, selectSingle } f
 const filtersOf = (calls: readonly SupabaseCall[]) => calls.filter(call => !['from', 'select', 'single', 'maybeSingle'].includes(call.method)).map(call => [call.method, ...call.args])
 
 describe('filters', () => {
-    it('turns a plain value into eq, an array into in, and skips undefined', async () => {
+    it('turns a plain value into eq and an array into in', async () => {
         const db = fakeSupabase()
-        await selectMany(db.client, 'agents', ['id'] as const, { workspace_id: 3, id: ['a', 'b'], name: undefined })
+        await selectMany(db.client, 'agents', ['id'] as const, { workspace_id: 3, id: ['a', 'b'] })
 
         expect(filtersOf(db.chains[0])).toEqual([
             ['eq', 'workspace_id', 3],
             ['in', 'id', ['a', 'b']],
         ])
+    })
+
+    it('throws on undefined or NaN filter values instead of widening the query', async () => {
+        const resolve = () => {
+            throw new Error('should not execute unfiltered query')
+        }
+        const db = fakeSupabase(resolve)
+
+        await expect(selectMany(db.client, 'agents', ['id'] as const, { workspace_id: undefined })).rejects.toThrow(/workspace_id/)
+        await expect(selectMany(db.client, 'agents', ['id'] as const, { workspace_id: Number.NaN })).rejects.toThrow(/workspace_id/)
+        await expect(selectSingle(db.client, 'agents', ['id'] as const, { workspace_id: { eq: undefined as unknown as number } })).rejects.toThrow(/workspace_id/)
     })
 
     it('maps each operator object onto its PostgREST method', async () => {

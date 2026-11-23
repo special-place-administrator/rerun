@@ -48,7 +48,9 @@ describe('POST /api/fetch', () => {
         expect((await POST(fetchRequest({ body: 'not json' }))).status).toBe(400)
         expect((await POST(fetchRequest({ body: { url: 'g2.com' } }))).status).toBe(400)
         expect((await POST(fetchRequest({ body: { url: 'http://localhost:3000/admin' } }))).status).toBe(400)
-        expect((await POST(fetchRequest({ body: { url: 'http://192.168.1.10/' } }))).status).toBe(400)
+        expect((await POST(fetchRequest({ body: { url: 'http://127.0.0.1/' } }))).status).toBe(400)
+        expect((await POST(fetchRequest({ body: { url: 'http://169.254.169.254/latest/meta-data' } }))).status).toBe(400)
+        expect((await POST(fetchRequest({ body: { url: 'http://[::ffff:127.0.0.1]:3000/health' } }))).status).toBe(400)
         expect(scrapePage).not.toHaveBeenCalled()
     })
 

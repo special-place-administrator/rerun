@@ -5,6 +5,7 @@ import { isPathSegment, mcpDir, mcpPendingPath, mcpTokenPath } from '../config/p
 import type { McpServer } from '../agents/types.js'
 import { writeFileAtomic } from '../lib/atomic-write.js'
 import { logger } from '../lib/logger.js'
+import { assertPublicUrl, fetchPublic } from '../lib/public-fetch.js'
 
 const DEVICE_CLIENT_ID = 'hermes'
 const DEVICE_SCOPE = 'openid email offline_access'
@@ -37,10 +38,10 @@ export function serverCarriesCredential(server: McpServer): boolean {
     const holdsPlaceholder = (value: string | undefined) => value?.includes('${') === true
     return Object.keys(server.headers).length > 0 || holdsPlaceholder(server.url) || holdsPlaceholder(server.command) || server.args.some(holdsPlaceholder)
 }
-
 export async function discoverDeviceAuth(mcpUrl: string): Promise<DeviceAuth> {
     const origin = new URL(mcpUrl).origin
-    const res = await fetch(`${origin}/.well-known/oauth-protected-resource`)
+    await assertPublicUrl(origin)
+    const res = await fetchPublic(`${origin}/.well-known/oauth-protected-resource`, {}, { timeoutMs: 15_000 })
     if (!res.ok) throw new Error(`no OAuth metadata at ${origin} (${res.status})`)
     const meta = (await res.json()) as {
         authorization_servers?: string[]
@@ -49,18 +50,32 @@ export async function discoverDeviceAuth(mcpUrl: string): Promise<DeviceAuth> {
     const hinted = meta.higgsfield_auth_hints?.options?.find(o => o.flow === 'device_code')?.authorization_server
     const base = hinted ?? meta.authorization_servers?.find(s => s.includes('device'))
     if (!base) throw new Error('this MCP server does not advertise a device-code OAuth flow')
+    await assertPublicUrl(base)
     return { deviceEndpoint: `${trimSlash(base)}/authorize`, tokenEndpoint: `${trimSlash(base)}/token` }
 }
 
+function isHttpUri(value: unknown): value is string {
+    if (typeof value !== 'string') return false
+    try {
+        return /^https?:$/.test(new URL(value).protocol)
+    } catch {
+        return false
+    }
+}
+
 export async function startDeviceFlow(auth: DeviceAuth): Promise<DeviceStart> {
-    const res = await fetch(auth.deviceEndpoint, {
+    await assertPublicUrl(auth.deviceEndpoint)
+    const res = await fetchPublic(auth.deviceEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ client_id: DEVICE_CLIENT_ID, scope: DEVICE_SCOPE }).toString(),
-    })
+    }, { timeoutMs: 15_000 })
     if (!res.ok) throw new Error(`device authorization request failed (${res.status})`)
-    const data = (await res.json()) as { device_code: string; verification_uri: string; interval?: number; expires_in?: number }
-    return { deviceCode: data.device_code, verificationUri: data.verification_uri, interval: data.interval ?? 5, expiresIn: data.expires_in ?? 900 }
+    const data = (await res.json()) as { device_code: string; verification_uri?: unknown; interval?: number; expires_in?: number }
+    if (!isHttpUri(data.verification_uri)) throw new Error('device authorization returned an unusable verification URI')
+    await assertPublicUrl(data.verification_uri)
+    const interval = Math.min(60, Math.max(1, Number.isFinite(data.interval) ? data.interval! : 5))
+    return { deviceCode: data.device_code, verificationUri: data.verification_uri, interval, expiresIn: data.expires_in ?? 900 }
 }
 
 function tokenFromResponse(data: Record<string, unknown>): StoredToken {
@@ -81,11 +96,11 @@ export async function pollDeviceToken(auth: DeviceAuth, start: DeviceStart, opts
     let sawPending = false
     while (Date.now() < deadline) {
         await sleep(interval * 1000)
-        const res = await fetch(auth.tokenEndpoint, {
+        const res = await fetchPublic(auth.tokenEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ device_code: start.deviceCode }),
-        })
+        }, { timeoutMs: 15_000 })
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
         if (data.access_token) return tokenFromResponse(data)
         const detail = String(data.detail ?? data.error ?? res.status)
@@ -115,11 +130,11 @@ async function refreshWithEndpoint(token: StoredToken): Promise<StoredToken | nu
         const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: token.refreshToken })
         if (token.clientId) body.set('client_id', token.clientId)
         if (token.clientSecret) body.set('client_secret', token.clientSecret)
-        const res = await fetch(token.tokenEndpoint, {
+        const res = await fetchPublic(token.tokenEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString(),
-        })
+        }, { timeoutMs: 15_000 })
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
         if (data.access_token) {
             const next = tokenFromResponse(data)
@@ -139,11 +154,11 @@ async function refreshWithEndpoint(token: StoredToken): Promise<StoredToken | nu
 async function refreshToken(auth: DeviceAuth, token: StoredToken): Promise<StoredToken | null> {
     if (!token.refreshToken) return null
     try {
-        const res = await fetch(auth.tokenEndpoint, {
+        const res = await fetchPublic(auth.tokenEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ grant_type: 'refresh_token', client_id: DEVICE_CLIENT_ID, refresh_token: token.refreshToken }),
-        })
+        }, { timeoutMs: 15_000 })
         const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
         if (data.access_token) {
             const next = tokenFromResponse(data)

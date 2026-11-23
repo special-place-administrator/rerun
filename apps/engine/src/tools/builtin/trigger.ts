@@ -1,13 +1,17 @@
 import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
 import { providerSchema, triggerMethodSchema } from '@moldwright/contracts'
-import { deleteTrigger, listTriggers, readTrigger, rotateTriggerToken, triggerExists, writeTrigger } from '../../triggers/loader.js'
+import { deleteTrigger, listTriggers, readTrigger, rotateTriggerToken, triggerExists, writeTrigger, type Trigger } from '../../triggers/loader.js'
 import { triggerPublicUrl, urlLine } from '../../triggers/url.js'
 import type { RunContext } from '../../runtime/context.js'
 import { PROVIDER_WITHOUT_MODEL, pinnedModel } from './automation-model.js'
+import { taintRefusal } from './taint.js'
+
+const URL_HIDDEN_WHILE_TAINTED = "Its public URL is hidden: untrusted external input entered this run. The user can copy it from the coworker's Triggers tab in Rerun."
 
 export function triggerTools(ctx: RunContext): ToolSet {
     const id = ctx.agent.id
+    const publicUrlLine = async (trigger: Trigger) => (ctx.taintedByUntrustedInput ? URL_HIDDEN_WHILE_TAINTED : urlLine(await triggerPublicUrl(id, trigger)))
     return {
         trigger_list: tool({
             description: 'List your webhook triggers. Each one exposes a public URL that starts a run when an external service calls it. Instruction bodies are not included here; read one in full with trigger_get.',
@@ -38,8 +42,7 @@ export function triggerTools(ctx: RunContext): ToolSet {
                 const pin = await pinnedModel(ctx, provider, model)
                 if ('refusal' in pin) return pin.refusal
                 const trigger = await writeTrigger(id, { name, description, body, methods, ...pin }, ctx.author)
-                const url = await triggerPublicUrl(id, trigger)
-                return `Created trigger ${trigger.slug} (${trigger.methods.join('/')}). ${urlLine(url)}`
+                return `Created trigger ${trigger.slug} (${trigger.methods.join('/')}). ${await publicUrlLine(trigger)}`
             },
         }),
         trigger_get: tool({
@@ -49,14 +52,13 @@ export function triggerTools(ctx: RunContext): ToolSet {
             execute: async ({ slug }) => {
                 if (!triggerExists(id, slug)) return `Trigger not found: ${slug}`
                 const trigger = await readTrigger(id, slug)
-                const url = await triggerPublicUrl(id, trigger)
                 const lines = [
                     `${trigger.name} (${trigger.slug})`,
                     trigger.description ? `Description: ${trigger.description}` : '',
                     `Methods: ${trigger.methods.join('/')}`,
                     `Enabled: ${trigger.enabled}`,
                     `Calls: ${trigger.fireCount}${trigger.lastFiredAt ? ` (last ${trigger.lastFiredAt})` : ''}`,
-                    urlLine(url),
+                    await publicUrlLine(trigger),
                     '',
                     trigger.body,
                 ]
@@ -127,10 +129,11 @@ export function triggerTools(ctx: RunContext): ToolSet {
             description: 'Rotate a webhook trigger secret, which changes its public URL. Every service already calling the old URL stops working, so confirm with the user first.',
             inputSchema: z.object({ slug: z.string() }),
             execute: async ({ slug }) => {
+                const refusal = taintRefusal(ctx, 'trigger_rotate_token')
+                if (refusal) return refusal
                 if (!triggerExists(id, slug)) return `Trigger not found: ${slug}`
-                const trigger = await rotateTriggerToken(id, slug)
-                const url = await triggerPublicUrl(id, trigger)
-                return `Rotated the secret of ${slug}. ${urlLine(url)}`
+                const trigger = await rotateTriggerToken(id, slug, { clearTrust: true })
+                return `Rotated the secret of ${slug}. ${await publicUrlLine(trigger)}`
             },
         }),
         trigger_delete: tool({

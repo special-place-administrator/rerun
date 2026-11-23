@@ -1,4 +1,5 @@
 import { modelSeesImages } from '../../agents/opencode.js'
+import { taintRefusal } from './taint.js'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -211,6 +212,8 @@ export function computerTools(ctx: RunContext): { tools: ToolSet; release: () =>
 
     const openApp = async (app: DesktopApp, url: string | undefined): Promise<void> => {
         if (app === 'terminal' && !ctx.agent.config.tools.shell) throw new ControlRefusal('The terminal is off for this agent: its shell tool is disabled.')
+        const tainted = app === 'terminal' ? taintRefusal(ctx, 'opening the terminal') : null
+        if (tainted) throw new ControlRefusal(tainted)
         if (app === 'files' && !ctx.agent.config.tools.filesystem) throw new ControlRefusal('The file manager is off for this agent: its filesystem tool is disabled.')
         if (app === 'browser') releases.push(await holdBrowser(id, url))
         await openDesktopApp(id, app)

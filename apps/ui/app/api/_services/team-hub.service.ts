@@ -1,4 +1,4 @@
-import { workspaceActor } from '@/app/api/_auth/access'
+import { readAgentActor, workspaceActor } from '@/app/api/_auth/access'
 import { getAgent } from '@/lib/engine/client'
 import { resolveAgentTarget } from './chat.service'
 import { dispatchAccountTool } from './mcp-account.service'
@@ -30,6 +30,6 @@ function withoutTriggerUrls(result: unknown): unknown {
 
 export async function dispatchTeamHubTool(callerAgentId: string, workspaceId: number, name: TeamTool, args: Record<string, unknown>): Promise<unknown> {
     await assertTeamSwitchedOn(callerAgentId, workspaceId)
-    const result = await dispatchAccountTool(workspaceActor(workspaceId), TEAM_READS[name], args)
+    const result = await dispatchAccountTool(await readAgentActor(callerAgentId, workspaceId), TEAM_READS[name], args)
     return name === 'team_list_triggers' ? withoutTriggerUrls(result) : result
 }

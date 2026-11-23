@@ -28,6 +28,7 @@ import {
     unregisterSubRunStop,
     type SubRunProgress,
 } from './sub-run-watch.js'
+import { taintRefusal } from './taint.js'
 
 const MAX_CONCURRENCY = 4
 
@@ -73,6 +74,8 @@ export function delegateTools(ctx: RunContext): ToolSet {
                     .describe('One task, or several in parallel'),
             }),
             execute: async ({ tasks }, { toolCallId, abortSignal }) => {
+                const refusal = taintRefusal(ctx, 'delegate_tasks')
+                if (refusal) return refusal
                 const connection = ctx.agent.resolved.connection
                 const refused = [...new Set(tasks.flatMap(t => (t.model && !(connection && servesModel(connection, t.model)) ? [t.model] : [])))]
                 if (refused.length > 0) {

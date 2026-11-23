@@ -4,21 +4,19 @@ import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
 import { assertCommandAllowed } from '../sandbox.js'
 import { agentProcessEnv } from '../../agents/process-env.js'
-import { readSharedEnvSync, secretValuesOf } from '../../agents/shared-env.js'
+import { agentSecretValues } from '../../agents/shared-env.js'
 import { sessionLabels } from '../../agents/session-labels.js'
 import { childProcessEnv } from '../../lib/child-env.js'
+import { redactSecrets } from '../../lib/redact-secrets.js'
 import { HostBreaker, hostsOf, httpFailureInOutput, withHostBreaker, type HostAttempt } from '../host-breaker.js'
 import type { RunContext } from '../../runtime/context.js'
+import { taintRefusal } from './taint.js'
 
 export type ShellRunner = (command: string, options: ExecOptions) => Promise<{ stdout: string; stderr: string }>
 
 const execAsync = promisify(exec) as unknown as ShellRunner
 
 type ShellError = { stdout?: string; stderr?: string; message: string; killed?: boolean; signal?: string }
-
-function redactSecrets(text: string, secrets: string[]): string {
-    return secrets.reduce((out, secret) => out.split(secret).join('[redacted]'), text)
-}
 
 export function shellTools(ctx: RunContext, run: ShellRunner = execAsync): ToolSet {
     const { cwd, env: agentEnv } = agentProcessEnv(
@@ -44,8 +42,10 @@ export function shellTools(ctx: RunContext, run: ShellRunner = execAsync): ToolS
             }),
             execute: async ({ command, timeoutMs }) => {
                 assertCommandAllowed(command)
+                const refusal = taintRefusal(ctx, 'shell_exec', command)
+                if (refusal) return refusal
                 return withHostBreaker(breaker, hostsOf(command), async (): Promise<HostAttempt> => {
-                    const secrets = secretValuesOf({ ...readSharedEnvSync(), ...ctx.agent.env })
+                    const secrets = agentSecretValues(ctx.agent)
                     try {
                         const { stdout, stderr } = await run(command, { cwd, env, timeout: timeoutMs, maxBuffer: 10_000_000, signal: ctx.abortSignal })
                         const text = redactSecrets(`${stdout}${stderr ? `\n[stderr]\n${stderr}` : ''}`, secrets).slice(0, 50_000) || '(no output)'

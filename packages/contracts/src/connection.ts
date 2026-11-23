@@ -150,6 +150,8 @@ export function claudeTokenIssue(value: string): ClaudeTokenIssue | null {
     return null
 }
 
+export const CUSTOM_BASE_URL_AUTH_KEY = 'CUSTOM_BASE_URL_AUTH'
+
 export const CONNECTION_SATELLITE_KEYS: Record<z.infer<typeof providerSchema>, string[]> = {
     rerun: [],
     anthropic: [],
@@ -159,7 +161,7 @@ export const CONNECTION_SATELLITE_KEYS: Record<z.infer<typeof providerSchema>, s
     google: ['GOOGLE_API_KEY'],
     openrouter: [],
     opencode: [],
-    custom: [],
+    custom: [CUSTOM_BASE_URL_AUTH_KEY],
 }
 
 export const CONNECTION_ENV_KEYS: string[] = [...Object.values(CONNECTION_TOKEN_KEY).filter(Boolean), ...Object.values(CONNECTION_SATELLITE_KEYS).flat()]

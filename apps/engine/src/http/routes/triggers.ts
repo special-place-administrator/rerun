@@ -48,6 +48,7 @@ triggerRoutes.patch('/:slug', async c => {
         connectionId: body.connectionId !== undefined ? body.connectionId : current.connectionId,
         provider: body.provider !== undefined ? body.provider : current.provider,
         model: body.model !== undefined ? body.model : current.model,
+        trustedPayload: body.trustedPayload ?? (body.body === undefined || body.body === current.body ? current.trustedPayload : false),
     })
     return c.json(trigger)
 })

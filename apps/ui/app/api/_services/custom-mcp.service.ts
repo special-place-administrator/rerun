@@ -1,7 +1,7 @@
 import type { Actor } from '@/app/api/_auth/access'
 import { resolveAgentTarget } from '@/app/api/_services/chat.service'
 import { installedFromRegistry } from '@/app/api/_services/services.service'
-import { deleteMcpToken, getAgent, getMcpServerStatuses, getMcpSessionStates as fetchMcpSessionStates, patchMcpServers, reconnectMcpServer } from '@/lib/engine/client'
+import { deleteMcpToken, enableMcpServer, EngineRequestError, getAgent, getMcpServerStatuses, getMcpSessionStates as fetchMcpSessionStates, patchMcpServers, reconnectMcpServer } from '@/lib/engine/client'
 import type { EngineConnection, EngineMcpServer } from '@/lib/engine/types'
 import { brandLabel, mcpIconDomain, mcpServerHost, toCustomMcpServer, unclaimedMcpServers } from '@/lib/services/custom-mcp'
 import { verifiedFaviconUrl } from '@/lib/services/mcp-favicon.server'
@@ -53,7 +53,7 @@ export async function getCustomMcpStatuses(agentId: string, actor?: Actor): Prom
     if (names.length === 0) return []
     const statuses = await getMcpServerStatuses(conn, engineAgentId, names)
     if (!statuses) return names.map(name => ({ name, status: 'unknown', toolCount: 0 }))
-    return statuses.map(({ name, status, toolCount, error }) => ({ name, status, toolCount, ...(error ? { error } : {}) }))
+    return statuses.map(({ name, status, toolCount, error, code, missingEnv }) => ({ name, status, toolCount, ...(error ? { error } : {}), ...(code ? { code } : {}), ...(missingEnv?.length ? { missingEnv } : {}) }))
 }
 
 export async function getMcpSessionStates(agentId: string, actor?: Actor): Promise<{ name: string; state: string; errorClass?: string }[]> {
@@ -75,6 +75,17 @@ export async function getCustomMcpServer(agentId: string, name: string, actor?: 
     if (!server) return null
     const statuses = await getMcpServerStatuses(conn, engineAgentId, [name]).catch(() => null)
     return { server, status: statuses?.find(entry => entry.name === name)?.status ?? 'unknown' }
+}
+
+export async function enableCustomMcpServer(agentId: string, name: string, acceptUnpinned: boolean, actor?: Actor): Promise<{ needsAck: boolean }> {
+    const { conn, engineAgentId } = await resolveAgentTarget(agentId, actor, 'manage')
+    try {
+        await enableMcpServer(conn, engineAgentId, name, acceptUnpinned)
+        return { needsAck: false }
+    } catch (e) {
+        if (e instanceof EngineRequestError && e.status === 409 && !acceptUnpinned) return { needsAck: true }
+        throw e
+    }
 }
 
 export async function removeCustomMcpServer(agentId: string, name: string, actor?: Actor): Promise<void> {
