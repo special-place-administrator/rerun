@@ -23,7 +23,6 @@ DEPARTMENTS = (
     ("tools/factory", "tooling"), (".github", "tooling"), ("deploy", "tooling"), ("docs", "docs"),
 )
 MAX_BYTES = 200 * 1024
-JOBS_BYTES = 150 * 1024
 DIGEST_BYTES = 16 * 1024
 EPICS_BYTES = 6 * 1024
 PLANNING_BYTES = 8 * 1024
@@ -34,7 +33,6 @@ HISTORY_MAX = 10
 RUNS_MAX = 6
 SHORT_MAX = 40
 REPOS_MAX = 50
-READY_MAX = 5
 READY_LINES_MAX = 10
 WHY_MAX = 120
 PROBES_MAX = 5
@@ -215,16 +213,18 @@ def _sections(snap):
         snap.pop("plan", None)
     small = lambda: size([snap.get("machine"), snap.get("runStats"), snap["pools"], snap["holds"]])
     m = snap.get("machine")
+    if isinstance(m, dict) and small() > SMALL_BYTES:
+        m = snap["machine"] = dict(m, readings=list(m.get("readings") or []))
     while isinstance(m, dict) and m.get("readings") and small() > SMALL_BYTES:
         m["readings"].pop()
     if isinstance(m, dict) and small() > SMALL_BYTES:
         del snap["machine"]
+
+
+def _lists(snap):
     p = snap.get("projects")
     if isinstance(p, dict):
         p["repos"] = list(p.get("repos") or [])[:REPOS_MAX]
-        p["ready"] = [dict(r, lines=[dict(x, why=str(x.get("why") or "")[:WHY_MAX]) for x in (r.get("lines") or [])[:READY_LINES_MAX]])
-                      for r in (p.get("ready") or [])[:READY_MAX]]
-        p["probes"] = list(p.get("probes") or [])[:PROBES_MAX]
     w = snap.get("work_order")
     if isinstance(w, dict):
         for k in ("issues", "done", "skipped"):
@@ -237,6 +237,26 @@ def _sections(snap):
         t["stations"] = dict(sorted(t["stations"].items())[:STATIONS_MAX])
 
 
+def _ready(snap, lines, probes):
+    p = snap.get("projects")
+    if not isinstance(p, dict):
+        return
+    p["probes"] = list(p.get("probes") or [])[-probes:]
+    p["ready"] = [dict(r, lines=[dict(x, why=str(x.get("why") or "")[:WHY_MAX]) for x in (r.get("lines") or [])[:lines]])
+                  for r in p.get("ready") or []]
+
+
+def _drop_ready(snap):
+    p = snap.get("projects")
+    if not isinstance(p, dict):
+        return
+    keep = {snap.get("repo"), snap.get("home")}
+    for r in sorted([r for r in p["ready"] if r.get("repo") not in keep], key=lambda r: str(r.get("at") or "")):
+        if not _over(snap):
+            return
+        p["ready"] = [x for x in p["ready"] if x is not r]
+
+
 class _Jobs:
     def __init__(self, snap):
         self.snap, self.rest = snap, size(dict(snap, jobs=[])) - 2
@@ -244,7 +264,7 @@ class _Jobs:
         self.jobs = size(snap["jobs"])
 
     def over(self):
-        return self.jobs > JOBS_BYTES or self.rest + self.jobs > MAX_BYTES
+        return self.rest + self.jobs > MAX_BYTES
 
     def empty(self, j):
         j["history"], j["runs"] = [], []
@@ -258,10 +278,12 @@ class _Jobs:
 
 
 def _over(snap):
-    return size(snap) > MAX_BYTES or size(snap["jobs"]) > JOBS_BYTES
+    return size(snap) > MAX_BYTES
 
 
 def fit(snap):
+    if not _over(snap):
+        return snap
     _sections(snap)
     t = _Jobs(snap)
     order = sorted(snap["jobs"], key=lambda j: (j["state"] not in END, j["enteredAt"]))
@@ -277,11 +299,10 @@ def fit(snap):
         return snap
     for j in snap["jobs"]:
         j["title"], j["reason"] = j["title"][:SHORT_MAX], _cut(j["reason"], SHORT_MAX)
-    if not _over(snap):
-        return snap
-    p = snap.get("projects")
-    if isinstance(p, dict):
-        p.update(repos=p["repos"][:10], ready=p["ready"][:1], probes=p["probes"][:1])
+    for step in (_lists, lambda s: _ready(s, READY_LINES_MAX, PROBES_MAX), lambda s: _ready(s, 1, 1), _drop_ready):
+        if not _over(snap):
+            return snap
+        step(snap)
     if not _over(snap):
         return snap
     small = {k: snap[k] for k in MINIMAL if k in snap}
