@@ -1,0 +1,62 @@
+[
+  {
+    "id": "1635",
+    "seed": "#1572 merged as #1577 at e47cb2c and stays open: its events end with `labeled` at 21:04:41 and no `closed`, so the builder left out the \"Closes #%s\" line the build brief asks for.",
+    "source": "e47cb2c (PR #1577, job #1572); seed issue #1635",
+    "pr": {"title": "test: pr-open retry tests stub only run and time.sleep (#1572)", "body": ""},
+    "files": [
+      {"filename": "tools/factory/test_factory.py", "status": "modified", "additions": 25, "deletions": 16,
+       "patch": "@@ -540,31 +540,40 @@ class PrOpenRetry(FactoryCase):\n \n     def pr_open(self, results):\n         pending = list(results)\n-        top = os.path.join(self.tmp, \"top\")\n-        os.makedirs(top, exist_ok=True)\n+        path = self.wt(\"1572\", \"1\")\n+        git(path, \"remote\", \"set-url\", \"--push\", \"origin\", self.origin)\n+        issue = {\"number\": 1572, \"body\": \"**Files**\\n- `notes.txt`\\n\"}\n \n         def fake_run(cmd, *a, **k):\n+            if cmd[0] == F.GH and cmd[1:2] == [\"api\"]:\n+                return subprocess.CompletedProcess(cmd, 0, json.dumps(issue), \"\")\n             if cmd[:3] == [F.GH, \"pr\", \"create\"]:\n-            if cmd[:2] == [F.GH, \"pr\"]:\n+            if cmd[0] == F.GH:"}
+    ],
+    "evidence": ["issue = {\"number\": 1572", "if cmd[0] == F.GH and cmd[1:2] == [\"api\"]:"],
+    "judge": {"BRUCE": 0.15, "CODD": 0.1, "GRACE": 0.55, "FRED": 0.05},
+    "expect": {"BRUCE": "no", "CODD": "no", "GRACE": "unsure", "FRED": "no", "not_linus_alone": true}
+  },
+  {
+    "id": "MW-NOSTART",
+    "seed": "there is no way to start it",
+    "source": "43e9b723 (work runs only for the owner's project and work order)",
+    "pr": {"title": "feat(factory): work runs only for the owner's project and work order", "body": ""},
+    "files": [
+      {"filename": "tools/factory/lines.py", "status": "modified", "additions": 70, "deletions": 8,
+       "patch": "@@ -226,6 +229,58 @@ class Lines:\n+    def work(self):\n+        order = self.order()\n+        if not self.chosen():\n+            return {\"wait\": \"no project chosen\", \"issues\": [], \"order\": []}\n+        if order is None or order.get(\"repo\") != self.active:\n+            return {\"wait\": \"no work order\", \"issues\": [], \"order\": []}\n@@ -402,6 +457,9 @@ class Lines:\n         out = {}\n+        out[\"work_order\"] = {\"id\": order.get(\"id\"), \"repo\": order.get(\"repo\"), \"kind\": order.get(\"kind\"), \"wait\": work[\"wait\"]}"},
+      {"filename": "tools/factory/dispatch.py", "status": "modified", "additions": 25, "deletions": 3,
+       "patch": "@@ -683,6 +683,10 @@ class Dispatcher:\n     def control_hold(self):\n         now = self.now()\n+        if self.work is not None and self.work.get(\"wait\"):\n+            holds.arm(self.store, \"no work\", now + 2 * self.cfg.get(\"poll_s\", 30))\n@@ -1592,6 +1614,8 @@ class Dispatcher:\n+        if st in states.QUEUE and self.work is not None and j[\"issue\"] not in self.work[\"issues\"]:\n+            return"},
+      {"filename": "tools/factory/holds.py", "status": "modified", "additions": 1, "deletions": 1,
+       "patch": "@@ -2,7 +2,7 @@ import json\n-KINDS = (\"stopped\", \"draining\", \"paused\", \"update\", \"plan limit\")\n+KINDS = (\"stopped\", \"draining\", \"paused\", \"no work\", \"update\", \"plan limit\")"}
+    ],
+    "evidence": ["return {\"wait\": \"no project chosen\", \"issues\": [], \"order\": []}", "holds.arm(self.store, \"no work\"", "j[\"issue\"] not in self.work[\"issues\"]"],
+    "judge": {"BRUCE": 0.1, "CODD": 0.25, "GRACE": 0.6, "FRED": 0.8},
+    "expect": {"BRUCE": "no", "CODD": "no", "GRACE": "unsure", "FRED": "yes", "not_linus_alone": true}
+  },
+  {
+    "id": "1760@ebccf89e",
+    "seed": "B1 BLOCKING - unconditional head-slices drop the entries the hub reads",
+    "source": "ebccf89e (PR #1760 first head, LINUS REJECT)",
+    "pr": {"title": "fix(factory): fit the final report snapshot, extras included, under 200 KB", "body": ""},
+    "files": [
+      {"filename": "tools/factory/snapshot.py", "status": "modified", "additions": 128, "deletions": 24,
+       "patch": "@@ -20,7 +20,27 @@\n-MAX_BYTES = 256 * 1024\n+MAX_BYTES = 200 * 1024\n+READY_MAX = 5\n+PROBES_MAX = 5\n@@ -120,6 +140,40 @@ def _sections(snap):\n     p = snap.get(\"projects\")\n     if isinstance(p, dict):\n+        p[\"ready\"] = [dict(r, lines=(r.get(\"lines\") or [])[:READY_LINES_MAX])\n+                      for r in (p.get(\"ready\") or [])[:READY_MAX]]\n+        p[\"probes\"] = list(p.get(\"probes\") or [])[:PROBES_MAX]"},
+      {"filename": "tools/factory/dispatch.py", "status": "modified", "additions": 3, "deletions": 0,
+       "patch": "@@ -2500,6 +2500,9 @@ class Dispatcher:\n+            snap = snapshot.fit(snap)\n+            if set(snap) <= set(snapshot.MINIMAL):\n+                log(\"-\", \"report trimmed to %d B\" % snapshot.size(snap))"}
+    ],
+    "evidence": ["p[\"probes\"] = list(p.get(\"probes\") or [])[:PROBES_MAX]", "for r in (p.get(\"ready\") or [])[:READY_MAX]]"],
+    "judge": {"BRUCE": 0.05, "CODD": 0.2, "GRACE": 0.78, "FRED": 0.4},
+    "expect": {"BRUCE": "no", "CODD": "no", "GRACE": "yes", "FRED": "unsure", "not_linus_alone": true}
+  },
+  {
+    "id": "1762@fc13f33e",
+    "seed": "B1 BLOCKING: concurrent posts stall the engine event loop for 5 s each, then fail with a 500.",
+    "source": "fc13f33e (PR #1762 head, LINUS REJECT)",
+    "pr": {"title": "feat(engine): agent message bus store", "body": ""},
+    "files": [
+      {"filename": "apps/engine/src/bus/ddl.ts", "status": "added", "additions": 99, "deletions": 0,
+       "patch": "@@ -0,0 +1,99 @@\n+export const BUS_DDL = `\n+CREATE TABLE IF NOT EXISTS bus_messages (\n+    seq INTEGER PRIMARY KEY AUTOINCREMENT,\n+    sender TEXT NOT NULL,\n+    body TEXT NOT NULL,\n+    UNIQUE (sender, idem_key)\n+);"},
+      {"filename": "apps/engine/src/bus/store.ts", "status": "added", "additions": 257, "deletions": 0,
+       "patch": "@@ -0,0 +1,257 @@\n+async function inTransaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {\n+    const tx = await raw().transaction('write')\n+    const labels = secretLabels([message.body, message.idem_key, message.topic ?? '', ...message.to], sender.secrets)\n+    if (labels.length > 0) throw refuse(403, 'bus_secret', `refused: the message carries a secret (${labels.join(', ')})`)"}
+    ],
+    "evidence": ["CREATE TABLE IF NOT EXISTS bus_messages (", "throw refuse(403, 'bus_secret'", "const tx = await raw().transaction('write')"],
+    "judge": {"BRUCE": 0.75, "CODD": 0.85, "GRACE": 0.25, "FRED": 0.05},
+    "expect": {"BRUCE": "yes", "CODD": "yes", "GRACE": "no", "FRED": "no", "not_linus_alone": true}
+  }
+]
