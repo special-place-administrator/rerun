@@ -50,7 +50,7 @@ export function FactoryPage() {
 
     const snapshot = answer?.snapshot
     const scene = useCallback((_: number, now: number) => sceneFromSnapshot(snapshot!, now), [snapshot])
-    const { workspace } = useSession()
+    const { workspace, user } = useSession()
 
     const [selected, setSelected] = useState<number | null>(null)
     const [bucket, setBucket] = useState<Bucket | null>(null)
@@ -107,6 +107,7 @@ export function FactoryPage() {
             <FactoryWorld
                 {...(snapshot ? { scene, selectedIssue: selected, onSelectJob: onSelect, onOpenBucket, onOpenCoworker: openByName } : {})}
                 {...(workspace ? { workspace: String(workspace.id) } : {})}
+                cameraScope={`factory:${workspace?.id ?? 'sample'}${user ? `:${user.id}` : ''}`}
                 snapshot={snapshot ?? null}
                 rightInset={rightInset}
                 theme={resolvedTheme === 'light' ? 'light' : 'dark'}

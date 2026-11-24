@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipLabeled, TooltipTrigger } from '@/compo
 import { applyMoves, canMove, copyTree, dropReason, layoutStorageKey, loadLayout, readMoves, saveLayout, subscribeLayout, treeRoutes } from './factory-layout'
 import { type Bucket } from './factory-bucket'
 import { METRICS, barModel, hasData, type MetricDef, type MetricGroup, type MetricKey, type MetricValues } from './factory-metrics'
+import { clearCamera, readCamera, writeCamera } from '@/lib/camera-storage'
 import { cn } from '@/lib/utils'
 import { FactoryBarFrame } from './FactoryBarFrame'
 import { BAR_TIERS } from './factory-bar-tiers'
@@ -52,7 +53,7 @@ function LiveOverlay({ start, tiles, routes, scene, selectedIssue, onSelectJob, 
     return <FactoryOverlay tiles={tiles} routes={routes} pods={frame.pods} cabinets={frame.cabinets} plans={frame.plans ?? []} rejects={frame.rejects} held={frame.held} holdLeftMs={frame.holdLeftMs} links={frame.links} selectedIssue={selectedIssue} {...(onSelectJob ? { onSelectJob } : {})} {...(onOpenBucket ? { onOpenBucket } : {})} />
 }
 
-export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace = 'sample', selectedIssue = null, onSelectJob, onOpenBucket, onOpenCoworker, rightInset = 0, snapshot = null, topBar }: { theme?: 'light' | 'dark'; scene?: SceneFn; workspace?: string; selectedIssue?: number | null; onSelectJob?: (issue: number) => void; onOpenBucket?: (bucket: Bucket) => void; onOpenCoworker?: (name: string) => void; rightInset?: number; snapshot?: FactorySnapshot | null; topBar?: ReactNode }) {
+export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace = 'sample', selectedIssue = null, onSelectJob, onOpenBucket, onOpenCoworker, rightInset = 0, snapshot = null, topBar, cameraScope = `factory:${workspace}` }: { theme?: 'light' | 'dark'; scene?: SceneFn; workspace?: string; cameraScope?: string; selectedIssue?: number | null; onSelectJob?: (issue: number) => void; onOpenBucket?: (bucket: Bucket) => void; onOpenCoworker?: (name: string) => void; rightInset?: number; snapshot?: FactorySnapshot | null; topBar?: ReactNode }) {
     const t = useTranslations('factory.floor')
     const locale = useLocale()
     const [clock, setClock] = useState(() => ({ start: Date.now(), now: Date.now() }))
@@ -107,12 +108,20 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     const floor = useMemo(() => (size ? floorFrame({ stage: size, rightInset, topSpace, bottomSpace: barSpace, overhead: OVERHEAD_PX, side: SIDE_PX }) : null), [size, rightInset, barSpace, topSpace])
     const fitZoom = useMemo(() => (floor ? frameTemplateBoard(corners, floor, 2, 0.94, ZOOM_RANGE.min).zoom : null), [floor, corners])
 
-    const [camera, setCamera] = useState<IsoCamera | null>(null)
-    const [zoom, setZoom] = useState(1)
+    const [camera, setCamera] = useState<IsoCamera | null>(() => readCamera(cameraScope))
+    const [zoom, setZoom] = useState(() => camera?.zoom ?? 1)
+    const [scopeRead, setScopeRead] = useState(cameraScope)
+    const [userCamera, setUserCamera] = useState(() => camera !== null)
     const [moreMetricsRoot, setMoreMetricsRoot] = useState<HTMLDivElement | null>(null)
     const view = useRef<IsoCamera | null>(null)
     useEffect(() => { if (camera) view.current = camera }, [camera])
-    const onCameraChange = useCallback((c: IsoCamera) => { view.current = c; setZoom(c.zoom) }, [])
+    const onCameraChange = useCallback((c: IsoCamera) => {
+        view.current = c
+        setZoom(c.zoom)
+        if (!camera) return
+        writeCamera(cameraScope, { zoom: c.zoom, pan: c.pan })
+        setUserCamera(true)
+    }, [camera, cameraScope])
     const centred = (z: number) => {
         const c = botCentre({ tiles, pods: frame.pods, routes, floor: frame.containers })
         return { x: -c.x + (floor?.shiftX ?? 0) / z, y: -c.y + (floor?.shiftY ?? 0) / z }
@@ -121,20 +130,34 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
         setZoom(next.zoom)
         setCamera(prev => ({ ...next, nonce: (prev?.nonce ?? 0) + 1 }))
     }
+    const move = (next: IsoCamera) => {
+        show(next)
+        writeCamera(cameraScope, { zoom: next.zoom, pan: next.pan })
+        setUserCamera(true)
+    }
+    const showFit = () => { if (fitZoom !== null) show({ zoom: fitZoom, pan: centred(fitZoom) }) }
     const zoomTo = (z: number) => {
         const at = view.current ?? camera
-        if (at) show({ zoom: Math.min(ZOOM_RANGE.max, Math.max(ZOOM_RANGE.min, z)), pan: at.pan })
+        if (at) move({ zoom: Math.min(ZOOM_RANGE.max, Math.max(ZOOM_RANGE.min, z)), pan: at.pan })
     }
     const centre = () => {
         const z = view.current?.zoom ?? zoom
-        show({ zoom: z, pan: centred(z) })
+        move({ zoom: z, pan: centred(z) })
     }
-    const frameKey = floor && fitZoom !== null ? `${floor.width}x${floor.height}@${floor.shiftX},${floor.shiftY}:${snapshot ? 'live' : 'sample'}` : null
-    const [framed, setFramed] = useState<string | null>(null)
-    if (frameKey !== null && fitZoom !== null && frameKey !== framed) {
-        setFramed(frameKey)
-        show({ zoom: fitZoom, pan: centred(fitZoom) })
+    const resetLayout = () => {
+        saveLayout(storageKey, null)
+        clearCamera(cameraScope)
+        setUserCamera(false)
+        showFit()
     }
+    if (scopeRead !== cameraScope) {
+        setScopeRead(cameraScope)
+        const stored = readCamera(cameraScope)
+        if (stored) {
+            show(stored)
+            setUserCamera(true)
+        }
+    } else if (camera === null && floor) showFit()
     const onMapKey = (e: KeyboardEvent<HTMLDivElement>) => {
         if (e.target !== e.currentTarget) return
         const z = view.current?.zoom ?? zoom
@@ -158,7 +181,6 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
             <div data-factory-map role="region" tabIndex={0} aria-label={t('map')} onKeyDown={onMapKey}
                 className="absolute inset-0 overflow-hidden outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50">
             <IsoGrid
-                {...(stale ? { className: 'opacity-50' } : {})}
                 tiles={gridTiles}
                 containers={frame.containers}
                 liveLinks={tree}
@@ -221,9 +243,9 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                         </Popover>
                     </div>
                 )}
-                {moved && (
+                {(moved || userCamera) && (
                     <div className="flex items-center border-l border-border/70 pl-4">
-                        <Button type="button" variant="outline" size="sm" onClick={() => saveLayout(storageKey, null)}>
+                        <Button type="button" variant="outline" size="sm" onClick={resetLayout}>
                             Reset layout
                         </Button>
                     </div>

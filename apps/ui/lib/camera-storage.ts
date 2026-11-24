@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 const cameraSchema = z.object({
     pan: z.object({ x: z.number().finite(), y: z.number().finite() }),
-    zoom: z.number().min(0.3).max(3),
+    zoom: z.number().min(0.1).max(3),
 })
 
 export type Camera = z.infer<typeof cameraSchema>
@@ -46,6 +46,18 @@ export function writeCamera(scope: string, camera: Camera): void {
 export function flushCamera(): void {
     if (timer) clearTimeout(timer)
     commit()
+}
+
+export function clearCamera(scope: string): void {
+    if (pending?.scope === scope) {
+        pending = null
+        if (timer) clearTimeout(timer)
+        timer = null
+    }
+    try {
+        localStorage.removeItem(keyFor(scope))
+    } catch {
+    }
 }
 
 export function readCamera(scope: string | null): Camera | null {
