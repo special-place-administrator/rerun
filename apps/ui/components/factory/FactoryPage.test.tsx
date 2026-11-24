@@ -193,12 +193,14 @@ describe('factory page', () => {
     it('Talk to Boss opens the chat of the coworker named boss, and is disabled when there is none', async () => {
         await mount()
         const none = byText('button', 'Talk to Boss') as HTMLButtonElement
-        expect(none.disabled).toBe(true)
-        expect(none.title).not.toBe('')
+        expect(none.getAttribute('aria-disabled')).toBe('true')
+        expect(none.disabled).toBe(false)
+        await click(none)
+        expect(mocks.board.focusAgentOnBoard).not.toHaveBeenCalled()
         mocks.board.agents = [{ id: 'a1', name: 'Other' }, { id: 'b1', name: 'x', handle: 'Boss' }]
         await remount()
         const btn = byText('button', 'Talk to Boss') as HTMLButtonElement
-        expect(btn.disabled).toBe(false)
+        expect(btn.getAttribute('aria-disabled')).toBe('false')
         await click(btn)
         expect(mocks.board.focusAgentOnBoard).toHaveBeenCalledWith('b1', 'chat')
     })

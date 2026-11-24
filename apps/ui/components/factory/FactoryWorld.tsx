@@ -15,7 +15,9 @@ import { Tooltip, TooltipContent, TooltipLabeled, TooltipTrigger } from '@/compo
 import { applyMoves, canMove, copyTree, dropReason, layoutStorageKey, loadLayout, readMoves, saveLayout, subscribeLayout, treeRoutes } from './factory-layout'
 import { type Bucket } from './factory-bucket'
 import { METRICS, barModel, hasData, type MetricDef, type MetricGroup, type MetricKey, type MetricValues } from './factory-metrics'
+import { cn } from '@/lib/utils'
 import { FactoryBarFrame } from './FactoryBarFrame'
+import { BAR_TIERS } from './factory-bar-tiers'
 import { botCentre, floorFrame } from './factory-camera'
 import { FactoryOverlay } from './FactoryOverlay'
 import { LOOP_MS, factoryScene, type Cell, type FactoryFrame } from './factory-scene'
@@ -29,7 +31,7 @@ const ZOOM_STEP = 1.2
 
 const TICK_MS = 250
 const METRIC_GROUPS: MetricGroup[] = ['flow', 'cost', 'runs', 'plan']
-const FOLDING_GROUPS: MetricGroup[] = ['cost', 'runs']
+const FOLDING_GROUPS: MetricGroup[] = ['cost', 'runs', 'plan']
 
 function useStable<T>(value: T): T {
     const key = JSON.stringify(value)
@@ -107,6 +109,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
 
     const [camera, setCamera] = useState<IsoCamera | null>(null)
     const [zoom, setZoom] = useState(1)
+    const [moreMetricsRoot, setMoreMetricsRoot] = useState<HTMLDivElement | null>(null)
     const view = useRef<IsoCamera | null>(null)
     useEffect(() => { if (camera) view.current = camera }, [camera])
     const onCameraChange = useCallback((c: IsoCamera) => { view.current = c; setZoom(c.zoom) }, [])
@@ -186,22 +189,24 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
 
             <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef} className="items-stretch gap-4 px-5 py-3">
                 <div className="flex shrink-0 items-center gap-2 pr-1">
-                    <span className={`size-2 rounded-full ${stale ? 'bg-amber-500' : frame.held ? 'bg-red-500' : 'animate-pulse bg-emerald-500 motion-reduce:animate-none'}`} />
-                    {noData.length > 0 ? (
-                        <TooltipLabeled label={t('noData', { metrics: noData.map(m => m.label).join(', ') })}>
-                            <span data-no-data tabIndex={0} className="rounded-sm text-sm font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring/50">Factory</span>
-                        </TooltipLabeled>
-                    ) : <span className="text-sm font-semibold tracking-tight">Factory</span>}
+                    <TooltipLabeled label={<span className="flex flex-col gap-0.5"><span>Factory</span>{noData.length > 0 && <span>{t('noData', { metrics: noData.map(m => m.label).join(', ') })}</span>}</span>}>
+                        <span {...(noData.length > 0 ? { 'data-no-data': true } : {})} tabIndex={0}
+                            className="flex items-center gap-2 rounded-sm text-sm font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                            <span className={`size-2 rounded-full ${stale ? 'bg-amber-500' : frame.held ? 'bg-red-500' : 'animate-pulse bg-emerald-500 motion-reduce:animate-none'}`} />
+                            <span className={BAR_TIERS.t3.srOnly}>Factory</span>
+                        </span>
+                    </TooltipLabeled>
                     {stale && <span data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{t('lastBeat', { minutes: Math.max(1, Math.floor((frame.lastBeatMs ?? 0) / 60_000)) })}</span>}
                     {sample && <span className="text-[10px] text-muted-foreground">sample</span>}
                 </div>
                 {groups.map(({ group, metrics }) => (
-                    <div key={group} data-metric-group={group} className={`flex shrink-0 items-center gap-4 border-l border-border/70 pl-4${FOLDING_GROUPS.includes(group) ? ' @max-[1100px]:hidden' : ''}`}>
+                    <div key={group} data-metric-group={group}
+                        className={cn('flex shrink-0 items-center gap-4 border-l border-border/70 pl-4', FOLDING_GROUPS.includes(group) && BAR_TIERS.t3.hide)}>
                         {metrics.map(tile)}
                     </div>
                 ))}
                 {folded.length > 0 && (
-                    <div className="hidden shrink-0 items-center border-l border-border/70 pl-4 @max-[1100px]:flex">
+                    <div ref={setMoreMetricsRoot} className={cn('hidden shrink-0 items-center border-l border-border/70 pl-4', BAR_TIERS.t3.show)}>
                         <Popover>
                             <PopoverTrigger asChild>
                                 <button type="button" data-more-metrics aria-label={t('moreMetrics', { count: folded.length })}
@@ -210,7 +215,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                                     <span className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{t('moreLabel')}</span>
                                 </button>
                             </PopoverTrigger>
-                            <PopoverContent side="top" align="start" sideOffset={8} className="w-auto flex-row gap-4 rounded-2xl border border-border/60 bg-background/95 p-3 backdrop-blur-xl">
+                            <PopoverContent container={moreMetricsRoot} side="top" align="start" sideOffset={8} className="w-auto flex-row gap-4 rounded-2xl border border-border/60 bg-background/95 p-3 backdrop-blur-xl">
                                 {folded.map(tile)}
                             </PopoverContent>
                         </Popover>

@@ -4,15 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useLocale, useTranslations } from 'next-intl'
 import type { FactoryDepartment, FactorySnapshot } from '@moldwright/contracts'
 import { formatDate } from '@moldwright/i18n/format'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { TooltipLabeled } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { BAR_TIERS } from './factory-bar-tiers'
 import { FactoryBucket } from './FactoryBucket'
 import { FactoryInspector } from './FactoryInspector'
 import { FactoryLedger } from './FactoryLedger'
 import { FactoryProjectPicker } from './FactoryProjectPicker'
 import { FactoryRunControl } from './FactoryRunControl'
 import { FactoryStatePill } from './FactoryStatePill'
-import { FactoryPoolPick } from './FactoryThrottle'
+import { FactoryPoolMenu, FactoryPoolPick } from './FactoryThrottle'
 import { FactoryWorkOrders, FactoryWorkOrdersSkeleton } from './FactoryWorkOrders'
 import { SAMPLE_TEXT } from './FactoryTasks'
 import { type Bucket } from './factory-bucket'
@@ -78,11 +81,16 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
         return () => clearInterval(id)
     }, [])
     const [filter, setFilter] = useState<LedgerFilter | null>(null)
+    const tOrders = useTranslations('factory.orders')
     const [moreOpen, setMoreOpen] = useState(false)
+    const [activityOpen, setActivityOpen] = useState(false)
+    const [projectsOpen, setProjectsOpen] = useState(false)
+    const [ordersOpen, setOrdersOpen] = useState(false)
     const [root, setRoot] = useState<HTMLDivElement | null>(null)
     const pressedRef = useRef<HTMLElement | null>(null)
     const statusRef = useRef<HTMLDivElement>(null)
     const moreRef = useRef<HTMLButtonElement>(null)
+    const activityRef = useRef<HTMLButtonElement>(null)
     const open = snapshot !== null && (filter !== null || selected !== null || bucket !== null)
 
     const close = useCallback(() => {
@@ -110,7 +118,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
         setFilter(cur => (sameFilter(cur, f) ? null : f))
     }
 
-    const actionZone = action && <div data-zone="action" className={cn(ZONE, DIVIDED, 'ml-auto')}>{action}</div>
+    const actionZone = action && <div data-zone="action" className={cn(ZONE, DIVIDED, 'ml-auto', BAR_TIERS.t3.undivided)}>{action}</div>
     if (!snapshot) {
         return (
             <div data-topbar className={ROW}>
@@ -131,34 +139,56 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
     const inOrder = order ? waitingInOrder(epics, order.issues) : null
     const countOf = (key: MainChip) => (key === 'running' ? `${running}/${pool}` : key === 'waiting' && inOrder !== null ? inOrder : counts[key])
     const noteOf = (key: MainChip) => (key === 'waiting' && inOrder !== null ? t('waitingOutside', { count: counts.waiting - inOrder }) : undefined)
-    const clickIn = (selector: string) => root?.querySelector<HTMLButtonElement>(selector)?.click()
     const folded = MAIN_CHIPS.filter(c => FOLDING_CHIPS.includes(c.key))
+    const problemsDot = counts.problems > 0 ? { color: 'var(--destructive)' } : {}
+    const activityText = t('activity', { running, pool, problems: counts.problems })
+    const repo = controls.view?.activeRepo ?? null
+    const orderActive = repo !== null && (controls.view?.orders ?? []).some(o => o.repo === repo && o.status === 'active')
+    const moreControls = () => root?.querySelector<HTMLElement>('[data-more-controls]')
+    const ledgerAnchor = {
+        current: {
+            getBoundingClientRect: () => {
+                const at = (filter !== null ? pressedRef.current : statusRef.current)?.getBoundingClientRect() ?? new DOMRect()
+                const frame = root?.parentElement?.getBoundingClientRect() ?? at
+                return new DOMRect(at.left, frame.top, at.width, frame.height)
+            },
+        },
+    }
+    const orderItem = (afterClose: (open: () => void) => void) => controls.view === null ? null : repo === null ? (
+        <DropdownMenuItem disabled data-needs-project className="flex-col items-start gap-0.5">
+            <span>{tOrders('needsProject')}</span>
+            <span className="text-xs text-muted-foreground">{tOrders('needsProjectWhy')}</span>
+        </DropdownMenuItem>
+    ) : (
+        <DropdownMenuItem data-order-item onSelect={() => afterClose(() => setOrdersOpen(true))}>{orderActive ? tOrders('trigger') : tOrders('triggerAsk')}</DropdownMenuItem>
+    )
 
     return (
         <div ref={setRoot} data-topbar className={ROW}>
             <div data-zone="context" className={ZONE}>
                 {context}
-                <div className="min-w-0 max-w-50 @max-[760px]:max-w-30 [&>[data-project-picker]>button]:max-w-full">
-                    <FactoryProjectPicker snapshot={snapshot} />
+                <div className={cn('min-w-0 max-w-50 [&>[data-project-picker]>button]:max-w-full', BAR_TIERS.t3.repo)}>
+                    <FactoryProjectPicker snapshot={snapshot} open={projectsOpen} onOpenChange={setProjectsOpen} />
                 </div>
-                {controls.view === null && controls.loadError === null ? <FactoryWorkOrdersSkeleton /> : <FactoryWorkOrders snapshot={snapshot} controls={controls} />}
+                {controls.view === null && controls.loadError === null
+                    ? <div className={cn('flex', BAR_TIERS.t2.hide)}><FactoryWorkOrdersSkeleton /></div>
+                    : <FactoryWorkOrders snapshot={snapshot} controls={controls} open={ordersOpen} onOpenChange={setOrdersOpen} fallback={moreControls} className={BAR_TIERS.t2.hide} />}
             </div>
             <div data-zone="controls" className={cn(ZONE, DIVIDED)}>
-                <FactoryRunControl snapshot={snapshot} controls={controls} />
-                <FactoryPoolPick snapshot={snapshot} controls={controls} />
+                <FactoryRunControl snapshot={snapshot} controls={controls} moreItems={afterClose => <>{orderItem(afterClose)}<FactoryPoolMenu snapshot={snapshot} controls={controls} /></>} />
+                <div className={cn('flex shrink-0', BAR_TIERS.t2.hide)}><FactoryPoolPick snapshot={snapshot} controls={controls} /></div>
             </div>
             <div ref={statusRef} data-zone="status" className={cn(ZONE, DIVIDED)}>
-                <FactoryStatePill snapshot={snapshot} controls={controls} now={now}
-                    onProjects={() => clickIn('[data-project-picker] > button')} onChooseWork={() => clickIn('[data-work-orders] button')} />
+                <FactoryStatePill snapshot={snapshot} controls={controls} now={now} onProjects={() => setProjectsOpen(true)} onChooseWork={() => setOrdersOpen(true)} />
                 {MAIN_CHIPS.map(c => (
                     <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)} onPress={press}
-                        asOf={c.key === 'running' ? asOf : undefined} note={noteOf(c.key)} {...(FOLDING_CHIPS.includes(c.key) ? { className: '@max-[1050px]:hidden' } : {})}
-                        {...(c.key === 'problems' && counts.problems > 0 ? { color: 'var(--destructive)' } : {})} />
+                        asOf={c.key === 'running' ? asOf : undefined} note={noteOf(c.key)} className={FOLDING_CHIPS.includes(c.key) ? BAR_TIERS.t1.hide : BAR_TIERS.t3.hide}
+                        {...(c.key === 'problems' ? problemsDot : {})} />
                 ))}
                 <Popover open={moreOpen} onOpenChange={setMoreOpen}>
                     <PopoverTrigger asChild>
                         <button ref={moreRef} type="button" data-more-chips aria-label={t('moreChips', { count: folded.length })}
-                            className={cn(CHIP, 'hidden border-border/60 text-muted-foreground @max-[1050px]:flex')}>
+                            className={cn(CHIP, 'hidden border-border/60 text-muted-foreground', BAR_TIERS.t1.show, BAR_TIERS.t3.hide)}>
                             +{folded.length}
                         </button>
                     </PopoverTrigger>
@@ -169,10 +199,27 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                         ))}
                     </PopoverContent>
                 </Popover>
+                <Popover open={activityOpen} onOpenChange={setActivityOpen}>
+                    <TooltipLabeled label={activityText}>
+                        <PopoverTrigger asChild>
+                            <button ref={activityRef} type="button" data-activity aria-label={activityText}
+                                className={cn(CHIP, 'hidden border-border/60 text-muted-foreground', BAR_TIERS.t3.show)}>
+                                {counts.problems > 0 && <span aria-hidden className="size-2 rounded-full" style={{ background: 'var(--destructive)' }} />}
+                                {t('activityChip')} {running}/{pool}
+                            </button>
+                        </PopoverTrigger>
+                    </TooltipLabeled>
+                    <PopoverContent container={root} side="bottom" align="start" sideOffset={8} className="w-auto gap-1 p-2">
+                        {MAIN_CHIPS.map(c => (
+                            <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} note={noteOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)}
+                                onPress={f => { setActivityOpen(false); press(f, activityRef.current) }} {...(c.key === 'problems' ? problemsDot : {})} />
+                        ))}
+                    </PopoverContent>
+                </Popover>
             </div>
             {actionZone}
             <Popover open={open} onOpenChange={next => { if (!next) close() }}>
-                <PopoverAnchor virtualRef={filter !== null ? pressedRef : statusRef} />
+                <PopoverAnchor virtualRef={ledgerAnchor} />
                 <PopoverContent
                     container={root}
                     data-dropdown

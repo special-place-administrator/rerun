@@ -1,27 +1,29 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
-import { Ellipsis } from 'lucide-react'
+import { Ellipsis, Pause, Play, Square, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { FACTORY_CONTROL_DEFAULT, type FactoryControlState, type FactorySnapshot } from '@moldwright/contracts'
 import { setFactoryStateAction } from '@/app/api/_actions/factory.actions'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipDisabledReason, TooltipLabeled } from '@/components/ui/tooltip'
 import { useErrorText } from '@/hooks/useErrorText'
+import { cn } from '@/lib/utils'
+import { BAR_TIERS } from './factory-bar-tiers'
 import { thrown, type FactoryControlsState } from './use-factory-controls'
 
-const SEGMENTS: { state: FactoryControlState; key: 'start' | 'pause' | 'stop' }[] = [
-    { state: 'RUNNING', key: 'start' },
-    { state: 'PAUSED', key: 'pause' },
-    { state: 'DRAINING', key: 'stop' },
+const SEGMENTS: { state: FactoryControlState; key: 'start' | 'pause' | 'stop'; icon: LucideIcon }[] = [
+    { state: 'RUNNING', key: 'start', icon: Play },
+    { state: 'PAUSED', key: 'pause', icon: Pause },
+    { state: 'DRAINING', key: 'stop', icon: Square },
 ]
 
-export function FactoryRunControl({ snapshot, controls }: { snapshot: FactorySnapshot; controls: FactoryControlsState }) {
+export function FactoryRunControl({ snapshot, controls, moreItems }: { snapshot: FactorySnapshot; controls: FactoryControlsState; moreItems?: (afterClose: (open: () => void) => void) => ReactNode }) {
     const t = useTranslations('factory.controls')
     const errorText = useErrorText()
     const { view, loadError, reload } = controls
@@ -29,6 +31,7 @@ export function FactoryRunControl({ snapshot, controls }: { snapshot: FactorySna
     const [confirming, setConfirming] = useState(false)
     const hardStopRef = useRef<HTMLButtonElement>(null)
     const moreRef = useRef<HTMLButtonElement>(null)
+    const [afterMenu, setAfterMenu] = useState<(() => void) | null>(null)
 
     const reported = snapshot.control?.state ?? FACTORY_CONTROL_DEFAULT
     const owner = view?.isOwner === true
@@ -55,15 +58,20 @@ export function FactoryRunControl({ snapshot, controls }: { snapshot: FactorySna
     )
     if (view === null) return <div data-run-control className="flex shrink-0 items-center">{retry}</div>
 
+    const segment = (b: (typeof SEGMENTS)[number]) => {
+        const Icon = b.icon
+        return (
+            <Button key={b.state} type="button" size="xs" variant={reported === b.state ? 'default' : 'ghost'} aria-label={t(b.key)}
+                data-state-button={b.state} aria-pressed={reported === b.state} disabled={!owner || busy !== null}
+                className={BAR_TIERS.t3.square} onClick={() => void send(b.state)}>
+                <Icon aria-hidden className={cn('hidden size-4', BAR_TIERS.t3.show)} />
+                <span className={BAR_TIERS.t3.hide}>{t(b.key)}</span>
+            </Button>
+        )
+    }
     const segments = (
         <ButtonGroup aria-label={t('groupLabel')} aria-busy={busy !== null} className="rounded-lg border border-border/60">
-            {SEGMENTS.map(b => (
-                <Button key={b.state} type="button" size="xs" variant={reported === b.state ? 'default' : 'ghost'}
-                    data-state-button={b.state} aria-pressed={reported === b.state} disabled={!owner || busy !== null}
-                    onClick={() => void send(b.state)}>
-                    {t(b.key)}
-                </Button>
-            ))}
+            {SEGMENTS.map(b => (owner ? <TooltipLabeled key={b.state} label={t(b.key)}>{segment(b)}</TooltipLabeled> : segment(b)))}
         </ButtonGroup>
     )
 
@@ -71,26 +79,35 @@ export function FactoryRunControl({ snapshot, controls }: { snapshot: FactorySna
         <div data-run-control className="flex shrink-0 items-center gap-2">
             {owner ? segments : <TooltipDisabledReason reason={t('readOnly')}>{segments}</TooltipDisabledReason>}
             {owner && (
-                <>
-                    <Button ref={hardStopRef} type="button" size="xs" variant="ghost" data-state-button="STOPPED" disabled={busy !== null}
-                        className="text-destructive @max-[900px]:hidden" onClick={() => setConfirming(true)}>
-                        {t('hardStop')}
-                    </Button>
-                    <DropdownMenu>
-                        <TooltipLabeled label={t('moreControls')}>
-                            <DropdownMenuTrigger asChild>
-                                <Button ref={moreRef} type="button" size="icon-xs" variant="ghost" aria-label={t('moreControls')} data-more-controls disabled={busy !== null}
-                                    className="hidden @max-[900px]:inline-flex">
-                                    <Ellipsis aria-hidden />
-                                </Button>
-                            </DropdownMenuTrigger>
-                        </TooltipLabeled>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem variant="destructive" onSelect={() => setConfirming(true)}>{t('hardStop')}</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </>
+                <Button ref={hardStopRef} type="button" size="xs" variant="ghost" data-state-button="STOPPED" disabled={busy !== null}
+                    className={cn('text-destructive', BAR_TIERS.t2.hide)} onClick={() => setConfirming(true)}>
+                    {t('hardStop')}
+                </Button>
             )}
+            <DropdownMenu>
+                <TooltipLabeled label={t('moreControls')}>
+                    <DropdownMenuTrigger asChild>
+                        <Button ref={moreRef} type="button" size="icon-xs" variant="ghost" aria-label={t('moreControls')} data-more-controls disabled={busy !== null}
+                            className={cn('hidden', BAR_TIERS.t2.show)}>
+                            <Ellipsis aria-hidden />
+                        </Button>
+                    </DropdownMenuTrigger>
+                </TooltipLabeled>
+                <DropdownMenuContent align="start" onCloseAutoFocus={e => {
+                    if (!afterMenu) return
+                    setAfterMenu(null)
+                    e.preventDefault()
+                    afterMenu()
+                }}>
+                    {moreItems?.(open => setAfterMenu(() => open))}
+                    {owner && (
+                        <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem variant="destructive" onSelect={() => setConfirming(true)}>{t('hardStop')}</DropdownMenuItem>
+                        </>
+                    )}
+                </DropdownMenuContent>
+            </DropdownMenu>
             {retry}
             <ConfirmDialog
                 open={confirming}

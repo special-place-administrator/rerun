@@ -15,8 +15,11 @@ import { LOADER_TILE } from '@/components/factory/factory-state'
 import { sceneFromSnapshot } from '@/components/factory/from-snapshot'
 import { useFactoryControls } from '@/components/factory/use-factory-controls'
 import { WorkspaceSwitcher } from '@/components/layout/WorkspaceSwitcher'
+import { BAR_TIERS } from '@/components/factory/factory-bar-tiers'
 import { Button } from '@/components/ui/button'
+import { TooltipLabeled } from '@/components/ui/tooltip'
 import { SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
+import { cn } from '@/lib/utils'
 import { useBoardStore } from '@/stores/board.store'
 import { useSession } from '@/supabase/session/SessionProvider'
 
@@ -110,13 +113,15 @@ export function FactoryPage() {
                 topBar={
                     <FactoryTopBar snapshot={snapshot ?? null} controls={controls} selected={selected} onSelect={setSelected} names={names} onOpenCoworker={openCoworker} bucket={bucket} onBucket={setBucket}
                         rightInset={rightInset}
-                        context={<WorkspaceSwitcher inline />}
+                        context={<WorkspaceSwitcher inline pillClassName={BAR_TIERS.t3.workspaceIcon} />}
                         action={
-                            <Button type="button" variant="secondary" size="sm" disabled={!boss} aria-label="Talk to Boss" title={boss ? 'Open the chat with Boss' : 'No coworker named boss in this workspace'}
-                                onClick={() => { if (!boss) return; setLoaderOpen(false); useBoardStore.getState().focusAgentOnBoard(boss.id, 'chat') }}>
-                                <MessageCircle aria-hidden className="hidden @max-[1200px]:block" />
-                                <span className="@max-[1200px]:hidden">Talk to Boss</span>
-                            </Button>
+                            <TooltipLabeled label={boss ? 'Open the chat with Boss' : 'No coworker named boss in this workspace'}>
+                                <Button type="button" variant="secondary" size="sm" aria-disabled={!boss} aria-label="Talk to Boss" className={cn('aria-disabled:cursor-not-allowed aria-disabled:opacity-50', BAR_TIERS.t1.square)}
+                                    onClick={() => { if (!boss) return; setLoaderOpen(false); useBoardStore.getState().focusAgentOnBoard(boss.id, 'chat') }}>
+                                    <MessageCircle aria-hidden className={cn('hidden', BAR_TIERS.t1.show)} />
+                                    <span className={BAR_TIERS.t1.hide}>Talk to Boss</span>
+                                </Button>
+                            </TooltipLabeled>
                         }
                     />
                 }

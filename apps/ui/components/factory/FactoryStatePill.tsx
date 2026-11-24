@@ -5,6 +5,7 @@ import { FACTORY_CONTROL_DEFAULT, type FactoryControlState, type FactorySnapshot
 import { formatDate } from '@moldwright/i18n/format'
 import { TooltipLabeled } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { BAR_TIERS } from './factory-bar-tiers'
 import { liveHold } from './from-snapshot'
 import type { FactoryControlsState } from './use-factory-controls'
 
@@ -37,7 +38,9 @@ export function FactoryStatePill({ snapshot, controls, now, onProjects, onChoose
         : t('now', { state: reported })
     const folds = wait !== null || hold !== undefined
     const pending = asked !== null && asked !== reported && !(asked === 'DRAINING' && reported === 'STOPPED')
-    const lines = [sentence, ...(pending ? [t('asked', { state: asked })] : []), ...(waiting > 0 ? [t('noProvider', { count: waiting })] : [])]
+    const finishing = (snapshot.finishing ?? []).filter(f => f.jobs > 0).map(f => tProjects('finishing', { count: f.jobs, repo: f.repo }))
+    const halted = snapshot.work_order?.halted ? [tOrders('halted', { issue: snapshot.work_order.halted })] : []
+    const lines = [sentence, ...(pending ? [t('asked', { state: asked })] : []), ...(waiting > 0 ? [t('noProvider', { count: waiting })] : []), ...halted, ...finishing]
 
     return (
         <>
@@ -45,12 +48,12 @@ export function FactoryStatePill({ snapshot, controls, now, onProjects, onChoose
                 <span role="status" tabIndex={0} data-state-pill={wait ? 'idle' : hold ? 'held' : reported}
                     className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/60 px-3 py-1 text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
                     <span aria-hidden className={cn('size-2 rounded-full', wait ? 'bg-amber-500' : hold ? 'bg-red-500' : DOT[reported])} />
-                    <span aria-hidden className={cn(folds && '@max-[900px]:hidden')}>{long}</span>
-                    {folds && <span aria-hidden className="hidden @max-[900px]:inline">{short}</span>}
+                    <span aria-hidden className={cn(folds && BAR_TIERS.t2.hide)}>{long}</span>
+                    {folds && <span aria-hidden className={cn('hidden', BAR_TIERS.t2.show)}>{short}</span>}
                     <span className="sr-only">{lines.join(' ')}</span>
                 </span>
             </TooltipLabeled>
-            {action?.run && <button type="button" data-pill-action={wait} onClick={action.run} className={ACTION}>{action.label}</button>}
+            {action?.run && <button type="button" data-pill-action={wait} onClick={action.run} className={cn(ACTION, BAR_TIERS.t3.hide)}>{action.label}</button>}
         </>
     )
 }
