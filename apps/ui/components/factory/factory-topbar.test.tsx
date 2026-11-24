@@ -5,8 +5,13 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { factorySnapshotSchema, type FactoryJob, type FactorySnapshot } from '@moldwright/contracts'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { FactoryTopBar } from './FactoryTopBar'
+import { FactoryWorld } from './FactoryWorld'
 import { SAMPLE_TEXT } from './FactoryTasks'
+import { sceneFromSnapshot } from './from-snapshot'
+
+vi.mock('@moldwright/ui/iso-grid', async importOriginal => ({ ...(await importOriginal<typeof import('@moldwright/ui/iso-grid')>()), IsoGrid: () => null }))
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..')
 const sample = () => factorySnapshotSchema.parse(JSON.parse(readFileSync(path.join(ROOT, 'packages/contracts/fixtures/factory-snapshot.sample.json'), 'utf8')))
@@ -47,7 +52,7 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 describe('FactoryTopBar', () => {
     it('collapsed: one row of four chips with counts and no panel', () => {
         render()
-        expect(Array.from(host.querySelectorAll('[data-chip]')).map(c => c.textContent)).toEqual(['Running 1', 'Waiting 1', 'Problems 1', 'Done today 1'])
+        expect(Array.from(host.querySelectorAll('[data-chip]')).map(c => c.textContent)).toEqual(['Running 3/1', 'Waiting 1', 'Problems 1', 'Done today 1'])
         expect(q('[data-dropdown]')).toBeNull()
         expect(chip('running')?.getAttribute('aria-pressed')).toBe('false')
     })
@@ -118,6 +123,30 @@ describe('FactoryTopBar', () => {
         onBucket.mockClear()
         await act(async () => { document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })) })
         expect(onBucket).toHaveBeenCalledWith(null)
+    })
+
+    it('while paused shows one paused indicator, and drops the no-data figures but keeps a zero', async () => {
+        const s = snapshot()
+        const paused: FactorySnapshot = {
+            ...s,
+            control: { state: 'PAUSED', by: 'owner', at: s.madeAt },
+            holds: [{ kind: 'paused', until: new Date(Date.now() + 39_000).toISOString() }],
+            jobs: s.jobs.filter(j => j.state !== 'building'),
+        }
+        const topBar = createElement(FactoryTopBar, { snapshot: paused, controls: { view: null, loadError: null, reload: async () => {} }, selected: null, onSelect: () => {}, names: {}, onOpenCoworker: () => {} })
+        await act(async () => {
+            root.render(createElement(TooltipProvider, null, createElement(FactoryWorld, { snapshot: paused, scene: (_: number, now: number) => sceneFromSnapshot(paused, now), topBar })))
+        })
+        const pills = host.querySelectorAll('[data-topbar] [role="status"][data-state-pill]')
+        expect(pills).toHaveLength(1)
+        expect(pills[0]!.textContent).toContain('Paused · builds finishing')
+        expect(q('[data-run-now]')).toBeNull()
+        expect(host.textContent).not.toContain('Line held')
+        const strip = host.querySelector('[data-bar-frame="bottom"]')!
+        expect(strip.textContent).not.toContain('—')
+        expect(strip.querySelector('[data-metric-group="flow"]')!.textContent).toContain('0Building')
+        expect(strip.querySelector('[data-metric-group="cost"]')).toBeNull()
+        expect(strip.querySelector('[data-no-data]')).not.toBeNull()
     })
 
     it('with no snapshot says it is the sample and has no chips', () => {
