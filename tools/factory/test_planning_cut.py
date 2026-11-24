@@ -13,7 +13,7 @@ ISSUE = {"number": 5, "title": "Fix x", "body": ready(), "comments": [], "labels
          "createdAt": "2026-11-01T00:00:00Z"}
 FLOOR = {"number": 612, "title": "Floor: show the queue", "body": "SECRET BODY"}
 TWO_STAGE = {"plan_by": ["Boss"], "cut_by": ["Scope Shaper", "IKE"]}
-BRIEF_SHA256 = "a19a1d8e08a2f27b03afb2629e6bc051f0901560d6c8048c6068540177dbb995"
+BRIEF_SHA256 = "ebcccbc4ee89d426e40345345c4e567cb52cf28cceae928a0da9635de80e3ba6"
 
 
 def settings(planning_cfg):

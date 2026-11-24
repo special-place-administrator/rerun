@@ -53,12 +53,19 @@ class BriefTest(unittest.TestCase):
         self.assertIn("add no comments in code", self.text)
 
     def test_length(self):
-        self.assertLess(len(self.text), 3400)
+        self.assertLess(len(self.text), 3700)
 
     def test_a_child_that_depends_on_another_gets_no_proven_branch(self):
         self.assertIn("a child that depends on another gets no **Proven branch** line", planning.CUT_RULES)
         self.assertNotIn("starts from that child's `plan/<n>`", planning.CUT_RULES)
         self.assertIn("once the child is filed, push it as `plan/<child>` and add its `**Proven branch**` line above `**Depends on**`, as the rule above says;", planning.CUT_RULES)
+
+    def test_a_child_sharing_a_file_with_an_open_pull_request_is_not_proven(self):
+        text = "\n".join(planning.brief_lines(ISSUE, REPO))
+        prove = text.index("Prove each child:")
+        not_proven = "A child whose Files share a file with an open pull request of another job is not proven"
+        self.assertIn(not_proven, text)
+        self.assertGreater(text.index(not_proven), prove)
 
 
 if __name__ == "__main__":
