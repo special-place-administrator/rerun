@@ -121,7 +121,6 @@
         "noteReadOnly": "Só o proprietário do workspace pode ligar ou desligar conexões para a fábrica"
     },
     "floor": {
-        "lastBeat": "Último batimento há {minutes} min",
         "asOf": "às {time}",
         "noData": "Ainda sem dados: {metrics}",
         "moreMetrics": "{count, plural, one {# número a mais} other {# números a mais}}",
@@ -134,6 +133,8 @@
         "center": "Centralizar",
         "centerHint": "Centralizar nos bots (tecla 0). Roda ou pinça para dar zoom, arraste para mover.",
         "waitingOutside": "· {count} fora da ordem",
-        "dataAge": "dados de {seconds}s atrás"
+        "dataAgeSeconds": "dados de {seconds}s atrás",
+        "dataAgeMinutes": "dados de {minutes} min atrás",
+        "dataAgeHours": "dados de {hours} h atrás"
     }
 }

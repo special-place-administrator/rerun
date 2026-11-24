@@ -6,8 +6,9 @@
         "controls.hardStop": "Stops the factory at once and cancels everything that runs.",
         "orders.ask": "The foreman's question once a project is chosen; {repo} is a GitHub owner/name.",
         "providers.label": "Short caption next to the on/off switch of a connection: whether the factory may use it.",
-        "floor.lastBeat": "Shown next to the factory status dot when the factory stopped reporting; {minutes} is the whole minutes since its last report.",
-        "floor.dataAge": "Shown next to the factory status dot when the factory stopped reporting; {seconds} is the whole seconds since its last report.",
+        "floor.dataAgeSeconds": "Shown next to the factory status dot when the factory stopped reporting; {seconds} is the whole seconds (1-59) since its last report.",
+        "floor.dataAgeMinutes": "Shown next to the factory status dot when the factory stopped reporting; {minutes} is the whole minutes (1-59) since its last report.",
+        "floor.dataAgeHours": "Shown next to the factory status dot when the factory stopped reporting; {hours} is the whole hours since its last report.",
         "floor.asOf": "Shown under a live count when the factory stopped reporting: the count is the one of its last report; {time} is that report's local time, HH:MM.",
         "controls.holdLong": "Short text of the factory state pill while sending is held; {kind} is the hold reason as the factory reports it (for example sign-in renewal), {seconds} the seconds left.",
         "controls.holdSentence": "Full sentence behind the state pill while sending is held; {time} is the local time the hold ends, HH:MM.",
@@ -142,7 +143,6 @@
         "noteReadOnly": "Only the workspace owner can switch connections on or off for the factory"
     },
     "floor": {
-        "lastBeat": "Last beat {minutes} min ago",
         "asOf": "as of {time}",
         "noData": "No data yet: {metrics}",
         "moreMetrics": "{count, plural, one {# more figure} other {# more figures}}",
@@ -155,6 +155,8 @@
         "center": "Center",
         "centerHint": "Center on the bots (key 0). Wheel or pinch to zoom, drag to move.",
         "waitingOutside": "· {count} not in order",
-        "dataAge": "data {seconds}s old"
+        "dataAgeSeconds": "data {seconds}s old",
+        "dataAgeMinutes": "data {minutes}m old",
+        "dataAgeHours": "data {hours}h old"
     }
 }

@@ -121,7 +121,6 @@
         "noteReadOnly": "Seul le propriétaire du workspace peut activer ou couper des connexions pour l'usine"
     },
     "floor": {
-        "lastBeat": "Dernier battement il y a {minutes} min",
         "asOf": "à {time}",
         "noData": "Pas encore de données : {metrics}",
         "moreMetrics": "{count, plural, one {# chiffre de plus} other {# chiffres de plus}}",
@@ -134,6 +133,8 @@
         "center": "Centrer",
         "centerHint": "Centrer sur les bots (touche 0). Molette ou pincement pour zoomer, glisser pour déplacer.",
         "waitingOutside": "· {count} hors de l’ordre",
-        "dataAge": "données vieilles de {seconds}s"
+        "dataAgeSeconds": "données vieilles de {seconds}s",
+        "dataAgeMinutes": "données vieilles de {minutes} min",
+        "dataAgeHours": "données vieilles de {hours} h"
     }
 }

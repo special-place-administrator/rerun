@@ -121,7 +121,6 @@
         "noteReadOnly": "Nur der Inhaber des Workspace kann Verbindungen für die Fabrik ein- oder ausschalten"
     },
     "floor": {
-        "lastBeat": "Letzter Takt vor {minutes} Min.",
         "asOf": "Stand {time}",
         "noData": "Noch keine Daten: {metrics}",
         "moreMetrics": "{count, plural, one {# weitere Kennzahl} other {# weitere Kennzahlen}}",
@@ -134,6 +133,8 @@
         "center": "Zentrieren",
         "centerHint": "Auf die Bots zentrieren (Taste 0). Mausrad oder zwei Finger zum Zoomen, ziehen zum Verschieben.",
         "waitingOutside": "· {count} nicht im Auftrag",
-        "dataAge": "Daten {seconds}s alt"
+        "dataAgeSeconds": "Daten {seconds}s alt",
+        "dataAgeMinutes": "Daten {minutes} Min. alt",
+        "dataAgeHours": "Daten {hours} Std. alt"
     }
 }

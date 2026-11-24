@@ -121,7 +121,6 @@
         "noteReadOnly": "Solo el propietario del workspace puede encender o apagar conexiones para la fábrica"
     },
     "floor": {
-        "lastBeat": "Último latido hace {minutes} min",
         "asOf": "a las {time}",
         "noData": "Aún sin datos: {metrics}",
         "moreMetrics": "{count, plural, one {# cifra más} other {# cifras más}}",
@@ -134,6 +133,8 @@
         "center": "Centrar",
         "centerHint": "Centrar en los bots (tecla 0). Rueda o pellizco para hacer zoom, arrastra para mover.",
         "waitingOutside": "· {count} fuera de la orden",
-        "dataAge": "datos de hace {seconds}s"
+        "dataAgeSeconds": "datos de hace {seconds}s",
+        "dataAgeMinutes": "datos de hace {minutes} min",
+        "dataAgeHours": "datos de hace {hours} h"
     }
 }

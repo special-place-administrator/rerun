@@ -224,7 +224,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                             <span className={BAR_TIERS.t3.srOnly}>Factory</span>
                         </span>
                     </TooltipLabeled>
-                    {stale && <span data-stale-age data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{t('dataAge', { seconds: Math.max(1, Math.round((frame.lastBeatMs ?? 0) / 1000)) })}</span>}
+                    {stale && <span data-stale-age data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{dataAge(t, frame.lastBeatMs ?? 0)}</span>}
                     {sample && <span className="text-[10px] text-muted-foreground">sample</span>}
                 </div>
                 {groups.map(({ group, metrics }) => (
@@ -265,6 +265,14 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
             )}
         </div>
     )
+}
+
+function dataAge(t: ReturnType<typeof useTranslations<'factory.floor'>>, ageMs: number): string {
+    const seconds = Math.max(1, Math.round(ageMs / 1000))
+    if (seconds < 60) return t('dataAgeSeconds', { seconds })
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return t('dataAgeMinutes', { minutes })
+    return t('dataAgeHours', { hours: Math.floor(minutes / 60) })
 }
 
 const TONES: Partial<Record<MetricKey, string>> = { building: 'text-amber-500', review: 'text-emerald-500', checks: 'text-sky-500', solvedGreen: 'text-green-500' }
