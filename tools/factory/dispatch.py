@@ -931,7 +931,8 @@ class Dispatcher:
         return None
 
     def intake(self):
-        open_jobs = [j for j in self.jobs() if j["state"] not in END + ("waiting",)]
+        parked = set() if self.work is None else {j["issue"] for j in self.jobs() if j["state"] in states.QUEUE and j["issue"] not in self.work["issues"]}
+        open_jobs = [j for j in self.jobs() if j["state"] not in END + ("waiting",) and j["issue"] not in parked]
         pool = self.cfg.get("pool")
         rooms = {t: (v["max_jobs"] if v["max_jobs"] is not None and not pool else pools.seats(self.cfg, t)) - len([j for j in open_jobs if j.get("worker", "coder") == t])
                  for t, v in pools.types(self.cfg).items()}

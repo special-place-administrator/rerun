@@ -39,6 +39,7 @@ ORDER_ISSUES_MAX = 200
 ORDER_TEXT_MAX = 4000
 ORDER_ACTIONS = ("retry", "skip")
 FAILED = ("blocked", "failed")
+DEPENDENCY_ENDED = re.compile(r"^dependency #[0-9]+ ended [a-z_]+$")
 GHOSTS_CEILING = 32
 FILE_AGAIN_S = 5 * 60
 STATION_MAX = 64
@@ -262,7 +263,8 @@ class Lines:
         most = max(1, min(self.throttle()["max_ghosts"], ceiling()))
         for n in issues:
             j, kv = store.get_job(str(n)) or {}, store.get_all(str(n))
-            if n in skipped or (not j and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")):
+            if n in skipped or (not j and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")) or (
+                    j.get("state") == "blocked" and DEPENDENCY_ENDED.match(j.get("reason") or "")):
                 done.append(n)
                 continue
             if j.get("state") in FAILED and retried.get(str(n)) != j.get("take", 1):
