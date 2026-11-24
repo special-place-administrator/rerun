@@ -133,6 +133,7 @@
         "zoom": "Zoom",
         "center": "Centralizar",
         "centerHint": "Centralizar nos bots (tecla 0). Roda ou pinça para dar zoom, arraste para mover.",
-        "waitingOutside": "· {count} fora da ordem"
+        "waitingOutside": "· {count} fora da ordem",
+        "dataAge": "dados de {seconds}s atrás"
     }
 }

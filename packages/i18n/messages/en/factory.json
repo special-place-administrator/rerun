@@ -7,6 +7,7 @@
         "orders.ask": "The foreman's question once a project is chosen; {repo} is a GitHub owner/name.",
         "providers.label": "Short caption next to the on/off switch of a connection: whether the factory may use it.",
         "floor.lastBeat": "Shown next to the factory status dot when the factory stopped reporting; {minutes} is the whole minutes since its last report.",
+        "floor.dataAge": "Shown next to the factory status dot when the factory stopped reporting; {seconds} is the whole seconds since its last report.",
         "floor.asOf": "Shown under a live count when the factory stopped reporting: the count is the one of its last report; {time} is that report's local time, HH:MM.",
         "controls.holdLong": "Short text of the factory state pill while sending is held; {kind} is the hold reason as the factory reports it (for example sign-in renewal), {seconds} the seconds left.",
         "controls.holdSentence": "Full sentence behind the state pill while sending is held; {time} is the local time the hold ends, HH:MM.",
@@ -153,6 +154,7 @@
         "zoom": "Zoom",
         "center": "Center",
         "centerHint": "Center on the bots (key 0). Wheel or pinch to zoom, drag to move.",
-        "waitingOutside": "· {count} not in order"
+        "waitingOutside": "· {count} not in order",
+        "dataAge": "data {seconds}s old"
     }
 }

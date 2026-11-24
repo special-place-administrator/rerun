@@ -224,7 +224,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                             <span className={BAR_TIERS.t3.srOnly}>Factory</span>
                         </span>
                     </TooltipLabeled>
-                    {stale && <span data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{t('lastBeat', { minutes: Math.max(1, Math.floor((frame.lastBeatMs ?? 0) / 60_000)) })}</span>}
+                    {stale && <span data-stale-age data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{t('dataAge', { seconds: Math.max(1, Math.round((frame.lastBeatMs ?? 0) / 1000)) })}</span>}
                     {sample && <span className="text-[10px] text-muted-foreground">sample</span>}
                 </div>
                 {groups.map(({ group, metrics }) => (

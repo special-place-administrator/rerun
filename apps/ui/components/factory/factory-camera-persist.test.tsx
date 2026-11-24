@@ -57,7 +57,10 @@ describe('factory camera', () => {
         await render({ rightInset: 648 })
         await render({ rightInset: 648, snapshot: live(0) })
         await render({ rightInset: 0, snapshot: live(5 * 60_000) })
-        expect(host.querySelector('[data-last-beat]')).not.toBeNull()
+        const staleMark = host.querySelector('[data-stale-age]')
+        expect(staleMark).not.toBeNull()
+        expect(staleMark!.textContent).toMatch(/data \d+s old/)
+        expect(host.querySelector('[data-last-beat]')).toBe(staleMark)
         expect(grid.props!.className).toBeUndefined()
         expect(camera()).toBe(fitted)
 

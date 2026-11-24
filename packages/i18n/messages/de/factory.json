@@ -133,6 +133,7 @@
         "zoom": "Zoom",
         "center": "Zentrieren",
         "centerHint": "Auf die Bots zentrieren (Taste 0). Mausrad oder zwei Finger zum Zoomen, ziehen zum Verschieben.",
-        "waitingOutside": "· {count} nicht im Auftrag"
+        "waitingOutside": "· {count} nicht im Auftrag",
+        "dataAge": "Daten {seconds}s alt"
     }
 }

@@ -133,6 +133,7 @@
         "zoom": "Zoom",
         "center": "Centrer",
         "centerHint": "Centrer sur les bots (touche 0). Molette ou pincement pour zoomer, glisser pour déplacer.",
-        "waitingOutside": "· {count} hors de l’ordre"
+        "waitingOutside": "· {count} hors de l’ordre",
+        "dataAge": "données vieilles de {seconds}s"
     }
 }
