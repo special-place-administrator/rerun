@@ -1,3 +1,4 @@
+import { BAR_PANE_FLOOR } from '@/components/factory/factory-bar-tiers'
 import type { SheetDetent } from '@/components/layout/useSheetResize'
 
 export const SIDE_PANEL_DEFAULT_WIDTH = 640
@@ -5,12 +6,14 @@ export const SIDE_PANEL_MIN_WIDTH = 480
 export const SIDE_PANEL_MAX_WIDTH = 800
 export const SIDE_PANEL_MAX_VIEWPORT_RATIO = 0.6
 export const SIDE_PANEL_GAP = 8
+const BOARD_FRAME_WIDTH = 18
 
 export const SIDE_PANEL_WIDTH_STORAGE_KEY = 'rerun-agent-panel-width'
 
 export function getSidePanelMaxWidth(viewportWidth: number): number {
     if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return SIDE_PANEL_DEFAULT_WIDTH
-    return Math.max(SIDE_PANEL_MIN_WIDTH, Math.min(SIDE_PANEL_MAX_WIDTH, Math.floor(viewportWidth * SIDE_PANEL_MAX_VIEWPORT_RATIO)))
+    const keepsPaneFloor = viewportWidth - BOARD_FRAME_WIDTH - SIDE_PANEL_GAP - BAR_PANE_FLOOR
+    return Math.max(SIDE_PANEL_MIN_WIDTH, Math.min(SIDE_PANEL_MAX_WIDTH, Math.floor(viewportWidth * SIDE_PANEL_MAX_VIEWPORT_RATIO), keepsPaneFloor))
 }
 
 export function clampSidePanelWidth(width: number, viewportWidth: number): number {

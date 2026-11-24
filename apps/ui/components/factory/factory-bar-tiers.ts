@@ -1,6 +1,8 @@
-export const BAR_NATURAL_WIDTH = { t0: 1854, t1: 1550, t2: 1129, t3: 630 } as const
+export const BAR_NATURAL_WIDTH = { t0: 1854, t1: 1550, t2: 1129, t3: 574 } as const
 
 export const BAR_FIT_SLACK = 16
+
+export const BAR_PANE_FLOOR = BAR_NATURAL_WIDTH.t3 + BAR_FIT_SLACK
 
 export const BAR_TIERS = {
     t1: { below: 1870, hide: '@max-[1870px]:hidden', show: '@max-[1870px]:flex', square: '@max-[1870px]:size-8 @max-[1870px]:px-0' },

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { BAR_PANE_FLOOR } from '@/components/factory/factory-bar-tiers'
 import {
     SIDE_PANEL_DEFAULT_WIDTH,
+    SIDE_PANEL_GAP,
     SIDE_PANEL_MIN_WIDTH,
     clampSidePanelWidth,
     getSidePanelMaxWidth,
@@ -9,16 +11,18 @@ import {
 } from './side-panel-width'
 
 describe('side panel width', () => {
-    it('caps its desktop maximum at 800px or 60 percent of the viewport', () => {
+    it('caps its desktop maximum at 800px, 60 percent of the viewport, or what leaves the board its pane floor', () => {
         expect(getSidePanelMaxWidth(1440)).toBe(800)
-        expect(getSidePanelMaxWidth(1000)).toBe(600)
+        expect(getSidePanelMaxWidth(1280)).toBe(1280 - 18 - SIDE_PANEL_GAP - BAR_PANE_FLOOR)
+        expect(clampSidePanelWidth(SIDE_PANEL_DEFAULT_WIDTH, 1280)).toBe(SIDE_PANEL_DEFAULT_WIDTH)
+        expect(getSidePanelMaxWidth(1000)).toBe(SIDE_PANEL_MIN_WIDTH)
         expect(getSidePanelMaxWidth(500)).toBe(SIDE_PANEL_MIN_WIDTH)
     })
 
     it('clamps widths to the supported desktop range', () => {
         expect(clampSidePanelWidth(320, 1440)).toBe(SIDE_PANEL_MIN_WIDTH)
         expect(clampSidePanelWidth(640, 1440)).toBe(640)
-        expect(clampSidePanelWidth(1800, 1000)).toBe(600)
+        expect(clampSidePanelWidth(1800, 1000)).toBe(SIDE_PANEL_MIN_WIDTH)
     })
 
     it('falls back to the default for missing or invalid stored values', () => {
@@ -30,6 +34,6 @@ describe('side panel width', () => {
     it('restores valid values and clamps stale out-of-range values', () => {
         expect(parseSidePanelWidth('720', 1440)).toBe(720)
         expect(parseSidePanelWidth('200', 1440)).toBe(SIDE_PANEL_MIN_WIDTH)
-        expect(parseSidePanelWidth('2000', 1000)).toBe(600)
+        expect(parseSidePanelWidth('2000', 1000)).toBe(SIDE_PANEL_MIN_WIDTH)
     })
 })

@@ -20,7 +20,6 @@ import { groupOf } from './factory-state'
 import { thrown } from './use-factory-controls'
 
 const POLL_MS = 5_000
-const NAME_TAIL = 3
 type Confirm = { kind: 'select' | 'remove'; project: FactoryProject } | null
 
 export function FactoryProjectPicker({ snapshot, open: openProp, onOpenChange }: { snapshot: FactorySnapshot; open?: boolean; onOpenChange?: (open: boolean) => void }) {
@@ -123,10 +122,7 @@ export function FactoryProjectPicker({ snapshot, open: openProp, onOpenChange }:
                         <button ref={triggerRef} type="button" aria-label={t('trigger', { repo: active })}
                             className="flex max-w-[min(20rem,calc(100vw-2rem))] items-center gap-1.5 rounded-full border border-border/60 px-3 py-1 text-xs hover:bg-accent">
                             <ProjectMark repo={active} />
-                            <span className="flex min-w-0">
-                                <span className="truncate">{name.slice(0, -NAME_TAIL)}</span>
-                                <span className="shrink-0">{name.slice(-NAME_TAIL)}</span>
-                            </span>
+                            <span className="min-w-0 truncate">{name}</span>
                             <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                         </button>
                     </PopoverTrigger>

@@ -47,7 +47,7 @@ export function FactoryStatePill({ snapshot, controls, now, onProjects, onChoose
             <TooltipLabeled label={<span className="flex flex-col gap-0.5">{lines.map(l => <span key={l}>{l}</span>)}</span>}>
                 <span role="status" tabIndex={0} data-state-pill={wait ? 'idle' : hold ? 'held' : reported}
                     className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border/60 px-3 py-1 text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-                    <span aria-hidden className={cn('size-2 rounded-full', wait ? cn('bg-amber-500', BAR_TIERS.t3.hide) : hold ? 'bg-red-500' : DOT[reported])} />
+                    <span aria-hidden className={cn('size-2 rounded-full', wait ? 'bg-amber-500' : hold ? 'bg-red-500' : DOT[reported])} />
                     <span aria-hidden className={cn(folds && BAR_TIERS.t2.hide)}>{long}</span>
                     {folds && <span aria-hidden className={cn('hidden', BAR_TIERS.t2.show)}>{short}</span>}
                     <span className="sr-only">{lines.join(' ')}</span>

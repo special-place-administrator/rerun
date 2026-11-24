@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { Activity } from 'lucide-react'
 import type { FactoryDepartment, FactorySnapshot } from '@moldwright/contracts'
 import { formatDate } from '@moldwright/i18n/format'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -202,10 +203,12 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                 <Popover open={activityOpen} onOpenChange={setActivityOpen}>
                     <TooltipLabeled label={activityText}>
                         <PopoverTrigger asChild>
-                            <button ref={activityRef} type="button" data-activity aria-label={activityText}
-                                className={cn(CHIP, 'hidden border-border/60 text-muted-foreground', BAR_TIERS.t3.show)}>
-                                {counts.problems > 0 && <span aria-hidden className="size-2 rounded-full" style={{ background: 'var(--destructive)' }} />}
-                                {t('activityChip')} {running}/{pool}
+                            <button ref={activityRef} type="button" data-activity aria-label={t('activityName', { problems: counts.problems })}
+                                className={cn(CHIP, 'hidden justify-center border-border/60 text-muted-foreground', BAR_TIERS.t3.show, BAR_TIERS.t3.square)}>
+                                <span aria-hidden className="relative">
+                                    <Activity className="size-4" />
+                                    {counts.problems > 0 && <span className="absolute -right-1 -top-1 size-2 rounded-full" style={{ background: 'var(--destructive)' }} />}
+                                </span>
                             </button>
                         </PopoverTrigger>
                     </TooltipLabeled>

@@ -2,10 +2,10 @@
 
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { BAR_FIT_SLACK, BAR_NATURAL_WIDTH, BAR_TIERS } from '../apps/ui/components/factory/factory-bar-tiers.ts'
+import { BAR_FIT_SLACK, BAR_NATURAL_WIDTH, BAR_PANE_FLOOR, BAR_TIERS } from '../apps/ui/components/factory/factory-bar-tiers.ts'
 import { PORT, REPO_ROOT, assertLocalProfile, assertMigrated, chromium, ensureServer, fail, linkTestEngine, localStack, log, signIn, testAccount } from './verify/shared.mjs'
 
-const PANES = [632, 792, 1254, 1262, 1902]
+const PANES = [BAR_PANE_FLOOR, 614, 632, 792, 1254, 1262, 1902].sort((a, b) => a - b)
 const TIER_CHAIN = [['t1', 't0'], ['t2', 't1'], ['t3', 't2']]
 for (const [tier, wider] of TIER_CHAIN) {
     if (BAR_TIERS[tier].below !== BAR_NATURAL_WIDTH[wider] + BAR_FIT_SLACK) fail(`${tier} starts below ${BAR_TIERS[tier].below} px, not at the ${wider} natural width ${BAR_NATURAL_WIDTH[wider]} + ${BAR_FIT_SLACK}.`)
