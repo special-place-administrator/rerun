@@ -1,12 +1,12 @@
 import { chatRequestSchema, runGoalSchema, ENGINE_SESSION_NOT_FOUND, type SessionSource } from '@moldwright/contracts'
 import { Hono } from 'hono'
-import { resolveRunModel } from '../../agents/availability.js'
+import { isUsable, resolveRunModel } from '../../agents/availability.js'
 import { getAgent } from '../../agents/registry.js'
 import { holdHubToken } from '../../bus/secrets.js'
 import { claimInstallSession } from '../../agents/setup.js'
 import { createSession, getSession } from '../../db/repos/sessions.js'
 import { startRun } from '../../db/repos/runs.js'
-import { agentDisabled } from '../../lib/errors.js'
+import { agentDisabled, noUsableConnection } from '../../lib/errors.js'
 import { newId } from '../../lib/ids.js'
 import { runAgent } from '../../runtime/loop.js'
 import { claimSession, releaseSession, sessionClaim } from '../../runtime/run-control.js'
@@ -39,7 +39,8 @@ chatRoutes.post('/chat', async c => {
     const session = claim ? claim.session : await resolveSession(agentId, body.sessionId, source)
     if (!session) return c.json({ error: ENGINE_SESSION_NOT_FOUND }, 404)
     const override = { connectionId: body.connectionId, provider: body.provider, model: body.model }
-    const { provider, model } = await resolveRunModel(agent, override)
+    const { connection, provider, model } = await resolveRunModel(agent, override)
+    if (!isUsable(connection, model)) throw noUsableConnection(connection?.id, model)
     const meta = { provider, model }
     const runId = newId()
     const holder = claimSession(session.id, runId, body.author?.id)

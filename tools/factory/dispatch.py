@@ -73,6 +73,9 @@ CHECKOUT_ROW, CHECKOUT_HOLD_S = 3, 60 * 60
 MERGE_TRIES = 5
 STALE_RUN_S, STALE_RUNS_A_BEAT = 2 * 3600, 15
 RUNS_ON_TTL_S = 10 * 60
+ROUTE_UNREADABLE = "connection list unreadable: re-checks next tick"
+ROUTE_UNKNOWN = "coworker connection unknown: re-checks next tick"
+NO_PROVIDER = "no enabled provider"
 DRAIN_SEND_S = 300
 ORDER_VIEW_S = 300
 DRAIN_MAX_S = 3 * 3600
@@ -588,6 +591,7 @@ class Dispatcher:
         self.connections = None
         self.plan_week_full = False
         self.runs_on, self.runs_on_at, self.failover = {}, None, {}
+        self.runs_on_unknown, self.off_why = set(), {}
         self.run_state, self.off_connections, self.work, self.order_views = "RUNNING", frozenset(), None, {}
         self.pace = 1.0
         self.draining = False
@@ -696,7 +700,10 @@ class Dispatcher:
         worker = j.get("worker", "coder") if j["state"] == "queued" else None
         kinds = [t for w, t in pools.types(self.cfg).items() if worker is None or w == worker]
         coworkers = [c["id"] for t in kinds for c in t["coworkers"]]
-        return bool(coworkers) and set(coworkers) <= set(self.cfg.get("off_agents") or ())
+        if not coworkers or not set(coworkers) <= set(self.cfg.get("off_agents") or ()):
+            return None
+        whys = {self.off_why.get(c, NO_PROVIDER) for c in coworkers}
+        return next((w for w in (ROUTE_UNREADABLE, ROUTE_UNKNOWN) if w in whys), NO_PROVIDER)
 
     def control_hold(self):
         now = self.now()
@@ -710,19 +717,30 @@ class Dispatcher:
             elif holds.until(self.store, kind) > now:
                 holds.clear(self.store, kind)
         listed = (self.connections or {}).get("connections") if isinstance(self.connections, dict) else None
-        picked = next((c for c in listed or [] if isinstance(c, dict) and c.get("isDefault") is True), None)
+        known = {c.get("id"): c for c in listed or [] if isinstance(c, dict) and isinstance(c.get("id"), str)}
+
+        def runnable(conn):
+            return conn in known and conn not in self.off_connections and known[conn].get("connected") is not False
+
+        picked = next((c for c in known.values() if c.get("isDefault") is True), None)
         default = picked.get("id") if picked else None
-        usable = isinstance(default, str) and default not in self.off_connections and picked.get("connected") is not False
-        fallback = {"id": default, "provider": picked.get("provider") or "claude"} if usable else None
-        off, self.failover = [], {}
+        fallback = {"id": default, "provider": picked.get("provider") or "claude"} if runnable(default) else None
+        off, self.failover, self.off_why = [], {}, {}
         for t in pools.types(self.cfg).values():
             for c in t["coworkers"]:
-                if self.runs_on.get(c["id"], default) not in self.off_connections:
+                own = self.runs_on.get(c["id"])
+                if listed is None:
+                    self.off_why[c["id"]] = ROUTE_UNREADABLE
+                elif c["id"] in self.runs_on_unknown:
+                    self.off_why[c["id"]] = ROUTE_UNKNOWN
+                elif runnable(own) or (own is None and fallback):
                     continue
-                if fallback:
+                elif fallback:
                     self.failover[c["id"]] = fallback
+                    continue
                 else:
-                    off.append(c["id"])
+                    self.off_why[c["id"]] = NO_PROVIDER
+                off.append(c["id"])
         self.cfg["off_agents"] = sorted(off)
         if self.run_state == "STOPPED":
             self.stop_running()
@@ -1286,6 +1304,9 @@ class Dispatcher:
             j["run_model"] = run_model
 
     def send(self, j, agent, step, message, state, copy=1):
+        if agent in (self.cfg.get("off_agents") or ()):
+            log(j["issue"], "%s not sent: %s" % (step, self.off_why.get(agent, NO_PROVIDER)))
+            return
         note = j.get("handover")
         if state == "building" and self.store.get_all("-").get("room_probe") == "1":
             holds.arm(self.store, self.store.get_all("-").get("room_kind") or "load", self.now() + ROOM_PROBE_S)
@@ -1489,7 +1510,7 @@ class Dispatcher:
         if j.get("attempt", 1) >= 2:
             self.end(j, "failed", why + (" (second time)" if how == "ended" else ""))
             return None
-        if self.cfg.get("held") or holds.blocks_all(self.store, self.now()) or (
+        if self.cfg.get("held") or j["agent"] in (self.cfg.get("off_agents") or ()) or holds.blocks_all(self.store, self.now()) or (
                 holds.blocks_subscription(self.store, self.now()) and pools.provider_of(self.cfg, j["agent"]) == "claude"):
             j.update(state=BACK[j["state"]], retry_attempt=2, sending=None)
             self.save(j, "failed attempt, held: %s" % why[:160])
@@ -2214,17 +2235,18 @@ class Dispatcher:
         now = self.now()
         if self.runs_on_at is not None and now - self.runs_on_at < RUNS_ON_TTL_S:
             return set(self.runs_on.values())
-        found = {}
+        found, unknown = {}, set()
         for t in pools.types(self.cfg).values():
             for c in t.get("coworkers", []):
                 try:
                     runs_on = (self.account("get_agent", {"agentId": c["id"]}) or {}).get("runsOn")
                 except (Error, KeyError, TypeError, ValueError):
+                    unknown.add(c["id"])
                     continue
                 conn = runs_on.get("connectionId") if isinstance(runs_on, dict) else None
                 if isinstance(conn, str) and conn:
                     found[c["id"]] = conn
-        self.runs_on, self.runs_on_at = found, now
+        self.runs_on, self.runs_on_unknown, self.runs_on_at = found, unknown, None if unknown else now
         return set(found.values())
 
     def renewal_hold(self):

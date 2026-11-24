@@ -7,7 +7,7 @@ process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-loop-paths-'))
 process.env.RERUN_API_KEY = ''
 process.env.RERUN_LOG_LEVEL = 'fatal'
 
-const { sent, stream, prep, curator, recalls } = vi.hoisted(() => ({
+const { sent, stream, prep, curator, recalls, gate } = vi.hoisted(() => ({
     sent: [] as Array<Record<string, unknown>>,
     stream: { parts: [] as unknown[], turns: [] as unknown[][], calls: [] as Array<Record<string, unknown>>, beforeStream: null as (() => void) | null },
     prep: {
@@ -20,7 +20,13 @@ const { sent, stream, prep, curator, recalls } = vi.hoisted(() => ({
     },
     curator: { calls: [] as unknown[][] },
     recalls: [] as string[],
+    gate: { real: false },
 }))
+
+vi.mock('../agents/availability.js', async importOriginal => {
+    const actual = await importOriginal<typeof import('../agents/availability.js')>()
+    return { ...actual, isUsable: (...args: Parameters<typeof actual.isUsable>) => !gate.real || actual.isUsable(...args) }
+})
 
 vi.mock('../memory/store.js', async importOriginal => {
     const actual = await importOriginal<typeof import('../memory/store.js')>()
@@ -117,7 +123,8 @@ const { listRunSteps, listToolCalls } = await import('../db/repos/telemetry.js')
 const { runAgent } = await import('./loop.js')
 const { abortRun, claimSession, sessionClaim } = await import('./run-control.js')
 const { insertAgentIndex } = await import('../db/repos/agents.js')
-const { createConnection } = await import('../connections/store.js')
+const { createConnection, updateConnectionKeys } = await import('../connections/store.js')
+const { clearBoxDefault, writeBoxDefault } = await import('../connections/default.js')
 const { isCredentialRejected, recordCredentialRejected } = await import('../connections/credential-rejections.js')
 const { armPlanLimitLatch, isPlanLimitLatched } = await import('../connections/plan-limits.js')
 const { dynamicTool, jsonSchema } = await import('ai')
@@ -800,5 +807,40 @@ describe('run loop paths', () => {
 
             expect(curator.calls).toHaveLength(0)
         })
+    })
+})
+
+describe('a run no connection can carry', () => {
+    beforeAll(migrate)
+
+    afterEach(async () => {
+        gate.real = false
+        stream.parts = []
+        stream.calls = []
+        sent.length = 0
+        await clearBoxDefault()
+    })
+
+    it('is refused before any model call when neither the pin nor the default can run, and runs once on the default when it is connected again', async () => {
+        gate.real = true
+        const models = ['claude-sonnet-4-6', 'claude-opus-5-5']
+        const own = await createConnection({ name: 'own', provider: 'anthropic', models, extraModels: [], keys: {} })
+        const fallback = await createConnection({ name: 'fallback', provider: 'anthropic', models, extraModels: [], keys: {} })
+        await mkdir(agentDir('gateagent'), { recursive: true })
+        await writeAgentConfig('gateagent', agentConfigSchema.parse({ name: 'gate', connectionId: own.id, provider: 'anthropic', model: 'claude-sonnet-4-6', selfImprovement: { enabled: false } }))
+        await writeBoxDefault({ connectionId: fallback.id, model: 'claude-opus-5-5' })
+        stream.parts = textTurn('ran')
+
+        await expect(run('anyone there?', { agentId: 'gateagent' })).rejects.toMatchObject({ status: 503, code: 'no_usable_connection' })
+        expect(stream.calls).toHaveLength(0)
+        expect(completions()).toEqual([expect.objectContaining({ kind: 'error' })])
+        sent.length = 0
+
+        await updateConnectionKeys(fallback.id, { set: { ANTHROPIC_API_KEY: 'k' }, remove: [] })
+        const { started, outcome } = await run('anyone there now?', { agentId: 'gateagent' })
+
+        expect(outcome).toEqual({ kind: 'done' })
+        expect(stream.calls).toHaveLength(1)
+        expect(await getRun('gateagent', started.runId)).toMatchObject({ provider: 'anthropic', model: 'claude-opus-5-5', status: 'done' })
     })
 })

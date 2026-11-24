@@ -17,6 +17,7 @@ vi.mock('../connections/codex-auth.js', () => ({ syncCodexAuth: async () => {} }
 vi.mock('../connections/codex-plan-limits.js', () => ({ refreshCodexPlanLimits: async () => {} }))
 vi.mock('../agents/availability.js', async importOriginal => ({
     ...(await importOriginal<typeof import('../agents/availability.js')>()),
+    isUsable: () => true,
     resolveRunModel: async () => ({ provider: 'codex', model: 'gpt-5.5', connection: { id: 'codex-cnx', provider: 'codex', env: {}, config: {} } }),
 }))
 

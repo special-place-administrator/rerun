@@ -134,18 +134,22 @@ describe('boxDefaultModel', () => {
         expect(await boxDefaultModel()).toMatchObject({ provider: 'anthropic', model: 'claude-opus-4-8' })
     })
 
-    it('skips a default whose credential is gone', async () => {
+    it('keeps a default whose credential is gone instead of picking another connection', async () => {
         await ensureMoldwrightConnection()
         const claude = await connect('claude', {})
         await writeBoxDefault({ connectionId: claude.id, model: 'opus' })
-        expect(await boxDefaultModel()).toMatchObject({ provider: 'rerun', model: RERUN_MODEL })
+        const dead = await boxDefaultModel()
+        expect(dead).toMatchObject({ connection: { id: claude.id }, provider: 'claude', model: 'opus' })
+        expect(isUsable(dead.connection, dead.model)).toBe(false)
     })
 
-    it('skips a default naming a model the connection no longer offers', async () => {
+    it('keeps a default naming a model the connection no longer offers instead of picking another connection', async () => {
         await ensureMoldwrightConnection()
         const anthropic = await connect('anthropic', { ANTHROPIC_API_KEY: 'k' }, ['claude-sonnet-4-6'])
         await writeBoxDefault({ connectionId: anthropic.id, model: 'claude-opus-4-8' })
-        expect(await boxDefaultModel()).toMatchObject({ provider: 'rerun', model: RERUN_MODEL })
+        const dead = await boxDefaultModel()
+        expect(dead).toMatchObject({ connection: { id: anthropic.id }, provider: 'anthropic', model: 'claude-opus-4-8' })
+        expect(isUsable(dead.connection, dead.model)).toBe(false)
     })
 
     it('falls back to Rerun when nothing was ever set', async () => {
@@ -304,6 +308,20 @@ describe('a pin that cannot run follows the default picked under Providers', () 
         await writeBoxDefault({ connectionId: deadDefault.id, model: 'claude-opus-5-5' })
         const pulled = await connect('anthropic', {})
         expect((await makeAgent(pulled.id, 'anthropic', 'claude-opus-4-8')).resolved).toMatchObject({ connection: { id: pulled.id }, model: 'claude-opus-4-8' })
+    })
+
+    it('gives an agent with no pin the default even when it cannot run, never another connection, and runs it once it is connected again', async () => {
+        await ensureMoldwrightConnection()
+        await connect('anthropic', { ANTHROPIC_API_KEY: 'k' })
+        const deadDefault = await connect('claude', {})
+        await writeBoxDefault({ connectionId: deadDefault.id, model: 'claude-opus-5-5' })
+        const dead = (await boxDefaultAgent()).resolved
+        expect(dead).toMatchObject({ connection: { id: deadDefault.id }, provider: 'claude', model: 'claude-opus-5-5' })
+        expect(isUsable(dead.connection, dead.model)).toBe(false)
+        await updateConnectionKeys(deadDefault.id, { set: { CLAUDE_CODE_OAUTH_TOKEN: 't' }, remove: [] })
+        const back = (await boxDefaultAgent()).resolved
+        expect(back).toMatchObject({ connection: { id: deadDefault.id }, model: 'claude-opus-5-5' })
+        expect(isUsable(back.connection, back.model)).toBe(true)
     })
 
     it('returns to the pin once its connection is usable again', async () => {

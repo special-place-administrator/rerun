@@ -370,16 +370,19 @@ class Controls(Pair):
         return super().new()
 
     def run_on(self, conns, off=(), default="c1", down=(), unlisted=False):
-        inner = self.w.account
+        inner, self.unlisted, self.unknown, self.down = self.w.account, unlisted, False, set(down)
 
         def account(tool, args, timeout=30):
             if tool == "list_ai_connections":
-                if unlisted:
+                if self.unlisted:
                     raise D.Error("account list_ai_connections failed: TimeoutError")
-                return {"connections": [{"id": c, "provider": "claude", "isDefault": c == default, "connected": c not in down, "signIn": None, "planLimits": None}
-                                        for c in sorted(set(conns.values()) | {default})]}
+                return {"connections": [{"id": c, "provider": "claude", "isDefault": c == default, "connected": c not in self.down, "signIn": None, "planLimits": None}
+                                        for c in sorted({c for c in conns.values() if c} | {default})]}
             if tool == "get_agent":
-                return dict(inner(tool, args), runsOn={"connectionId": conns.get(args["agentId"], "c1")})
+                if self.unknown:
+                    raise D.Error("account get_agent failed: TimeoutError")
+                conn = conns.get(args["agentId"], "c1")
+                return dict(inner(tool, args), runsOn={"connectionId": conn} if conn else None)
             return inner(tool, args)
 
         self.w.account = account
@@ -523,10 +526,54 @@ class Controls(Pair):
         self.assertEqual((self.w.sends, self.state()), ([], "queued"))
         self.assertEqual(self.d.lines["o/r"].store.get_job("5")["wait_reason"], "no enabled provider")
 
-    def test_an_unreadable_connection_list_is_no_failover(self):
-        self.failing_over(unlisted=True)
+    def recovers_once(self, why, fix, pinned="opus"):
+        self.assertEqual((self.w.sends, self.state()), ([], "queued"))
+        self.assertEqual(self.d.lines["o/r"].store.get_job("5")["wait_reason"], why)
+        fix()
+        self.tick(4)
+        self.assertEqual((self.state(), len(self.w.sends), self.w.send_args[-1].get("connectionId")), ("building", 1, pinned))
+        self.tick(4)
         self.assertEqual(len(self.w.sends), 1)
-        self.assertNotIn("connectionId", self.w.send_args[-1])
+
+    def test_an_unreadable_connection_list_launches_nothing_until_it_reads_again(self):
+        self.failing_over(unlisted=True)
+        self.recovers_once(D.ROUTE_UNREADABLE, lambda: setattr(self, "unlisted", False))
+
+    def test_an_unreadable_coworker_connection_launches_nothing_until_it_reads_again(self):
+        self.run_on({"b1": "95h6", "b2": "95h6", "r1": "95h6", "r2": "95h6"}, off=["95h6"], default="opus")
+        self.unknown = True
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(4)
+        self.recovers_once(D.ROUTE_UNKNOWN, lambda: setattr(self, "unknown", False))
+
+    def test_no_own_choice_and_a_default_that_is_not_connected_launches_nothing_until_it_connects(self):
+        self.run_on({"b1": None, "b2": None, "r1": None, "r2": None}, default="opus", down=["opus"])
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(4)
+        self.recovers_once(D.NO_PROVIDER, self.down.clear, pinned=None)
+
+    def test_an_off_coworker_is_never_sent_by_a_replan_a_resend_or_a_direct_send(self):
+        self.cfg["types"] = {"coder": {"coworkers": self.cfg["builders"]}, "reviewer": {"coworkers": self.cfg["reviewers"]},
+                             "planner": {"coworkers": [{"id": "p1", "name": "Boss"}]}}
+        self.failing_over(unlisted=True)
+        line = self.d.lines["o/r"]
+        self.assertEqual(line.cfg["off_agents"], ["b1", "b2", "p1", "r1", "r2"])
+        with contextlib.redirect_stdout(self.out):
+            j = line.store.get_job("5")
+            line.replan(dict(j, reason="plan: too wide"))
+            j.update(state="building", agent="b1", attempt=1, sending_step="build", copy=1)
+            line.failed_attempt(j, "boom", "ended")
+            self.assertEqual((j["state"], j["retry_attempt"], j["attempt"]), (D.BACK["building"], 2, 1))
+            self.assertEqual(self.lines_said("not sent"), [])
+            line.send(j, "b1", "build", "go", "building")
+        self.assertEqual(self.w.sends, [])
+        self.assertEqual(len(self.lines_said("build not sent: " + D.ROUTE_UNREADABLE)), 1)
+
+    def test_an_own_connection_that_is_not_connected_runs_on_the_default(self):
+        self.failing_over(off=[], down=["95h6"])
+        self.assertEqual((self.state(), len(self.w.sends), self.w.send_args[-1]["connectionId"]), ("building", 1, "opus"))
 
     def test_once_the_default_is_on_again_the_waiting_work_is_sent_once(self):
         self.failing_over(off=["95h6", "opus"])

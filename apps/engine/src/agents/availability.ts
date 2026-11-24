@@ -59,6 +59,12 @@ async function storedDefaultModel(): Promise<RunModel | null> {
 export async function boxDefaultModel(): Promise<RunModel> {
     const stored = await storedDefaultModel()
     if (stored) return stored
+    const configured = await readBoxDefault()
+    if (configured) {
+        const connection = await findConnection(configured.connectionId)
+        const provider = connection?.config.provider ?? 'rerun'
+        return { connection, provider, model: allowedModel(provider, configured.model) }
+    }
 
     const all = await listConnections()
     const rerun = all.find(c => c.id === RERUN_CONNECTION_ID)
