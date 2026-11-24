@@ -2,7 +2,9 @@ export const SECRET_PATTERNS: { label: string; re: RegExp }[] = [
     { label: 'Anthropic API key', re: /\bsk-ant-[A-Za-z0-9_-]{20,}/ },
     { label: 'OpenAI API key', re: /\bsk-(?:proj-)?[A-Za-z0-9]{32,}/ },
     { label: 'Slack token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/ },
-    { label: 'GitHub token', re: /\bgh[pousr]_[A-Za-z0-9]{30,}/ },
+    { label: 'GitHub token', re: /\bgh[pousr]_[A-Za-z0-9_.-]{20,}/ },
+    { label: 'GitHub fine-grained token', re: /\bgithub_pat_[A-Za-z0-9_]{20,}/ },
+    { label: 'Git access token URL', re: /x-access-token:[^@\s]+/ },
     { label: 'Google API key', re: /\bAIza[A-Za-z0-9_-]{30,}/ },
     { label: 'Stripe key', re: /\b[rs]k_(?:live|test)_[A-Za-z0-9]{20,}/ },
     { label: 'AWS access key id', re: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/ },
@@ -18,7 +20,7 @@ export function scanTextForSecrets(text: string): string[] {
 export const SENSITIVE_PATH_PATTERNS: { label: string; re: RegExp }[] = [
     { label: 'Secrets folder', re: /(^|\/)\.(secrets|ssh|aws|gnupg)(\/|$)/ },
     { label: 'Env file', re: /(^|\/)\.env(\.|$)/ },
-    { label: 'Credential file', re: /(cookie|credential|password|client[-_]secret|service[-_]account)/i },
+    { label: 'Credential file', re: /(^|\/)([^/]*[-_.])?(cookies?|credentials?|passwords?|client[-_]secrets?|service[-_]accounts?)(([-_.][^/]*)?\.(json|ya?ml|txt|csv|ini|toml|xml|cfg|conf|properties))?$/i },
     { label: 'Private key file', re: /\.(pem|p12|pfx|key)$|(^|\/)id_(rsa|ed25519|ecdsa)$/ },
 ]
 

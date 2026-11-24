@@ -21,7 +21,7 @@ insert into public.workspace_members (user_id, workspace_id, role, box_scope) va
     ('00000000-0000-0000-0000-00000000f001', 990101, 'admin', 'all'),
     ('00000000-0000-0000-0000-00000000f002', 990101, 'member', 'all'),
     ('00000000-0000-0000-0000-00000000f003', 990102, 'admin', 'all');
-insert into public.factory_projects (workspace_id, repo, active) values (990101, 'acme/app', true), (990101, 'acme/site', false);
+insert into public.factory_projects (workspace_id, repo, name, active) values (990101, 'acme/app', 'app', true), (990101, 'acme/site', 'site', false);
 
 create function pg_temp.act_as(uid uuid) returns void language sql as $$
     select set_config('request.jwt.claims', json_build_object('sub', uid, 'role', 'authenticated')::text, true);
@@ -40,7 +40,7 @@ select throws_ok($$ update public.factory_projects set active = true where repo 
 select throws_ok($$ delete from public.factory_projects where repo = 'acme/site' $$, '42501', null, 'an admin cannot remove a project with a browser token');
 
 reset role;
-select throws_ok($$ insert into public.factory_projects (workspace_id, repo, active) values (990101, 'acme/third', true) $$, '23505', null, 'a workspace has at most one active project');
+select throws_ok($$ insert into public.factory_projects (workspace_id, repo, name, active) values (990101, 'acme/third', 'third', true) $$, '23505', null, 'a workspace has at most one active project');
 
 select * from finish();
 rollback;

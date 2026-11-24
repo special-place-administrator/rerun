@@ -21,7 +21,7 @@ function rpcError(id: unknown, code: number, message: string): Response {
 
 const CREATOR_LEFT = 'The member who created this key has left the workspace'
 
-async function keyActor(key: AuthenticatedApiKey): Promise<Actor | null> {
+export async function keyActor(key: AuthenticatedApiKey): Promise<Actor | null> {
     return key.createdByUserId ? memberActor(key.workspaceId, key.createdByUserId) : workspaceActor(key.workspaceId)
 }
 

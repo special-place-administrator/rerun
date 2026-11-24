@@ -328,3 +328,33 @@ class RepoNames(T.FactoryCase):
             self.assertEqual(code, 2, name + " " + out)
         self.assertEqual(F.repo_full("rerun"), FULL)
         self.assertEqual(F.repo_full("special-place-ai-heaven/re.run-x_1"), "special-place-ai-heaven/re.run-x_1")
+
+
+class JobClonesAreFenced(CloneCase):
+    def test_the_github_clone_allows_only_https_and_the_mirror_clone_only_file(self):
+        calls = []
+
+        class Git:
+            def __init__(self, cmd, env=None, **_):
+                calls.append((cmd, env or {}))
+                self.args, self.pid = cmd, 0
+                self.returncode = 0 if "for-each-ref" in cmd else 128
+
+            def communicate(self, timeout=None):
+                return ("abc commit\trefs/heads/dev\n", "") if self.returncode == 0 else ("", "fatal: Repository not found")
+        os.makedirs(self.M.path("rerun"))
+        with mock.patch.object(self.M, "GITHUB", "https://github.com/"), mock.patch.object(self.C, "mode", lambda: "clone"), \
+                mock.patch.object(self.M.subprocess, "Popen", Git):
+            code, out = self.call(lambda _: self.C.make(FULL, "rerun", "7-1", "chunk/7-1", None, "main"), [])
+        self.assertEqual(code, 3, out)
+        clones = [(cmd, env) for cmd, env in calls if "clone" in cmd]
+        self.assertEqual([env.get("GIT_ALLOW_PROTOCOL") for _, env in clones], ["file", "https"])
+        self.assertIn("protocol.file.allow=always", clones[0][0])
+        self.assertIn("protocol.file.allow=never", clones[1][0])
+        self.assertTrue(all(env.get("GIT_LFS_SKIP_SMUDGE") == "1" for _, env in clones))
+        self.assertNotIn("Repository not found", out)
+
+    def test_a_job_clone_runs_no_hooks(self):
+        code, out = self.new()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(T.git(self.folder(), "config", "--local", "core.hooksPath"), "/dev/null")

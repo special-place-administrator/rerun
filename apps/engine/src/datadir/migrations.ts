@@ -6,6 +6,7 @@ import { migrate } from '../db/migrate.js'
 import { latestVersion } from '../db/ladder.js'
 import { foldAgentKeysIntoConnections } from '../connections/migrate.js'
 import { EVEROS_ALLOWLIST_DDL } from '../agents/everos-allowlist.js'
+import { ensureBusTables } from '../bus/ddl.js'
 import { agentsDir, boxPlanPath, codexAuthPath, codexHomeDir, configPath, connectionConfigPath, connectionDir, connectionEnvPath, connectionsDir, isPathSegment, mcpDir, mcpPackagesDir } from '../config/paths.js'
 import { raw } from '../db/client.js'
 import { logger } from '../lib/logger.js'
@@ -202,6 +203,11 @@ export const DATA_DIR_MIGRATIONS: DataDirMigration[] = [
         up: async () => {
             await raw().execute(EVEROS_ALLOWLIST_DDL)
         },
+    },
+    {
+        version: 8,
+        id: 'bus-tables',
+        up: ensureBusTables,
     },
 ]
 

@@ -75,12 +75,12 @@ def lease(repo, issue, chunk):
 
 def must(r, what):
     if r.returncode:
-        raise RuntimeError("%s: %s" % (what, (r.stderr or r.stdout or "").strip()[-400:]))
+        raise RuntimeError("%s: %s" % (what, M.failure(r, what)))
     return r.stdout.strip()
 
 
 def heads(cwd, remote):
-    r = M.git(["ls-remote", "--heads", remote], cwd=cwd, timeout=60)
+    r = M.git(["ls-remote", "--heads", remote], cwd=cwd, timeout=60, net=True)
     if r.returncode:
         return None
     return {l.split("\t")[1][len("refs/heads/"):] for l in r.stdout.splitlines() if "\t" in l}
@@ -88,7 +88,7 @@ def heads(cwd, remote):
 
 def fetch_base(path, base):
     for i in range(FETCH_TRIES):
-        r = M.git(["fetch", "--quiet", "origin", "+refs/heads/%s:refs/remotes/origin/%s" % (base, base)], cwd=path)
+        r = M.git(["fetch", "--quiet", "origin", "+refs/heads/%s:refs/remotes/origin/%s" % (base, base)], cwd=path, net=True)
         if r.returncode == 0:
             return True
         time.sleep(BACKOFF_S * (i + 1))
@@ -129,13 +129,13 @@ def make(full, repo, d, branch, base, default, start=None):
     shutil.rmtree(tmp, ignore_errors=True)
     m = M.path(repo)
     src = m if mode() == "clone" and os.path.isdir(m) and M.git(["for-each-ref", "--count=1", "refs/heads"], cwd=m).stdout.strip() else M.url(full)
-    r = M.git(["clone", "--quiet", "--no-checkout", src, tmp], timeout=900)
+    r = M.git(["clone", "--quiet", "--no-checkout", "-c", "core.hooksPath=/dev/null", src, tmp], timeout=900, net=src != m, local=src == m)
     if r.returncode and src == m:
         shutil.rmtree(tmp, ignore_errors=True)
         src = M.url(full)
-        r = M.git(["clone", "--quiet", "--no-checkout", src, tmp], timeout=900)
+        r = M.git(["clone", "--quiet", "--no-checkout", "-c", "core.hooksPath=/dev/null", src, tmp], timeout=900, net=True)
     if r.returncode:
-        transient("cannot clone %s: %s" % (full, (r.stderr or "").strip()[-300:]))
+        transient("cannot clone %s: %s" % (full, M.failure(r, "job clone " + full)))
     step("cloned")
     must(M.git(["remote", "set-url", "origin", M.url(full)], cwd=tmp), "git remote set-url")
     step("origin")
@@ -145,7 +145,7 @@ def make(full, repo, d, branch, base, default, start=None):
         if base != "job/" + d.split("-")[0]:
             F.die("base branch %s does not exist on origin" % base)
         if fetch_base(tmp, default):
-            must(M.git(["push", "--quiet", "origin", "refs/remotes/origin/%s:refs/heads/%s" % (default, base)], cwd=tmp), "git push job branch")
+            must(M.git(["push", "--quiet", "origin", "refs/remotes/origin/%s:refs/heads/%s" % (default, base)], cwd=tmp, net=True), "git push job branch")
             print("created job branch %s from %s" % (base, default))
     if not fetch_base(tmp, base):
         if src != m:
@@ -158,14 +158,14 @@ def make(full, repo, d, branch, base, default, start=None):
     if start and not fetch_base(tmp, start):
         transient("cannot fetch %s from GitHub after %d tries" % (start, FETCH_TRIES))
     step("fetched")
-    must(M.git(["checkout", "--quiet", "-b", branch, "origin/" + (start or base)], cwd=tmp), "git checkout")
+    must(M.git(["checkout", "--quiet", "-b", branch, "origin/" + (start or base)], cwd=tmp, net=True), "git checkout")
     step("branched")
     prepare(tmp, branch, base)
     return tmp, base
 
 
 def new(full, issue, chunk, base, owner, default, start=None):
-    repo, d = F.short(full), "%s-%s" % (issue, chunk)
+    repo, d = F.folder(full), "%s-%s" % (issue, chunk)
     final, branch = os.path.join(F.WT, repo, d), "chunk/%s-%s" % (issue, chunk)
     if not os.path.isdir(final) and len(F.wt_dirs()) >= CEILING:
         F.die("the ceiling of %d job folders under %s is reached. Nothing made; tell @boss." % (CEILING, F.WT))
@@ -179,13 +179,14 @@ def new(full, issue, chunk, base, owner, default, start=None):
             os.rename(tmp, final)
             step("renamed")
         else:
+            must(M.git(["config", "core.hooksPath", "/dev/null"], cwd=final), "git config core.hooksPath")
             must(M.git(["remote", "set-url", "origin", M.url(full)], cwd=final), "git remote set-url")
             base = M.git(["config", "branch.%s.factorybase" % branch], cwd=final).stdout.strip() or base or "dev"
             if os.path.exists(os.path.join(final, ".git", READY)):
                 print("EXISTS %s (branch %s). Work there." % (final, branch))
                 return
             if M.git(["rev-parse", "--verify", "--quiet", "refs/heads/" + branch], cwd=final).returncode:
-                must(M.git(["checkout", "--quiet", "-b", branch, "origin/" + base], cwd=final), "git checkout")
+                must(M.git(["checkout", "--quiet", "-b", branch, "origin/" + base], cwd=final, net=True), "git checkout")
             prepare(final, branch, base)
         M.write(F.reg_path(repo, d), json.dumps({"repo": full, "issue": issue, "chunk": chunk, "branch": branch, "base": base,
                                                  "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "owner": owner,

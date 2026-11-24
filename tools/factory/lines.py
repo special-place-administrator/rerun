@@ -1,15 +1,20 @@
 import json
 import os
 import re
+import shutil
+import stat
+import threading
 import time
 import urllib.parse
 
 import authors
 import factory
 import limits
+import mirror
 import pools
 import projects
 import states
+import upload
 
 END = states.END
 REPO = projects.REPO
@@ -20,6 +25,11 @@ RECHECK_FLOOR_S = 60
 READINESS_PER_HOUR = 20
 REPOS_AGAIN_S = 5 * 60
 PROBES_KEPT = 10
+PROJECT_QUEUE_MAX = 20
+UPLOAD_SHA = re.compile(r"[0-9a-f]{64}")
+IDENTIFIED_KEYS = ("identified_repo", "head", "dropped")
+OWNERS_SHOWN = 20
+OWNER_MAX = 100
 CONTROL_STATES = ("RUNNING", "PAUSED", "DRAINING", "STOPPED")
 CONTROL_DEFAULT = "PAUSED"
 CONNECTION_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
@@ -91,12 +101,14 @@ def unpushed(d):
 
 class Lines:
     def __init__(self, cfg, account, gh, now=time.time, make=None, mod=None):
-        self.cfg, self.now, self.home = cfg, now, cfg["repo"]
+        self.cfg, self.now, self.home, self.account = cfg, now, cfg["repo"], account
         self.mod = mod or __import__("dispatch")
         self.make = make or (lambda c: self.mod.Dispatcher(c, account, gh, now))
         self.lines, self.said, self.last = {}, set(), None
         self.gh, self.repos, self.repos_at, self.probes, self.draining = gh, [], None, {}, []
         self.checks_run, self.future_asks = [], {}
+        self.managed, self.cloning, self.unpacking = {}, None, None
+        self.leftovers_checked = False
         self.kv = self.open(self.home).store
         self.active = self.home
         saved = self.read("project", {})
@@ -393,10 +405,231 @@ class Lines:
                            "stations": {s: {"max": pool["seats"][s], "running": sum(1 for a, _ in ghosts if a in m)} for s, m in sorted(pool["members"].items())}}
         if self.last:
             out["switch"] = self.last
-        ready = self.readiness()
-        if self.repos or ready or self.probes:
-            out["projects"] = projects.report(self.repos, ready, list(self.probes.values()))
+        owners = [o for o in self.owners() if isinstance(o, str) and len(o) <= OWNER_MAX][:OWNERS_SHOWN]
+        out["projects"] = dict(projects.report(self.repos, self.readiness(), list(self.probes.values())), items=self.project_items(), owners=owners)
         return out
+
+    def project_items(self):
+        known = sorted(self.managed.items(), key=lambda kv: int(kv[0]))[:projects.ITEMS_MAX]
+        return [dict({"id": int(pid), "state": m["state"], "progress": None, "error_code": m["error_code"]},
+                     **{k: m[k] for k in IDENTIFIED_KEYS if k in m and m["state"] == "cloning"}) for pid, m in known]
+
+    def learn_projects(self, p):
+        if not isinstance(p, dict):
+            return
+        ws = projects.project_id(p.get("workspace_id"))
+        if ws is None:
+            return self.problem("projects answer not understood: no project is processed")
+        pinned = self.read("workspace", "")
+        if not pinned:
+            self.kv.set("-", "workspace", json.dumps(ws))
+            pinned = ws
+        if ws != pinned:
+            return self.problem("projects: the hub answers for workspace %s, but this factory serves workspace %s; no project is processed" % (ws, pinned))
+        if not self.leftovers_checked:
+            self.leftovers_checked = True
+            for name in self.folder_names(ws):
+                self.drop_leftovers(ws, name)
+        listed = p.get("ids") if isinstance(p.get("ids"), list) else []
+        ids = {i for i in (projects.project_id(x) for x in listed[:projects.ITEMS_MAX]) if i}
+        queue = [q for q in (p.get("queue") if isinstance(p.get("queue"), list) else [])[:PROJECT_QUEUE_MAX] if isinstance(q, dict)]
+        queued = {projects.project_id(q.get("id")) for q in queue}
+        quota = projects.limits(p.get("limits"))
+        self.finish_clone(quota)
+        self.finish_unpack(quota)
+        for pid in list(self.managed):
+            if pid not in ids or (self.managed[pid]["state"] == "failed" and pid not in queued):
+                self.managed.pop(pid)
+        self.sweep_projects(ws, ids)
+        for pid in sorted(ids - set(self.managed)):
+            meta = projects.read_meta(projects.project_dir(ws, pid, ws))
+            if meta:
+                self.managed[pid] = {"state": "ready", "error_code": None, "bytes": meta["bytes"], "repo": meta.get("repo")}
+        for q in queue:
+            self.take_project(ws, q, ids, quota)
+        for pid, m in sorted(self.managed.items()):
+            if m.get("pending") and not self.cloning:
+                self.begin_clone(ws, pid, m, quota)
+
+    def take_project(self, ws, q, ids, quota):
+        pid, repo, source = projects.project_id(q.get("id")), q.get("repo"), q.get("source")
+        if pid is None or pid not in ids or pid in self.managed or source not in ("github", "upload"):
+            return
+        if source == "upload" and q.get("state") != "cloning":
+            return self.take_upload(ws, pid, q, quota)
+        code = self.project_refusal(repo, quota)
+        if code:
+            return self.fail_project(pid, code)
+        if not self.cloning:
+            self.begin_clone(ws, pid, {"source": source, "pending": repo}, quota)
+
+    def begin_clone(self, ws, pid, m, quota):
+        repo = m["pending"]
+        d = projects.project_dir(ws, pid, ws)
+        if d is None:
+            return self.fail_project(pid, "unknown")
+        if quota and self.size_refusal(repo, quota):
+            return self.fail_project(pid, "quota_exceeded")
+        existed = os.path.isdir(mirror.path(factory.folder(repo)))
+        try:
+            proc = projects.start_clone(d, repo)
+        except OSError as e:
+            self.problem("project %s not cloned: %s" % (pid, type(e).__name__))
+            return self.fail_project(pid, "unknown")
+        self.cloning = (pid, proc, d, repo, existed)
+        self.managed[pid] = dict({k: v for k, v in m.items() if k != "pending"}, state="cloning", error_code=None)
+        self.mod.log("project", "project %s: cloning %s into the mirror" % (pid, repo))
+
+    def take_upload(self, ws, pid, q, quota):
+        size, sha = q.get("bytes"), q.get("sha256")
+        whole = isinstance(size, int) and not isinstance(size, bool) and size >= 0 and isinstance(sha, str) and UPLOAD_SHA.fullmatch(sha)
+        if q.get("state") != "queued" or not whole or not callable(getattr(self.account, "archive", None)):
+            return self.fail_project(pid, "unknown")
+        code = self.space_refusal(quota)
+        if code is None and size > quota["upload_max_mb"] * projects.MB:
+            code = "upload_too_large"
+        if code:
+            return self.fail_project(pid, code)
+        d = projects.project_dir(ws, pid, ws)
+        if d is None:
+            return self.fail_project(pid, "unknown")
+        if self.unpacking:
+            return
+        got, owners = {}, self.owners()
+        worker = threading.Thread(target=lambda: got.update(upload.receive(self.account.archive, pid, d, size, sha, quota, owners)), daemon=True)
+        worker.start()
+        self.unpacking = (pid, worker, got)
+        self.managed[pid] = {"state": "queued", "error_code": None, "source": "upload"}
+        self.mod.log("project", "project %s: fetching and unpacking the uploaded folder" % pid)
+
+    def finish_unpack(self, quota):
+        if not self.unpacking or self.unpacking[1].is_alive():
+            return
+        pid, _, got = self.unpacking
+        self.unpacking = None
+        if pid not in self.managed:
+            return
+        if not got.get("ok"):
+            return self.fail_project(pid, got.get("code") or "unknown")
+        repo = got["repo"]
+        code = self.project_refusal(repo, quota)
+        if code:
+            return self.fail_project(pid, code)
+        self.managed[pid] = {"state": "unpacking", "error_code": None, "source": "upload", "pending": repo,
+                             "identified_repo": repo, "head": got["head"], "dropped": got["dropped"]}
+        self.mod.log("project", "project %s: the uploaded folder is %s, %d sensitive files left out" % (pid, repo, len(got["dropped"])))
+
+    def project_refusal(self, repo, quota):
+        if not projects.safe_repo(repo):
+            return "invalid_link"
+        if repo.split("/")[0] not in self.owners():
+            return "owner_not_allowed"
+        return self.space_refusal(quota)
+
+    def ready_bytes(self):
+        return sum(m.get("bytes", 0) for m in self.managed.values() if m["state"] == "ready")
+
+    def space_refusal(self, quota):
+        if quota is None:
+            return "quota_unset"
+        if projects.free_gb() < factory.MIN_FREE_GB:
+            return "disk_low"
+        if self.ready_bytes() >= quota["max_total_mb"] * projects.MB:
+            return "quota_exceeded"
+        return None
+
+    def size_refusal(self, repo, quota):
+        try:
+            kib = int(self.github(["api", "repos/" + repo, "--jq", ".size"]).strip())
+        except Exception:
+            return None
+        room = min(quota["max_project_mb"] * projects.MB, quota["max_total_mb"] * projects.MB - self.ready_bytes())
+        return "quota_exceeded" if kib * 1024 > room else None
+
+    def busy(self, pid):
+        return any(work and work[0] == pid for work in (self.cloning, self.unpacking))
+
+    def folder_names(self, ws):
+        try:
+            return os.listdir(os.path.join(projects.projects_root(), ws))
+        except OSError:
+            return []
+
+    def drop_leftovers(self, ws, pid):
+        d = projects.project_dir(ws, pid, ws)
+        if d is None or self.busy(pid):
+            return
+        try:
+            names = os.listdir(d)
+        except OSError:
+            return
+        for name in names:
+            path = os.path.join(d, name)
+            if (name == "incoming" or name.startswith("tmp-")) and stat.S_ISDIR(os.lstat(path).st_mode):
+                shutil.rmtree(path, ignore_errors=True)
+
+    def fail_project(self, pid, code):
+        self.managed[pid] = {"state": "failed", "error_code": code}
+        self.mod.log("project", "project %s failed: %s" % (pid, code))
+        ws = self.read("workspace", "")
+        if ws:
+            self.drop_leftovers(ws, pid)
+
+    def fail_clone(self, pid, code, repo, existed):
+        self.fail_project(pid, code)
+        if not existed:
+            self.drop_mirror(pid, repo)
+
+    def drop_mirror(self, pid, repo):
+        name = factory.folder(repo)
+        others = [m.get(k) for p, m in self.managed.items() if p != pid for k in ("repo", "pending", "identified_repo")]
+        if any(isinstance(r, str) and factory.folder(r) == name for r in others + [self.home, self.active] + list(self.lines)):
+            return
+        shutil.rmtree(mirror.path(name), ignore_errors=True)
+        self.mod.log("project", "project %s: the mirror this clone made of %s is removed" % (pid, repo))
+
+    def finish_clone(self, quota):
+        rc = self.cloning[1].poll() if self.cloning else None
+        if rc is None:
+            return
+        pid, _, d, repo, existed = self.cloning
+        self.cloning = None
+        code = self.clone_log(d)
+        if pid not in self.managed:
+            return
+        if rc:
+            return self.fail_clone(pid, code, repo, existed)
+        cache = mirror.path(factory.folder(repo))
+        if not os.path.isdir(cache):
+            self.managed.pop(pid)
+            return self.mod.log("project", "project %s: the mirror of %s is not there yet; it is cloned again" % (pid, repo))
+        size = projects.tree_bytes(cache) + projects.tree_bytes(os.path.join(d, "src"))
+        if quota is None:
+            return self.fail_project(pid, "quota_unset")
+        if size > quota["max_project_mb"] * projects.MB:
+            return self.fail_clone(pid, "quota_exceeded", repo, existed)
+        projects.write_meta(d, {"owner": repo.split("/")[0], "repo": repo, "source": self.managed[pid].get("source", "github"), "bytes": size, "at": self.mod.iso(self.now())})
+        self.managed[pid] = {"state": "ready", "error_code": None, "bytes": size, "repo": repo}
+        self.mod.log("project", "project %s: %s is ready" % (pid, repo))
+
+    def clone_log(self, d):
+        log = os.path.join(d, "clone.log")
+        try:
+            with open(os.open(log, os.O_RDONLY | os.O_NOFOLLOW), encoding="utf-8", errors="replace") as f:
+                text = f.read()
+            with open(os.open(log, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW), "w", encoding="utf-8") as f:
+                f.write(scrub(text))
+        except OSError:
+            return "unknown"
+        return projects.clone_code(text)
+
+    def sweep_projects(self, ws, ids):
+        for name in self.folder_names(ws):
+            d = projects.project_dir(ws, name, ws)
+            if d is None or name in ids or self.busy(name):
+                continue
+            shutil.rmtree(d, ignore_errors=True)
+            self.mod.log("project", "project %s: its folder is removed, the hub no longer has it" % name)
 
     def owners(self):
         return tuple(self.cfg.get("project_owners") or factory.OWNERS)
@@ -530,6 +763,7 @@ class Lines:
             self.learn_throttle(answer.get("throttle"))
             self.learn_control(answer.get("control"))
             self.check(answer.get("check"))
+            self.learn_projects(answer.get("projects"))
             if answer.get("repos"):
                 self.list_repos()
         if answer is None or (isinstance(answer, dict) and answer.get("project") is None):

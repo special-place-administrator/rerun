@@ -35,6 +35,7 @@ class FactoryCase(unittest.TestCase):
         F.GIT, F.WORK, F.LOAD_PER_CPU = "git", os.path.join(self.tmp, "work"), None
         F.REPOS, F.WT, F.STATE = F.WORK + "/repos", F.WORK + "/wt", F.WORK + "/state"
         os.makedirs(F.STATE)
+        self.enterContext(mock.patch.object(mirror, "GITHUB", "file://" + self.tmp + "/"))
         self.origin = os.path.join(self.tmp, "origin.git")
         git(self.tmp, "init", "--quiet", "--bare", self.origin)
         seed = self.make_clone("seed", init=True)
@@ -353,13 +354,13 @@ class WtSweep(FactoryCase):
             p = self.wt(chunk=c)
             self.pr(c, 9, "MERGED", self.commit(p))
             git(p, "push", "--quiet", "origin", "chunk/7-" + c)
-        fetches, real = [], F.run
+        fetches, real = [], mirror.run
 
         def counting(cmd, *a, **k):
             if "fetch" in cmd:
                 fetches.append(cmd)
             return real(cmd, *a, **k)
-        with mock.patch.object(F, "run", counting):
+        with mock.patch.object(mirror, "run", counting):
             code, out = self.sweep("--apply")
         self.assertEqual(code, 0, out)
         self.assertEqual(len(fetches), 1, fetches)
@@ -560,9 +561,11 @@ class PrOpenRetry(FactoryCase):
                 return subprocess.CompletedProcess(cmd, rc, out, err)
             if cmd[0] == F.GH:
                 return subprocess.CompletedProcess(cmd, 0, "[]", "")
-            if cmd[:2] == [F.GIT, "fetch"]:
-                return subprocess.CompletedProcess(cmd, 0, "", "")
             return real_run(cmd, *a, **k)
+        real_git = mirror.run
+
+        def fake_git(cmd, *a, **k):
+            return subprocess.CompletedProcess(cmd, 0, "", "") if "fetch" in cmd else real_git(cmd, *a, **k)
 
         old = os.getcwd()
         os.chdir(path)
@@ -575,7 +578,7 @@ class PrOpenRetry(FactoryCase):
             else:
                 real_sleep(seconds)
 
-        with mock.patch.object(F, "run", fake_run), mock.patch.object(F.time, "sleep", fake_sleep):
+        with mock.patch.object(F, "run", fake_run), mock.patch.object(mirror, "run", fake_git), mock.patch.object(F.time, "sleep", fake_sleep):
             code, out = self.call(F.cmd_pr_open, ["--title", "T", "--body-file", self.body])
         return code, out, waits
 
@@ -613,6 +616,41 @@ class PrOpenRetry(FactoryCase):
         self.assertEqual(len(self.creates), 1)
         self.assertEqual(sleeps, [])
         self.assertNotIn("tried 4 times", out)
+
+
+class GitFence(FactoryCase):
+    def test_a_failed_git_command_prints_its_code_and_keeps_its_output_in_the_local_log(self):
+        write(self.tmp, "fakegit", "#!/bin/sh\necho 'fatal: MARKER-7f3 said this' >&2\nexit 1\n")
+        F.GIT = os.path.join(self.tmp, "fakegit")
+        os.chmod(F.GIT, 0o755)
+        code, out = self.call(lambda _: F.run([F.GIT, "push", "--quiet", "origin", "x"], cwd=self.tmp), [])
+        self.assertEqual(code, 1)
+        self.assertNotIn("MARKER-7f3", out)
+        self.assertIn("fakegit push --quiet: unknown", out)
+        with open(os.path.join(F.STATE, mirror.ERRORS_LOG)) as f:
+            self.assertIn("MARKER-7f3", f.read())
+
+    def test_pushes_and_merges_of_the_factory_and_the_janitor_carry_the_fence(self):
+        import janitor
+        seen = []
+
+        def spy(cmd, cwd="/tmp", timeout=300, extra_env=None):
+            seen.append((cmd, extra_env or {}))
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        with mock.patch.object(mirror, "GITHUB", "https://github.com/"), mock.patch.object(mirror, "run", spy), \
+                mock.patch.object(F, "unsaved", return_value=["a" * 40]), mock.patch.object(F, "on_remote", return_value=True):
+            self.call(lambda _: F.wt_save(self.clone, os.path.join(self.tmp, "gone"), "chunk/7-1"), [])
+            self.call(lambda _: janitor.rescue(self.clone, FULL, "chunk/7-1", ["b" * 40]), [])
+        pushes = [(c, e) for c, e in seen if "push" in c]
+        self.assertEqual(len(pushes), 2)
+        for cmd, env in pushes:
+            self.assertIn("protocol.file.allow=never", cmd)
+            self.assertEqual(env.get("GIT_ALLOW_PROTOCOL"), "https")
+        merged = []
+        with mock.patch.object(F.subprocess, "run", lambda cmd, **kw: merged.append(cmd) or subprocess.CompletedProcess(cmd, int("merge-base" in cmd), "", "")):
+            self.call(lambda _: F.merge_base_in(self.clone, "chunk/7-1", "dev"), [])
+        merge = next(c for c in merged if "--no-ff" in c)
+        self.assertEqual(merge[1:1 + len(mirror.NO_FILTERS)], mirror.NO_FILTERS)
 
 
 if __name__ == "__main__":

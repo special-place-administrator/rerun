@@ -16,7 +16,7 @@ import { hasPendingSetup } from './setup.js'
 import { offersQuickReplies } from './quick-replies-stream.js'
 import { HITL_TOOL_NAMES, offersTakeover, type HitlToolName } from '../tools/builtin/hitl.js'
 import { runOffersComputer } from '../tools/builtin/computer.js'
-import { fsExtraRoots } from '../tools/builtin/filesystem.js'
+import { extraRootsAllowed, fsExtraRoots } from '../tools/builtin/filesystem.js'
 import { CLI_PROVIDERS, type LoadedAgent } from './types.js'
 import { turnOrder, type TurnOrder } from './turn-order.js'
 import { SKILL_STYLE } from '../skills/style.js'
@@ -287,7 +287,7 @@ export async function buildSystemPrompt(
     const stable = [
         section('identity', agent.soul.trim() || defaultSoul(agent.config)),
         section('vocabulary', VOCABULARY_NOTE),
-        section('environment', environmentNote(agent.id, cfg.sharedDb, cfg.filesystem ? fsExtraRoots(agent.config) : [])),
+        section('environment', environmentNote(agent.id, cfg.sharedDb, cfg.filesystem ? fsExtraRoots(agent.config, await extraRootsAllowed(agent)) : [])),
         CLI_PROVIDERS.has(provider) ? section('bridged_tools', cliBridgeNote(provider, cfg.web)) : '',
         section('operating_notes', operatingNotes(cfg.skills && agent.config.selfImprovement.enabled)),
         hasPendingSetup(agent) ? section('setup', setupNote(cfg.paidData)) : '',

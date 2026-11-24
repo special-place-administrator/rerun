@@ -2,6 +2,7 @@ import { workspaceActor, type Actor } from '@/app/api/_auth/access'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getFactorySnapshot } from '@/lib/factory/snapshot-store'
+import { applyFactoryProjectItems } from './factory-projects.service'
 import { ACCOUNT_TOOL_DEFS } from '@/lib/mcp/account-tools'
 
 import { dispatchAccountTool } from './mcp-account.service'
@@ -16,6 +17,12 @@ vi.mock('./agent-setup.service', () => ({ declareService: vi.fn(), installServic
 vi.mock('./chat.service', () => ({ ensureSessionRow: vi.fn(), resolveAgentTarget: vi.fn() }))
 vi.mock('./services.service', () => ({ allocateServiceInstance: vi.fn(), listCatalogServices: vi.fn(), listInstalledServices: vi.fn(), loadManifest: vi.fn(), searchCatalogServices: vi.fn(), toAuthMethodSummaries: vi.fn(() => []), uninstallService: vi.fn() }))
 vi.mock('./mcp-shares.service', () => ({ dispatchShareTool: vi.fn() }))
+vi.mock('@/app/api/_auth/ownership', () => ({ workspaceFounderUserId: vi.fn(async () => 'founder') }))
+vi.mock('./factory-projects.service', async importOriginal => ({
+    ...await importOriginal<typeof import('./factory-projects.service')>(),
+    factoryReportAnswer: vi.fn(async () => ({})),
+    applyFactoryProjectItems: vi.fn(async () => undefined),
+}))
 
 const snap = (madeAt: string, beat = 1, extra: Record<string, unknown> = {}) => ({
     version: 1, madeAt, beat, repo: 'a/b', jobs: [], holds: [], pools: [],
@@ -77,5 +84,35 @@ describe('factory_report account tool', () => {
         const madeAt = new Date(Date.now() + 60_000).toISOString()
         expect(await dispatchAccountTool(workspaceActor(108), 'factory_report', { snapshot: snap(madeAt) })).toEqual({ kept: true })
         expect(getFactorySnapshot(108)).not.toBeNull()
+    })
+
+    describe('project states', () => {
+        const items = [{ id: 5, state: 'ready', progress: null, error_code: null }]
+        const withItems = (madeAt: string) => snap(madeAt, 1, { projects: { repos: [], ready: [], probes: [], owners: ['a'], items } })
+
+        it('applies the states the factory reports through its own account key', async () => {
+            expect(await dispatchAccountTool(workspaceActor(109), 'factory_report', { snapshot: withItems('2026-11-14T06:00:00Z') })).toEqual({ kept: true })
+            expect(applyFactoryProjectItems).toHaveBeenCalledWith(109, items)
+        })
+
+        it('applies the states reported through an account key of the workspace owner', async () => {
+            const founder: Actor = { kind: 'user', userId: 'founder', workspaceId: 112, role: 'admin', boxScope: 'all' } as Actor
+            expect(await dispatchAccountTool(founder, 'factory_report', { snapshot: withItems('2026-11-14T06:00:00Z') })).toEqual({ kept: true })
+            expect(applyFactoryProjectItems).toHaveBeenCalledWith(112, items)
+        })
+
+        it('keeps the picture of another admin but changes no project state with it', async () => {
+            const admin: Actor = { kind: 'user', userId: 'u1', workspaceId: 110, role: 'admin', boxScope: 'all' } as Actor
+            expect(await dispatchAccountTool(admin, 'factory_report', { snapshot: withItems('2026-11-14T06:00:00Z') })).toEqual({ kept: true })
+            expect(getFactorySnapshot(110)).not.toBeNull()
+            expect(applyFactoryProjectItems).not.toHaveBeenCalled()
+        })
+
+        it('changes no project state with a late older picture', async () => {
+            await dispatchAccountTool(workspaceActor(111), 'factory_report', { snapshot: withItems('2026-11-14T06:00:00Z') })
+            vi.mocked(applyFactoryProjectItems).mockClear()
+            expect(await dispatchAccountTool(workspaceActor(111), 'factory_report', { snapshot: withItems('2026-11-14T05:00:00Z') })).toEqual({ kept: false })
+            expect(applyFactoryProjectItems).not.toHaveBeenCalled()
+        })
     })
 })

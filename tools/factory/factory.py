@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import calendar, fnmatch, json, os, re, shlex, signal, subprocess, sys, time, shutil, urllib.request
+import calendar, fnmatch, json, math, os, re, shlex, signal, subprocess, sys, time, shutil, urllib.parse, urllib.request
 
 os.environ["GIT_TERMINAL_PROMPT"] = "0"
 GH, GIT = os.environ.get("FACTORY_GH") or "/data/tools/bin/gh", "/data/tools/bin/git"
@@ -11,6 +11,7 @@ LOAD_PER_CPU = 3.0
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ciwait
 import cutshape
+import machine
 MIN_FREE_MEM_GB, MEMINFO = 4, "/proc/meminfo"
 WT_IDLE_HOURS = 48
 CLONE_SAFE = 1
@@ -74,7 +75,20 @@ def die(msg, code=2):
 def run(cmd, cwd="/tmp", check=True, timeout=300):
     r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout)
     if check and r.returncode:
-        die("command failed: %s\n%s" % (" ".join(cmd[:6]), (r.stderr or r.stdout).strip()[-600:]), 1)
+        failed(r, " ".join([os.path.basename(cmd[0])] + cmd[1:3]))
+    return r
+
+
+def failed(r, what):
+    import mirror
+    die("command failed: %s: %s" % (what, mirror.failure(r, what)), 1)
+
+
+def net_git(args, cwd, check=False):
+    import mirror
+    r = mirror.git(args, cwd=cwd, net=True)
+    if check and r.returncode:
+        failed(r, "git " + " ".join(args[:2]))
     return r
 
 
@@ -133,6 +147,7 @@ def base_roster(full):
 
 
 def repo_full(name):
+    name = name.replace("+", "/", 1)
     full = name if "/" in name else OWNERS[0] + "/" + name
     if full.split("/")[0] not in OWNERS:
         die("repo owner not allowed: " + full)
@@ -150,8 +165,13 @@ def short(full):
     return FOLDER_NAMES.get(name, name)
 
 
+def folder(full):
+    owner, name = full.split("/")
+    return short(full) if owner == OWNERS[0] else "%s+%s" % (owner, name)
+
+
 def named(full):
-    return home() if short(full) == short(home()) else full
+    return home() if folder(full) == folder(home()) else full
 
 
 def trim(s, n):
@@ -310,10 +330,15 @@ def plan_check(full, issue):
 
 
 def ensure_clone(full):
-    p = os.path.join(REPOS, short(full))
+    import mirror
+    p = os.path.join(REPOS, folder(full))
     if not os.path.isdir(os.path.join(p, ".git")):
-        run([GIT, "clone", "--quiet", "https://github.com/%s.git" % full, p], timeout=600)
-    run([GIT, "fetch", "--quiet", "--prune", "origin"], cwd=p, timeout=300)
+        r = mirror.git(["clone", "--quiet", mirror.url(full), p], timeout=600, net=True)
+        if r.returncode:
+            die("shared checkout of %s could not be cloned: %s" % (full, mirror.failure(r, "shared clone " + full)), 1)
+    r = mirror.git(["fetch", "--quiet", "--prune", "origin"], cwd=p, timeout=300, net=True)
+    if r.returncode:
+        die("shared checkout of %s could not be fetched: %s" % (full, mirror.failure(r, "shared fetch " + full)), 1)
     follow_base(p)
     return p
 
@@ -323,6 +348,7 @@ def remote_has(p, br):
 
 
 def follow_base(p):
+    import mirror
     if remote_has(p, "dev"):
         base = "dev"
     else:
@@ -340,7 +366,7 @@ def follow_base(p):
         cur = run([GIT, "rev-parse", "--short", "HEAD"], cwd=p, check=False).stdout.strip()
         print("shared checkout %s has local changes; left at %s" % (p, cur), file=sys.stderr)
         return
-    run([GIT, "checkout", "--quiet", "--detach", "origin/" + base], cwd=p, check=False)
+    run([GIT] + mirror.NO_FILTERS + ["checkout", "--quiet", "--detach", "origin/" + base], cwd=p, check=False)
 
 
 class Unprovable(Exception):
@@ -365,7 +391,7 @@ def unsaved(p, path, branch):
     if SWEEP_FETCH is not None and p in SWEEP_FETCH:
         if not SWEEP_FETCH[p]:
             return None
-    elif run([GIT, "fetch", "--quiet", "--prune", "origin"], cwd=p, check=False).returncode:
+    elif net_git(["fetch", "--quiet", "--prune", "origin"], p).returncode:
         return None
     tips = {run([GIT, "rev-parse", "--verify", "--quiet", ref], cwd=c, check=False).stdout.strip()
             for c, ref in ((path, "HEAD"), (p, "refs/heads/" + branch)) if os.path.isdir(c)} - {""}
@@ -383,7 +409,7 @@ def wt_save(p, path, branch):
         die("cannot fetch origin, so cannot prove the commits of %s are saved. Nothing deleted." % branch)
     for sha in left:
         rb = "rescue/%s-%s" % (branch, sha[:8])
-        run([GIT, "push", "--quiet", "origin", "%s:refs/heads/%s" % (sha, rb)], cwd=p, check=False)
+        net_git(["push", "--quiet", "origin", "%s:refs/heads/%s" % (sha, rb)], p)
         try:
             saved = on_remote(p, sha)
         except Unprovable:
@@ -435,7 +461,7 @@ def cmd_wt(a):
     full, issue, chunk = repo_full(a[1]), a[2].lstrip("#"), a[3]
     if not (issue.isdigit() and re.fullmatch(r"[a-z0-9]{1,12}", chunk)):
         die("issue must be a number and chunk a short id like 1 or 2b")
-    repo = short(full)
+    repo = folder(full)
     path = os.path.join(WT, repo, "%s-%s" % (issue, chunk))
     branch = "chunk/%s-%s" % (issue, chunk)
     if a[0] == "done":
@@ -568,7 +594,7 @@ def wt_sweep(apply, only=None, quiet=False):
             p = os.path.join(REPOS, r)
             if not os.path.isdir(p):
                 continue
-            SWEEP_FETCH[p] = run([GIT, "fetch", "--quiet", "--prune", "origin"], cwd=p, check=False).returncode == 0
+            SWEEP_FETCH[p] = net_git(["fetch", "--quiet", "--prune", "origin"], p).returncode == 0
         return _sweep_each(dirs, apply, only, quiet, n, kept)
     finally:
         SWEEP_FETCH = None
@@ -658,7 +684,7 @@ def clone_ready(top, full, branch, base):
     import mirror
     if not os.path.isfile(os.path.join(top, ".git", "factory-ready")):
         i, c = branch.split("/", 1)[1].split("-", 1)
-        die("this clone was not finished. Run `wt new %s %s %s` again first; it finishes the steps and changes nothing else." % (short(full), i, c))
+        die("this clone was not finished. Run `wt new %s %s %s` again first; it finishes the steps and changes nothing else." % (folder(full), i, c))
     url = run([GIT, "remote", "get-url", "origin"], cwd=top).stdout.strip()
     if url != mirror.url(full):
         die("origin of this clone is %s, not %s. Nothing pushed; tell @boss." % (url, mirror.url(full)))
@@ -670,11 +696,12 @@ def clone_ready(top, full, branch, base):
 
 
 def merge_base_in(top, branch, base):
+    import mirror
     if run([GIT, "merge-base", "--is-ancestor", "origin/" + base, "HEAD"], cwd=top, check=False).returncode == 0:
         return
     mark = os.path.join(top, ".git", "factory-merging")
     open(mark, "w").close()
-    r = run([GIT, "merge", "--no-commit", "--no-ff", "origin/" + base], cwd=top, check=False)
+    r = run([GIT] + mirror.NO_FILTERS + ["merge", "--no-commit", "--no-ff", "origin/" + base], cwd=top, check=False)
     if r.returncode:
         files = run([GIT, "diff", "--name-only", "--diff-filter=U"], cwd=top, check=False).stdout.split()
         run([GIT, "merge", "--abort"], cwd=top, check=False)
@@ -684,7 +711,7 @@ def merge_base_in(top, branch, base):
     if r.returncode:
         run([GIT, "merge", "--abort"], cwd=top, check=False)
         os.remove(mark)
-        die("the automatic merge of origin/%s could not be committed: %s. Nothing pushed." % (base, (r.stderr or r.stdout).strip()[-300:]))
+        die("the automatic merge of origin/%s could not be committed: %s. Nothing pushed." % (base, mirror.failure(r, "merge commit")))
     os.remove(mark)
     print("MERGED origin/%s into %s first: the branch was behind" % (base, branch))
 
@@ -764,7 +791,7 @@ def cmd_pr_open(a):
         clone_ready(top, full, branch, base)
     if run([GIT, "status", "--porcelain"], cwd=top).stdout.strip():
         die("uncommitted changes. Commit everything for this chunk first (one push per chunk).")
-    run([GIT, "fetch", "--quiet", "origin", base], cwd=top)
+    net_git(["fetch", "--quiet", "origin", base], top, check=True)
     ahead = run([GIT, "rev-list", "--count", "origin/%s..HEAD" % base], cwd=top).stdout.strip()
     if ahead == "0":
         die("no commits ahead of origin/%s" % base)
@@ -812,15 +839,15 @@ def cmd_pr_open(a):
         pending = ciwait.unfinished((runs.get("workflow_runs") or []) if isinstance(runs, dict) else [])
         if pending:
             die("a workflow run of the pull request's head %s is not finished (%s). One CI run per head: wait for it with `ci-wait %s %s`, then push once."
-                % (head[:7], ciwait.pending_text(pending), short(full), ex[0]["number"]))
+                % (head[:7], ciwait.pending_text(pending), folder(full), ex[0]["number"]))
         preflight_lines(top, plan)
         preflight_lint(top, changed)
         try:
-            os.remove(marker(short(full), branch))
+            os.remove(marker(folder(full), branch))
         except OSError:
             pass
-        run([GIT, "push", "--quiet", "origin", branch], cwd=top)
-        print("PUSHED fix to %s\nPR %s\nNext: `ci-wait %s %s`" % (branch, ex[0]["url"], short(full), ex[0]["number"]))
+        net_git(["push", "--quiet", "origin", branch], top, check=True)
+        print("PUSHED fix to %s\nPR %s\nNext: `ci-wait %s %s`" % (branch, ex[0]["url"], folder(full), ex[0]["number"]))
         return
     if "--title" not in a or "--body-file" not in a:
         die("usage: pr-open --title 'T' --body-file FILE   (template: pr-open --template)")
@@ -836,7 +863,7 @@ def cmd_pr_open(a):
         body += "\n\nCloses #%s\n" % issue
     tmp = os.path.join(STATE, "prbody-%d.md" % os.getpid())
     open(tmp, "w").write(body)
-    run([GIT, "push", "--quiet", "-u", "origin", branch], cwd=top)
+    net_git(["push", "--quiet", "-u", "origin", branch], top, check=True)
     cmd = [GH, "pr", "create", "-R", full, "--base", base, "--head", branch, "--title", title, "--body-file", tmp]
     delays = [60, 120, 240]
     while True:
@@ -853,7 +880,7 @@ def cmd_pr_open(a):
         die("command failed: %s\n%s%s" % (" ".join(cmd[:6]), text[-600:], suffix), 1)
     os.remove(tmp)
     url = r.stdout.strip().splitlines()[-1]
-    print("PR %s\nbase %s <- %s | %s commits | %d files\nNext: `ci-wait %s %s`. Fix a red result yourself; hand over only when green." % (url, base, branch, ahead, len(changed), short(full), url.rsplit("/", 1)[-1]))
+    print("PR %s\nbase %s <- %s | %s commits | %d files\nNext: `ci-wait %s %s`. Fix a red result yourself; hand over only when green." % (url, base, branch, ahead, len(changed), folder(full), url.rsplit("/", 1)[-1]))
 
 
 def cmd_ci_wait(a):
@@ -864,7 +891,7 @@ def cmd_ci_wait(a):
     if not pr:
         die("PR not found", 1)
     sha, branch = pr["head"]["sha"], pr["head"]["ref"]
-    sf = os.path.join(STATE, "ciwait__%s__%s__%s.json" % (short(full), n, sha[:12]))
+    sf = os.path.join(STATE, "ciwait__%s__%s__%s.json" % (folder(full), n, sha[:12]))
     try:
         first = json.load(open(sf))["first"]
     except Exception:
@@ -881,7 +908,7 @@ def cmd_ci_wait(a):
     print("CI %s | %s#%s @ %s | waited %d min in total" % (s, full, n, sha[:8], waited // 60))
     print(ci_table(cs))
     if s == "GREEN":
-        open(marker(short(full), branch), "w").write(sha)
+        open(marker(folder(full), branch), "w").write(sha)
         print("NEXT: return the PR link to @boss. Do not merge.")
     elif s == "RED":
         for c in [c for c in cs if c["conclusion"] in ("failure", "timed_out", "startup_failure")][:2]:
@@ -905,7 +932,6 @@ RULES = [
     ("DIETER", r"\.(scss|css|html|svg)$|theme|design-tokens", "visible UI"),
     ("FRED", r"^frontend/.*\.(ts|tsx|html|scss|css)$", "frontend behaviour: browser check of the touched flow"),
 ]
-SAFE = r"\.(md|txt)$|(^|/)(docs?|specs?|tasks|\.planning)/|\.spec\.ts$|\.test\.[jt]sx?$|(^|/)tests?/|__tests__"
 
 
 def cmd_risk(a):
@@ -914,28 +940,24 @@ def cmd_risk(a):
     full, n = repo_full(a[0]), a[1].lstrip("#")
     pr = api("repos/%s/pulls/%s" % (full, n))
     files = api("repos/%s/pulls/%s/files?per_page=100" % (full, n)) or []
-    need, plain = {}, []
+    need = {}
     claims_ok, claim_lines = True, []
     for f in files:
-        fn, hit = f["filename"], False
+        fn = f["filename"]
         test_only = re.search(r"\.spec\.ts$|\.test\.[jt]sx?$|(^|/)tests?/|__tests__|\.md$", fn)
         for who, pat, why in RULES:
             if re.search(pat, fn, re.I) and not (test_only and who not in ("STOP",)):
                 need.setdefault(who, [why, []])[1].append(fn)
-                hit = True
-        if not hit and not re.search(SAFE, fn, re.I):
-            plain.append(fn)
     try:
         ro = base_roster(full)
     except RosterError as e:
         die("risk: " + str(e), 1)
-    if ro is None and short(full) != short(home()):
+    if ro is None and folder(full) != folder(home()):
         import roster as R
         need.setdefault(R.GATE_SENSITIVE, ["this project has no roster: every change needs the second reviewer", []])[1].extend(f["filename"] for f in files)
     if ro:
         import roster as R
         need = {k: v for k, v in need.items() if k == "STOP"}
-        plain = []
         order = [x["name"] for x in ro["areas"]] + ["default"]
         sens = {x["name"] for x in ro["areas"] + [ro["default"]] if x["sensitive"]}
         by_who = {}
@@ -975,8 +997,8 @@ def cmd_risk(a):
     if "STOP" in need:
         print("STOP: touches %s. Workflow files are Rob's. Return BLOCKED to Rob." % ", ".join(need["STOP"][1][:5]))
     jev_note = ""
-    if plain and not need and "--no-jev" not in a and (lines > 150 or len(plain) > 6):
-        jev_note = jev_risk(pr["title"], [f["filename"] for f in files], need)
+    if "--no-jev" not in a:
+        jev_note = jev_risk(pr, files, need)
     extra = [w for w in need if w not in ("STOP", "LINUS")]
     for w in extra:
         print("EXTRA REVIEWER %s: %s%s" % (w, need[w][0], (" (" + ", ".join(need[w][1][:4]) + (" ..." if len(need[w][1]) > 4 else "") + ")") if need[w][1] else ""))
@@ -992,7 +1014,34 @@ def cmd_risk(a):
         sys.exit(1)
 
 
-def jev_risk(title, files, need):
+JEV_T = 0.70
+JEV_TOKENS_MAX = 2000
+JEV_CHARS_PER_TOKEN = 2.5
+JEV_LINES_MIN = 3
+JEV_LINE_MAX = 240
+JEV_ENTROPY_BITS = 4.2
+JEV_SECRET = "[line withheld: looks like a credential]"
+JEV_TITLE_WITHHELD = "[title withheld: looks like a credential]"
+JEV_NAME_WITHHELD = "[name withheld]"
+JEV_STATUS = {"added": "A", "removed": "D", "modified": "M", "renamed": "R", "copied": "C", "changed": "T", "unchanged": "U"}
+JEV_PATTERNS = [machine.TOKEN] + [re.compile(p) for p in (
+    r"\bsk-ant-[A-Za-z0-9_-]{20,}", r"\bsk-(?:proj-)?[A-Za-z0-9]{32,}", r"\bxox[abprs]-[A-Za-z0-9-]{10,}", r"\bgh[pousr]_[A-Za-z0-9_.-]{20,}",
+    r"\bgithub_pat_[A-Za-z0-9_]{20,}", r"x-access-token:[^@\s]+", r"\bAIza[A-Za-z0-9_-]{30,}", r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{20,}",
+    r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", r"-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----", r"\bBearer\s+[A-Za-z0-9._-]{24,}",
+    r"(?i)(?:api[_-]?key|token|secret|passw(?:or)?d)[\w-]*[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9_\-./+=~]{6,}(?![\w.(/+=~-])",
+    r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}", r"(?i)-----BEGIN [A-Z ]*PRIVATE KEY", r"://[^/\s:@]+:[^@\s]+@", r"[0-9a-fA-F]{64,}")]
+JEV_WORD = re.compile(r"[A-Za-z0-9+/=_-]{32,}")
+JEV_TAIL = re.compile(r"[\"'`]([^\"'`\s]+)[\"'`]?[\s,+)\\]*$")
+JEV_HEAD = re.compile(r"[\s(+]*[\"'`]([^\"'`\s]+)")
+JEV_CRITERIA = {"true": "Yes, the changed lines in `change.diff_summary` plausibly do that", "false": "No, nothing in the changed lines of `change.diff_summary` does that"}
+JEV_QUESTIONS = {k: {"type": "noul", "instructions": v, "criteria": JEV_CRITERIA} for k, v in {
+    "BRUCE": "Do the changed lines in `change.diff_summary` touch authentication, permissions, secrets, input from outside or dependencies?",
+    "CODD": "Do the changed lines in `change.diff_summary` alter a database schema, a migration or stored data?",
+    "GRACE": "Do the changed lines in `change.diff_summary` alter an API that another program or the frontend calls?",
+    "FRED": "Do the changed lines in `change.diff_summary` alter what a user sees or does in the browser?"}.items()}
+
+
+def _jev_key():
     key = None
     try:
         for l in open("@@JEV_KEYFILE@@"):
@@ -1000,24 +1049,142 @@ def jev_risk(title, files, need):
                 key = l.split("=", 1)[1].strip().strip("\"'")
     except Exception:
         pass
+    return key
+
+
+def jev_pattern(text):
+    return any(p.search(t) for t in (text, urllib.parse.unquote(text)) for p in JEV_PATTERNS)
+
+
+def jev_credential(line):
+    return jev_pattern(line) or any(-sum(w.count(c) / len(w) * math.log2(w.count(c) / len(w)) for c in set(w)) > JEV_ENTROPY_BITS
+                                    for t in (line, urllib.parse.unquote(line)) for w in JEV_WORD.findall(t))
+
+
+def jev_lines(patch):
+    lines = [l for l in (patch or "").splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+    held = [jev_credential(l) for l in lines]
+    for i in range(len(lines) - 1):
+        tail, head = JEV_TAIL.search(lines[i][1:]), JEV_HEAD.match(lines[i + 1][1:])
+        if tail and head and jev_credential(tail.group(1) + head.group(1)):
+            held[i] = held[i + 1] = True
+    return [l[:1] + JEV_SECRET if h else l[:JEV_LINE_MAX] for l, h in zip(lines, held)]
+
+
+def jev_body(state):
+    return json.dumps({"model": "jev-latest", "state": state, "questions": JEV_QUESTIONS}, separators=(",", ":")).encode()
+
+
+JEV_CLIPPED = "…"
+
+
+def jev_root(names):
+    common = []
+    for parts in zip(*[n.split("/")[:-1] for n in names if n != JEV_NAME_WITHHELD]):
+        if len(set(parts)) > 1:
+            break
+        common.append(parts[0])
+    return "".join(p + "/" for p in common)
+
+
+def jev_clip(line, share):
+    if len(json.dumps(line)) + 1 <= share:
+        return line
+    keep = max(1, min(len(line), share - len(json.dumps(JEV_CLIPPED))))
+    while keep > 1 and len(json.dumps(line[:keep] + JEV_CLIPPED)) + 1 > share:
+        keep -= 1
+    return line[:keep] + JEV_CLIPPED
+
+
+def jev_state(pr, files):
+    order = sorted(files, key=lambda f: bool(re.search(cutshape.TESTF, f["filename"])))
+    names = [JEV_NAME_WITHHELD if jev_pattern(f["filename"]) else f["filename"] for f in order]
+    root = jev_root(names)
+    change = {"title": JEV_TITLE_WITHHELD if jev_credential(pr["title"]) else pr["title"]}
+    if root:
+        change["root"] = root
+    change.update(diff_summary=[], files_omitted=len(files))
+    room = int(JEV_TOKENS_MAX * JEV_CHARS_PER_TOKEN) - len(jev_body({"change": change}))
+    todo = [jev_lines(f.get("patch")) for f in order]
+    kept = {}
+
+    def admit(i):
+        nonlocal room
+        f, name = order[i], names[i]
+        label = name if name == JEV_NAME_WITHHELD else name[len(root):]
+        entry = {"file": "%s %s +%d/-%d" % (label, JEV_STATUS.get(f.get("status"), "?"), f.get("additions", 0), f.get("deletions", 0)), "lines": []}
+        cost = len(json.dumps(dict(entry, cut=len(todo[i])), separators=(",", ":"))) + 1
+        if cost <= room:
+            kept[i], room = entry, room - cost
+
+    def take(i, share=None):
+        nonlocal room
+        sent = kept[i]["lines"]
+        if len(sent) >= len(todo[i]):
+            return False
+        line = todo[i][len(sent)] if share is None else jev_clip(todo[i][len(sent)], share)
+        cost = len(json.dumps(line)) + 1
+        if cost > (room if share is None else min(room, share)):
+            return False
+        sent.append(line)
+        room -= cost
+        return True
+
+    def rounds(group, most):
+        while any([take(i) for i in group if i in kept and len(kept[i]["lines"]) < most]):
+            pass
+
+    split = sum(not re.search(cutshape.TESTF, f["filename"]) for f in order)
+    code, tests = range(split), range(split, len(order))
+    for i in code:
+        admit(i)
+    lined = [i for i in code if i in kept and todo[i]]
+    share = room // max(len(lined), 1)
+    for i in lined:
+        take(i, share)
+    rounds(code, JEV_LINES_MIN)
+    for i in tests:
+        admit(i)
+    rounds(tests, JEV_LINES_MIN)
+    rounds(range(len(order)), max(map(len, todo), default=0))
+    for i, entry in sorted(kept.items()):
+        change["diff_summary"].append(entry)
+        if len(entry["lines"]) < len(todo[i]):
+            entry["cut"] = len(todo[i]) - len(entry["lines"])
+    change["files_omitted"] = len(files) - len(kept)
+    if not change["files_omitted"]:
+        del change["files_omitted"]
+    return {"change": change}
+
+
+def jev_confidence(p_max, n=2):
+    return (p_max - 1 / n) / (1 - 1 / n)
+
+
+def jev_band(p):
+    return "yes" if p >= JEV_T else "no" if p <= 1 - JEV_T else "unsure"
+
+
+def jev_risk(pr, files, need):
+    key = _jev_key()
     if not key:
         return "Jev: not asked (no key)."
-    crit = {"true": "Yes, this change plausibly does that", "false": "No, nothing in the title or file names suggests it"}
-    qs = {"BRUCE": "Does the change in `change` touch authentication, permissions, secrets, input from outside or dependencies?",
-          "CODD": "Does the change in `change` alter a database schema, a migration or stored data?",
-          "GRACE": "Does the change in `change` alter an API that another program or the frontend calls?",
-          "FRED": "Does the change in `change` alter what a user sees or does in the browser?"}
-    body = json.dumps({"model": "jev-latest", "state": {"change": {"title": title, "files": files[:60]}},
-                       "questions": {k: {"type": "noul", "instructions": v, "criteria": crit} for k, v in qs.items()}}).encode()
+    body = jev_body(jev_state(pr, files))
     try:
         req = urllib.request.Request("https://api.typesafe.ai/v1/systemone", data=body, headers={"Authorization": "Bearer " + key, "Content-Type": "application/json", "User-Agent": "rerun-factory-risk/0.1"})
         with urllib.request.urlopen(req, timeout=30) as r:
             out = json.load(r)
-        res = {k: round(out["answers"][k]["noul"], 2) for k in qs}
-        for k, v in res.items():
-            if v >= 0.7:
-                need.setdefault(k, ["Jev says likely (%.2f), file names alone were unclear" % v, []])
-        return "Jev (unclear case, file names and title only, %s input tokens): %s" % (out.get("usage", {}).get("input_tokens", "?"), res)
+        res = {k: out["answers"][k]["noul"] for k in JEV_QUESTIONS}
+        if not all(isinstance(p, (int, float)) and not isinstance(p, bool) and 0 <= p <= 1 for p in res.values()):
+            raise ValueError("an answer is not a probability")
+        bands = {k: jev_band(p) for k, p in res.items()}
+        for k, p in res.items():
+            c = jev_confidence(max(p, 1 - p))
+            if bands[k] == "yes":
+                need.setdefault(k, ["Jev says likely (p %.2f, confidence %.2f)" % (p, c), []])
+            elif bands[k] == "unsure":
+                need.setdefault(k, ["Jev was unsure (p %.2f, confidence %.2f): held for this reviewer" % (p, c), []])
+        return "Jev (diff summary, %s input tokens): %s" % (out.get("usage", {}).get("input_tokens", "?"), ", ".join("%s %s %.2f" % (k, bands[k], res[k]) for k in JEV_QUESTIONS))
     except Exception as e:
         return "Jev: call failed (%s); decided on the path table alone." % str(e)[:80]
 
@@ -1061,8 +1228,8 @@ def cmd_merge_dev(a):
     m = api("repos/%s/pulls/%s" % (full, n))
     print("MERGED %s#%s into %s as %s | head %s | remote branch %s deleted" % (full, n, base, (m.get("merge_commit_sha") or "?")[:8], pr["head"]["sha"][:8], head))
     mm = re.fullmatch(r"chunk/(\d+)-([a-z0-9]+)", head)
-    if mm and os.path.isdir(os.path.join(WT, short(full), "%s-%s" % mm.groups())):
-        print("folder %s/%s-%s stays; the janitor removes it" % (short(full), mm.group(1), mm.group(2)))
+    if mm and os.path.isdir(os.path.join(WT, folder(full), "%s-%s" % mm.groups())):
+        print("folder %s/%s-%s stays; the janitor removes it" % (folder(full), mm.group(1), mm.group(2)))
 
 
 def cmd_job_open(a):
@@ -1078,7 +1245,7 @@ def cmd_job_open(a):
         die("the work order lacks: %s. Template: job-open --template" % ", ".join(miss))
     r = run([GH, "issue", "create", "-R", full, "--title", a[a.index("--title") + 1], "--body-file", a[a.index("--body-file") + 1]])
     url = r.stdout.strip().splitlines()[-1]
-    print("JOB %s\nStart every dispatch for it with: JOB %s#%s" % (url, short(full), url.rsplit("/", 1)[-1]))
+    print("JOB %s\nStart every dispatch for it with: JOB %s#%s" % (url, short(full) if full.split("/")[0] == OWNERS[0] else full, url.rsplit("/", 1)[-1]))
 
 
 def cmd_release_pr(a):

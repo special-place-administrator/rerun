@@ -3,7 +3,9 @@ import datetime
 import json
 import os
 import re
+import shutil
 import stat
+import subprocess
 
 import factory
 
@@ -22,6 +24,13 @@ PROBE_MESSAGES = {
 GITHUB_ORIGIN = re.compile(r"^(?:https://(?:[^@/\s]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)([^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 CONFIG_MAX_BYTES = 64 * 1024
 REPOS_MAX = 300
+REPO_SAFE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}")
+PROJECT_ID = re.compile(r"[1-9][0-9]{0,18}")
+LIMIT_KEYS = ("max_count", "max_project_mb", "max_total_mb", "upload_max_mb", "upload_max_files", "upload_max_depth", "upload_max_file_mb")
+CLONE_CODES = ("not_reachable", "disk_low", "timed_out")
+ITEMS_MAX = 1000
+MB = 1024 * 1024
+MIRROR = os.environ.get("FACTORY_MIRROR") or "/data/tools/bin/mirror"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -190,3 +199,76 @@ def accessible(gh, owners=factory.OWNERS):
     except Exception:
         out = gh(["api", "--paginate", "user/repos?per_page=100", "--jq", ".[].full_name"])
     return sorted({n.strip() for n in out.splitlines() if REPO.match(n.strip()) and n.strip().split("/")[0] in owners})[:REPOS_MAX]
+
+
+def safe_repo(repo):
+    return isinstance(repo, str) and bool(REPO_SAFE.fullmatch(repo)) and ".." not in repo
+
+
+def projects_root():
+    return os.path.join(factory.WORK, "projects")
+
+
+def project_id(value):
+    text = str(value) if isinstance(value, (int, str)) and not isinstance(value, bool) else ""
+    return text if PROJECT_ID.fullmatch(text) else None
+
+
+def project_dir(ws, pid, account_ws):
+    parts = [project_id(x) for x in (ws, pid, account_ws)]
+    if None in parts or parts[0] != parts[2]:
+        return None
+    root = os.path.realpath(projects_root())
+    target = os.path.join(root, parts[0], parts[1])
+    return target if os.path.realpath(target) == target else None
+
+
+def limits(raw):
+    whole = isinstance(raw, dict) and all(isinstance(raw.get(k), int) and not isinstance(raw.get(k), bool) and raw[k] > 0 for k in LIMIT_KEYS)
+    return {k: raw[k] for k in LIMIT_KEYS} if whole else None
+
+
+def free_gb():
+    return shutil.disk_usage(factory.WORK if os.path.isdir(factory.WORK) else "/").free / 2**30
+
+
+def tree_bytes(path):
+    total = 0
+    for top, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(top, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def clone_code(text):
+    said = [x for x in text.splitlines() if x.startswith("TRANSIENT:")]
+    return next((w for w in re.findall(r"[a-z_]+", said[-1] if said else "") if w in CLONE_CODES), "unknown")
+
+
+def start_clone(d, repo):
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    fd = os.open(os.path.join(d, "clone.log"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        return subprocess.Popen([MIRROR, "refresh", repo], stdin=subprocess.DEVNULL, stdout=fd, stderr=subprocess.STDOUT, start_new_session=True)
+    finally:
+        os.close(fd)
+
+
+def write_meta(d, meta):
+    tmp = os.path.join(d, "meta.json.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(meta, f)
+    os.replace(tmp, os.path.join(d, "meta.json"))
+
+
+def read_meta(d):
+    try:
+        with open(os.path.join(d, "meta.json")) as f:
+            meta = json.load(f)
+    except (OSError, TypeError, ValueError):
+        return None
+    return meta if isinstance(meta, dict) and isinstance(meta.get("bytes"), int) else None
