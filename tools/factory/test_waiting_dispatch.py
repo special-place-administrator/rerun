@@ -119,6 +119,26 @@ class Window(Pair):
         found = problems.Watch().find(line.store.jobs(), {}, {5, 6}, "", 0, [])
         self.assertIn("dependency #7 ended rejected", found["ended #5"])
 
+    def test_a_retried_blocked_dependency_still_releases_its_waiter(self):
+        self.w.issues = [issue(5, "#7")]
+        self.w.open_numbers = {5, 7}
+        self.order([7, 5], 1)
+        self.d = self.new()
+        self.d.kv.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
+        line = self.d.lines["o/r"]
+        line.store.put_job("7", "blocked", {"issue": 7, "title": "t7", "body": ready(), "state": "blocked", "reason": "review blocked",
+                                            "take": 1, "relabelled": True, "commented": True})
+        line.store.put_job("5", "waiting", {"issue": 5, "title": "t5", "body": ready(deps="#7"), "state": "waiting", "round": 1, "worker": "coder",
+                                            "paths": ["a/b.py"], "test": "a/test_b.py", "waiting": [7], "wait_line": "waits on #7"})
+        self.tick(3)
+        self.assertEqual(line.store.get_job("5")["state"], "waiting")
+        self.d.learn_action({"action": "retry", "issue": 7, "order_id": "w", "by": "rob"})
+        line.store.put_job("7", "merged", {"issue": 7, "title": "t7", "state": "merged", "pr": 99, "relabelled": True, "commented": True})
+        self.w.open_numbers.discard(7)
+        self.tick(3)
+        self.assertIn(line.store.get_job("5")["state"], ("queued", "building"))
+        self.assertNotEqual(self.d.work()["wait"], "the work order is done")
+
     def test_a_station_asked_for_zero_seats_keeps_one(self):
         self.cfg["builders"] = [{"id": "code", "name": "code"}, {"id": "larry", "name": "LARRY"}]
         self.order([5], 1)
