@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import calendar, fnmatch, json, os, re, shlex, signal, subprocess, sys, time, shutil, urllib.request
+import calendar, fnmatch, json, math, os, re, shlex, signal, subprocess, sys, time, shutil, urllib.request
 
 os.environ["GIT_TERMINAL_PROMPT"] = "0"
 GH, GIT = os.environ.get("FACTORY_GH") or "/data/tools/bin/gh", "/data/tools/bin/git"
@@ -11,6 +11,7 @@ LOAD_PER_CPU = 3.0
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ciwait
 import cutshape
+import machine
 MIN_FREE_MEM_GB, MEMINFO = 4, "/proc/meminfo"
 WT_IDLE_HOURS = 48
 CLONE_SAFE = 1
@@ -987,7 +988,7 @@ def cmd_risk(a):
         print("STOP: touches %s. Workflow files are Rob's. Return BLOCKED to Rob." % ", ".join(need["STOP"][1][:5]))
     jev_note = ""
     if plain and not need and "--no-jev" not in a and (lines > 150 or len(plain) > 6):
-        jev_note = jev_risk(pr["title"], [f["filename"] for f in files], need)
+        jev_note = jev_risk(pr, files, need)
     extra = [w for w in need if w not in ("STOP", "LINUS")]
     for w in extra:
         print("EXTRA REVIEWER %s: %s%s" % (w, need[w][0], (" (" + ", ".join(need[w][1][:4]) + (" ..." if len(need[w][1]) > 4 else "") + ")") if need[w][1] else ""))
@@ -1003,7 +1004,18 @@ def cmd_risk(a):
         sys.exit(1)
 
 
-def jev_risk(title, files, need):
+JEV_T = 0.70
+JEV_STATE_MAX = 6000
+JEV_LINE_MAX = 240
+JEV_FILES_MAX = 60
+JEV_ENTROPY_BITS = 4.2
+JEV_SECRET = "[line withheld: looks like a credential]"
+JEV_CREDENTIAL = re.compile(r"(?i)(?:api[_-]?key|token|secret|passw(?:or)?d)[\w-]*[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9_\-./+=~]{8,}(?![\w.(/+=~-])"
+                            r"|\bbearer\s+[A-Za-z0-9._~+/=-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY")
+JEV_WORD = re.compile(r"[A-Za-z0-9+/=_-]{32,}")
+
+
+def _jev_key():
     key = None
     try:
         for l in open("@@JEV_KEYFILE@@"):
@@ -1011,24 +1023,71 @@ def jev_risk(title, files, need):
                 key = l.split("=", 1)[1].strip().strip("\"'")
     except Exception:
         pass
+    return key
+
+
+def jev_credential(line):
+    if machine.TOKEN.search(line) or JEV_CREDENTIAL.search(line):
+        return True
+    return any(-sum(w.count(c) / len(w) * math.log2(w.count(c) / len(w)) for c in set(w)) > JEV_ENTROPY_BITS for w in JEV_WORD.findall(line))
+
+
+def jev_state(pr, files):
+    kept = files[:JEV_FILES_MAX]
+    todo = [[l[:1] + JEV_SECRET if jev_credential(l) else l[:JEV_LINE_MAX] for l in (f.get("patch") or "").splitlines()
+             if l[:1] in "+-" and not l.startswith(("+++", "---"))] for f in kept]
+    summary = [{"filename": f["filename"], "status": f.get("status"), "additions": f.get("additions", 0), "deletions": f.get("deletions", 0),
+                "lines": [], "truncated": False} for f in kept]
+    change = {"title": pr["title"], "diff_summary": summary, "files": [f["filename"] for f in kept]}
+    if len(files) > JEV_FILES_MAX:
+        change["files_omitted"] = len(files) - JEV_FILES_MAX
+    room, taken, moved = JEV_STATE_MAX - len(json.dumps({"change": change})), [0] * len(kept), True
+    while moved:
+        moved = False
+        for i, lines in enumerate(todo):
+            cost = len(json.dumps(lines[taken[i]])) + 2 if taken[i] < len(lines) else room + 1
+            if cost <= room:
+                summary[i]["lines"].append(lines[taken[i]])
+                room, taken[i], moved = room - cost, taken[i] + 1, True
+    for s, n, lines in zip(summary, taken, todo):
+        s["truncated"] = n < len(lines)
+    return {"change": change}
+
+
+def jev_confidence(p_max, n=2):
+    return (p_max - 1 / n) / (1 - 1 / n)
+
+
+def jev_band(p):
+    return "yes" if p >= JEV_T else "no" if p <= 1 - JEV_T else "unsure"
+
+
+def jev_risk(pr, files, need):
+    key = _jev_key()
     if not key:
         return "Jev: not asked (no key)."
-    crit = {"true": "Yes, this change plausibly does that", "false": "No, nothing in the title or file names suggests it"}
-    qs = {"BRUCE": "Does the change in `change` touch authentication, permissions, secrets, input from outside or dependencies?",
-          "CODD": "Does the change in `change` alter a database schema, a migration or stored data?",
-          "GRACE": "Does the change in `change` alter an API that another program or the frontend calls?",
-          "FRED": "Does the change in `change` alter what a user sees or does in the browser?"}
-    body = json.dumps({"model": "jev-latest", "state": {"change": {"title": title, "files": files[:60]}},
+    crit = {"true": "Yes, the changed lines in `change.diff_summary` plausibly do that", "false": "No, nothing in the changed lines of `change.diff_summary` does that"}
+    qs = {"BRUCE": "Do the changed lines in `change.diff_summary` touch authentication, permissions, secrets, input from outside or dependencies?",
+          "CODD": "Do the changed lines in `change.diff_summary` alter a database schema, a migration or stored data?",
+          "GRACE": "Do the changed lines in `change.diff_summary` alter an API that another program or the frontend calls?",
+          "FRED": "Do the changed lines in `change.diff_summary` alter what a user sees or does in the browser?"}
+    body = json.dumps({"model": "jev-latest", "state": jev_state(pr, files),
                        "questions": {k: {"type": "noul", "instructions": v, "criteria": crit} for k, v in qs.items()}}).encode()
     try:
         req = urllib.request.Request("https://api.typesafe.ai/v1/systemone", data=body, headers={"Authorization": "Bearer " + key, "Content-Type": "application/json", "User-Agent": "rerun-factory-risk/0.1"})
         with urllib.request.urlopen(req, timeout=30) as r:
             out = json.load(r)
-        res = {k: round(out["answers"][k]["noul"], 2) for k in qs}
-        for k, v in res.items():
-            if v >= 0.7:
-                need.setdefault(k, ["Jev says likely (%.2f), file names alone were unclear" % v, []])
-        return "Jev (unclear case, file names and title only, %s input tokens): %s" % (out.get("usage", {}).get("input_tokens", "?"), res)
+        res = {k: out["answers"][k]["noul"] for k in qs}
+        if not all(isinstance(p, (int, float)) and not isinstance(p, bool) and 0 <= p <= 1 for p in res.values()):
+            raise ValueError("an answer is not a probability")
+        bands = {k: jev_band(p) for k, p in res.items()}
+        for k, p in res.items():
+            c = jev_confidence(max(p, 1 - p))
+            if bands[k] == "yes":
+                need.setdefault(k, ["Jev says likely (p %.2f, confidence %.2f)" % (p, c), []])
+            elif bands[k] == "unsure":
+                need.setdefault(k, ["Jev was unsure (p %.2f, confidence %.2f): held for this reviewer" % (p, c), []])
+        return "Jev (diff summary, %s input tokens): %s" % (out.get("usage", {}).get("input_tokens", "?"), ", ".join("%s %s %.2f" % (k, bands[k], res[k]) for k in qs))
     except Exception as e:
         return "Jev: call failed (%s); decided on the path table alone." % str(e)[:80]
 
