@@ -197,6 +197,11 @@ describe('bus store', () => {
         await expect(postMessage(from, { to: [`agent:${dave.id}#1`], type: 'TASK', idem_key: key(), body: 'to a copy' })).rejects.toMatchObject({ status: 429, code: 'bus_pair_cap' })
         expect(await status(postMessage(from, { to: [`agent:${dave.id}`], type: 'FYI', idem_key: key(), body: 'passive' }))).toBe('ok')
 
+        const erin = await coworker('Erin')
+        const copies = key()
+        await expect(postMessage(from, { to: [`agent:${erin.id}`, `agent:${erin.id}#1`, `agent:${erin.id}#2`], type: 'TASK', idem_key: copies, body: 'to every copy' })).rejects.toMatchObject({ status: 429, code: 'bus_pair_cap' })
+        expect(await rows('SELECT id FROM bus_messages WHERE sender = ? AND idem_key = ?', [`agent:${alice.id}`, copies])).toHaveLength(0)
+
         const sides = [await senderOf(bob), await senderOf(carol)]
         let last = await postMessage(sides[0], { to: [`agent:${carol.id}`], type: 'FYI', idem_key: key(), body: 'hop 0' })
         for (let hop = 1; hop <= 6; hop++) {
