@@ -4,7 +4,7 @@ import { AccessDeniedError, assertAgentInWorkspace, callableEngineAgentIds, isAd
 import type { Database } from '@/app/api/database.types'
 import { putFactorySnapshot } from '@/lib/factory/snapshot-store'
 import { controlsReportAnswer } from './factory-controls.service'
-import { factoryReportAnswer } from './factory-projects.service'
+import { applyFactoryProjectItems, factoryReportAnswer, isFactoryReporter } from './factory-projects.service'
 import {
     chat as engineChat,
     createSchedule as engineCreateSchedule,
@@ -1097,6 +1097,8 @@ export async function dispatchAccountTool(actor: Actor, name: string, args: Reco
             if (!parsed.success) throw new Error('factory_report: the snapshot does not match the schema')
             if (Date.parse(parsed.data.madeAt) > Date.now() + FACTORY_SNAPSHOT_MAX_SKEW_MS) throw new Error('factory_report: the snapshot is dated in the future')
             const kept = putFactorySnapshot(workspaceId, parsed.data)
+            const items = parsed.data.projects?.items
+            if (kept && items && await isFactoryReporter(actor).catch(() => false)) await applyFactoryProjectItems(workspaceId, items).catch(() => undefined)
             return { kept, ...await factoryReportAnswer(workspaceId).catch(() => ({})), ...await controlsReportAnswer(workspaceId).catch(() => ({})) }
         }
 

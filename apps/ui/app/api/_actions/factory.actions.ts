@@ -1,9 +1,9 @@
 'use server'
 
-import type { FactorySnapshot } from '@moldwright/contracts'
+import type { FactoryProjectLimits, FactorySnapshot } from '@moldwright/contracts'
 import { requireWorkspaceContext, requireWorkspaceId } from '@/app/api/_auth/ownership'
-import { actOnWorkOrder, cancelWorkOrder, createWorkOrder, readFactoryControls, setFactoryState, setFactoryThrottle, setProviderEnabled, type FactoryControlsView, type FactoryThrottleView, type FactoryWorkOrder, type WorkOrderAction, type WorkOrderInput } from '@/app/api/_services/factory-controls.service'
-import { addPathProject, addRepoProject, listFactoryProjects, removeProject, selectProject, type FactoryProject, type PathOutcome, type SelectOutcome } from '@/app/api/_services/factory-projects.service'
+import { actOnWorkOrder, cancelWorkOrder, createWorkOrder, readFactoryControls, setFactoryProjectLimits, setFactoryState, setFactoryThrottle, setProviderEnabled, type FactoryControlsView, type FactoryThrottleView, type FactoryWorkOrder, type WorkOrderAction, type WorkOrderInput } from '@/app/api/_services/factory-controls.service'
+import { addGithubProject, addPathProject, addRepoProject, listFactoryProjects, removeProject, retryProject, selectProject, type FactoryProject, type GithubAddOutcome, type PathOutcome, type SelectOutcome } from '@/app/api/_services/factory-projects.service'
 import { getFactorySnapshot } from '@/lib/factory/snapshot-store'
 import { failureOf } from '@/lib/i18n/action-error'
 import type { ActionResult } from './space.actions'
@@ -21,6 +21,24 @@ export async function addFactoryRepoAction(repo: string): Promise<ActionResult<{
     try {
         const { workspace, userId } = await requireWorkspaceContext()
         return { ok: true, project: await addRepoProject(workspace.id, userId, String(repo)) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function addFactoryGithubAction(link: string): Promise<ActionResult<GithubAddOutcome>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, ...await addGithubProject(workspace.id, userId, String(link)) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function retryFactoryProjectAction(id: number): Promise<ActionResult<{ project: FactoryProject }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, project: await retryProject(workspace.id, userId, Number(id)) }
     } catch (err) {
         return failureOf(err)
     }
@@ -95,6 +113,15 @@ export async function setFactorySeatsAction(station: string, seats: number): Pro
     try {
         const { workspace, userId } = await requireWorkspaceContext()
         return { ok: true, throttle: await setFactoryThrottle(workspace.id, userId, { station: String(station), seats: Number(seats) }) }
+    } catch (err) {
+        return failureOf(err)
+    }
+}
+
+export async function setFactoryProjectLimitsAction(limits: FactoryProjectLimits): Promise<ActionResult<{ limits: FactoryProjectLimits }>> {
+    try {
+        const { workspace, userId } = await requireWorkspaceContext()
+        return { ok: true, limits: await setFactoryProjectLimits(workspace.id, userId, limits) }
     } catch (err) {
         return failureOf(err)
     }

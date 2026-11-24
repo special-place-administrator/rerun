@@ -167,7 +167,6 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
                                                     <ProjectMark repo={p.repo} />
                                                     <span className="flex min-w-0 flex-1 flex-col">
                                                         <span className="truncate">{p.repo}</span>
-                                                        {p.host_path && <span className="truncate text-[11px] text-muted-foreground">{t('hostPath', { path: p.host_path })}</span>}
                                                     </span>
                                                     {p.active && <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{t('active')}</span>}
                                                 </CommandItem>

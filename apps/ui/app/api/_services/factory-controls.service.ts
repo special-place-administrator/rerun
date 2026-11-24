@@ -10,10 +10,12 @@ import {
     FACTORY_WIRE_ID_PATTERN,
     factoryControlStateSchema,
     factoryGhostCeiling,
+    factoryProjectLimitsSchema,
     factoryStationNames,
     factoryStationSeatsSchema,
     type FactoryControlState,
     type FactoryOrderKind,
+    type FactoryProjectLimits,
 } from '@moldwright/contracts'
 import { assertFactoryOwner, isFactoryOwner } from '@/app/api/_services/factory-projects.service'
 import type { Database } from '@/app/api/database.types'
@@ -26,7 +28,7 @@ type ControlsInsert = Database['public']['Tables']['factory_controls']['Insert']
 type OrderInsert = Database['public']['Tables']['factory_work_orders']['Insert']
 type OrderUpdate = Database['public']['Tables']['factory_work_orders']['Update']
 
-const CONTROLS_COLUMNS = ['state', 'state_by', 'state_at', 'providers_off', 'providers_by', 'providers_at', 'max_ghosts', 'stations', 'throttle_by', 'throttle_at'] as const
+const CONTROLS_COLUMNS = ['state', 'state_by', 'state_at', 'providers_off', 'providers_by', 'providers_at', 'max_ghosts', 'stations', 'throttle_by', 'throttle_at', 'project_limits'] as const
 const ORDER_COLUMNS = ['id', 'repo', 'kind', 'issues', 'text', 'status', 'action', 'created_by', 'created_at', 'cancelled_by', 'cancelled_at'] as const
 const ORDERS_SHOWN = 20
 const STOPS: readonly FactoryControlState[] = ['DRAINING', 'STOPPED']
@@ -45,6 +47,7 @@ export type FactoryControlsView = {
     state: FactoryControlState | null
     providersOff: string[]
     throttle: FactoryThrottleView | null
+    projectLimits: FactoryProjectLimits | null
     orders: FactoryWorkOrder[]
 }
 export type WorkOrderInput = { repo: string; kind: FactoryOrderKind; issues: number[]; text: string }
@@ -92,7 +95,11 @@ export async function readFactoryControls(workspaceId: number, userId: string): 
     const [isOwner, activeRepo, row] = await Promise.all([isFactoryOwner(workspaceId, userId), activeRepoOf(workspaceId), controlsRow(workspaceId)])
     const orders = activeRepo ? await ordersOf(workspaceId, activeRepo) : []
     const state = factoryControlStateSchema.safeParse(row?.state)
-    return { isOwner, activeRepo, state: state.success ? state.data : null, providersOff: row?.providers_off ?? [], throttle: throttleOf(row), orders: orders.map(orderOf) }
+    const projectLimits = factoryProjectLimitsSchema.safeParse(row?.project_limits)
+    return {
+        isOwner, activeRepo, state: state.success ? state.data : null, providersOff: row?.providers_off ?? [], throttle: throttleOf(row),
+        projectLimits: projectLimits.success ? projectLimits.data : null, orders: orders.map(orderOf),
+    }
 }
 
 async function cancelActiveOrders(workspaceId: number, userId: string, now: number, repo?: string): Promise<void> {
@@ -144,6 +151,16 @@ export async function setFactoryThrottle(workspaceId: number, userId: string, ch
         .upsert<ControlsInsert>({ workspace_id: workspaceId, max_ghosts: next.maxGhosts, stations: next.stations, throttle_by: userId, throttle_at: wireTime(now) }, { onConflict: 'workspace_id' })
     if (error) throw new AppError('generic')
     return next
+}
+
+export async function setFactoryProjectLimits(workspaceId: number, userId: string, limits: unknown, now = Date.now()): Promise<FactoryProjectLimits> {
+    await assertFactoryOwner(workspaceId, userId)
+    const parsed = factoryProjectLimitsSchema.safeParse(limits)
+    if (!parsed.success) throw new AppError('factoryInputInvalid')
+    const { error } = await createServiceRoleClient().from('factory_controls')
+        .upsert<ControlsInsert>({ workspace_id: workspaceId, project_limits: parsed.data, project_limits_by: userId, project_limits_at: wireTime(now) }, { onConflict: 'workspace_id' })
+    if (error) throw new AppError('generic')
+    return parsed.data
 }
 
 function validOrder(input: WorkOrderInput): WorkOrderInput {
