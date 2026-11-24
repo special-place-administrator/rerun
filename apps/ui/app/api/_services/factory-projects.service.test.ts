@@ -4,9 +4,9 @@ import { factoryProjectsSchema } from '@moldwright/contracts'
 import { workspaceFounderUserId } from '@/app/api/_auth/ownership'
 import { askProjectCheck, clearProjectAsk } from '@/lib/factory/project-asks'
 import { createServiceRoleClient } from '@/supabase/serviceRole'
-import { selectMaybeSingle } from '@/supabase/supabase-helpers'
+import { selectMany, selectMaybeSingle } from '@/supabase/supabase-helpers'
 
-import { addPathProject, addRepoProject, factoryReportAnswer, removeProject, selectProject } from './factory-projects.service'
+import { addPathProject, addRepoProject, applyFactoryProjectItems, factoryReportAnswer, removeProject, selectProject } from './factory-projects.service'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/app/api/_auth/ownership', () => ({ workspaceFounderUserId: vi.fn() }))
@@ -47,16 +47,18 @@ describe('factory projects: owner only', () => {
 describe('factory_report answer', () => {
     beforeEach(() => { clearProjectAsk(301); clearProjectAsk(302) })
 
-    it('adds nothing for a workspace with no project and nothing pending, so the answer stays { kept }', async () => {
+    beforeEach(() => { vi.mocked(selectMany).mockResolvedValue({ data: [], error: null } as never) })
+
+    it('sends only the empty projects field for a workspace with no project and nothing pending', async () => {
         vi.mocked(selectMaybeSingle).mockResolvedValue({ data: null, error: null } as never)
-        expect(await factoryReportAnswer(301)).toEqual({})
+        expect(await factoryReportAnswer(301)).toEqual({ projects: { workspace_id: 301, limits: null, ids: [], queue: [] } })
     })
 
     it('carries the active project with the moment it was asked for, and the pending check', async () => {
         vi.mocked(selectMaybeSingle).mockResolvedValue({ data: { repo: 'acme/app', activated_at: '2026-11-23T18:00:00.000+00:00', activated_by: OWNER }, error: null } as never)
         askProjectCheck(302, { kind: 'repo', repo: 'acme/site', at: '2026-11-23T18:05:00Z', sentAt: null })
         const answer = await factoryReportAnswer(302)
-        expect(answer).toEqual({ project: { repo: 'acme/app', by: OWNER, at: '2026-11-23T18:00:00Z' }, check: { repo: 'acme/site', at: '2026-11-23T18:05:00Z' } })
+        expect(answer).toEqual({ project: { repo: 'acme/app', by: OWNER, at: '2026-11-23T18:00:00Z' }, check: { repo: 'acme/site', at: '2026-11-23T18:05:00Z' }, projects: { workspace_id: 302, limits: null, ids: [], queue: [] } })
         expect(await factoryReportAnswer(302)).toEqual(answer)
     })
 })
@@ -66,5 +68,41 @@ describe('factory projects: probe codes', () => {
         const probe = (code: string) => ({ path: '/srv/app', ok: false, code, message: '', repo: '' })
         const parsed = factoryProjectsSchema.parse({ repos: [], ready: [], probes: [probe('bad_root'), probe('later_code')] })
         expect(parsed.probes.map(p => p.code)).toEqual(['bad_root', 'unknown'])
+    })
+})
+
+describe('factory projects: states reported by the factory', () => {
+    const writes: unknown[] = []
+    const row = (id: number, state: string) => ({ id, state, error_code: state === 'failed' ? 'unknown' : null, progress_done: null, progress_total: null })
+
+    beforeEach(() => {
+        writes.length = 0
+        const done = { eq: () => done, then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(resolve) }
+        from.mockImplementation(() => ({ update: (payload: unknown) => { writes.push(payload); return done } }))
+        vi.mocked(selectMaybeSingle).mockResolvedValue({ data: null, error: null } as never)
+    })
+
+    it('ignores a forbidden transition and an id of another workspace, and writes the allowed one once', async () => {
+        vi.mocked(selectMany).mockResolvedValue({ data: [row(1, 'failed'), row(2, 'queued')], error: null } as never)
+        await applyFactoryProjectItems(401, [
+            { id: 1, state: 'ready', progress: null, error_code: null },
+            { id: 99, state: 'ready', progress: null, error_code: null },
+            { id: 2, state: 'cloning', progress: { done: 5, total: 10, unit: 'bytes' }, error_code: null },
+        ])
+        expect(vi.mocked(selectMany).mock.calls[0][3]).toMatchObject({ workspace_id: 401 })
+        expect(writes).toEqual([{ state: 'cloning', error_code: null, progress_done: 5, progress_total: 10, updated_at: expect.any(String) }])
+    })
+
+    it('keeps a code only with failed, and writes nothing for a row already in the reported state', async () => {
+        vi.mocked(selectMany).mockResolvedValue({ data: [row(3, 'queued'), row(4, 'ready'), row(5, 'cloning')], error: null } as never)
+        await applyFactoryProjectItems(402, [
+            { id: 3, state: 'failed', progress: null, error_code: 'not_reachable' },
+            { id: 4, state: 'ready', progress: null, error_code: null },
+            { id: 5, state: 'ready', progress: null, error_code: 'not_reachable' },
+        ])
+        expect(writes).toEqual([
+            { state: 'failed', error_code: 'not_reachable', progress_done: null, progress_total: null, updated_at: expect.any(String) },
+            { state: 'ready', error_code: null, progress_done: null, progress_total: null, updated_at: expect.any(String) },
+        ])
     })
 })
