@@ -179,6 +179,8 @@ describe('factory projects: an upload identified by the factory', () => {
     const removed: string[][] = []
     const upload = (id: number, state: string) => ({ id, source: 'upload', repo: null, state, error_code: null, progress_done: null, progress_total: null })
     const identified = (id: number, repo: string) => ({ id, state: 'cloning' as const, progress: null, error_code: null, identified_repo: repo, head: 'a'.repeat(40), dropped: [{ label: 'Env file', path: '.env' }] })
+    const rows = (reported: unknown[], sameRepo: unknown[] = []) => vi.mocked(selectMany).mockImplementation(((_c: unknown, _t: string, _s: unknown, filters: { repo?: unknown }) =>
+        Promise.resolve({ data: filters.repo ? sameRepo : reported, error: null })) as never)
 
     beforeEach(() => {
         writes.length = 0
@@ -191,7 +193,7 @@ describe('factory projects: an upload identified by the factory', () => {
     })
 
     it('takes the repo only on unpacking to cloning, from a listed owner, and deletes the stored folder', async () => {
-        vi.mocked(selectMany).mockResolvedValue({ data: [upload(1, 'unpacking'), upload(2, 'queued'), upload(3, 'unpacking'), upload(4, 'unpacking')], error: null } as never)
+        rows([upload(1, 'unpacking'), upload(2, 'queued'), upload(3, 'unpacking'), upload(4, 'unpacking')])
         await applyFactoryProjectItems(601, [
             identified(1, 'special-place-ai-heaven/moldwright'),
             identified(2, 'special-place-ai-heaven/moldwright'),
@@ -207,8 +209,7 @@ describe('factory projects: an upload identified by the factory', () => {
     })
 
     it('fails an upload whose repo another project of the workspace already has', async () => {
-        vi.mocked(selectMany).mockResolvedValue({ data: [upload(5, 'unpacking')], error: null } as never)
-        vi.mocked(selectMaybeSingle).mockResolvedValue({ data: { id: 9, repo: 'special-place-ai-heaven/moldwright' }, error: null } as never)
+        rows([upload(5, 'unpacking')], [{ id: 9, repo: 'special-place-ai-heaven/Moldwright' }])
         await applyFactoryProjectItems(601, [identified(5, 'special-place-ai-heaven/moldwright')])
         expect(writes).toEqual([expect.objectContaining({ state: 'failed', error_code: 'already_added' })])
     })
