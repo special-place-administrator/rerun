@@ -13,21 +13,25 @@ import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
+import { TooltipLabeled } from '@/components/ui/tooltip'
 import { useErrorText } from '@/hooks/useErrorText'
 import { ProjectMark } from './ProjectMark'
 import { groupOf } from './factory-state'
 import { thrown } from './use-factory-controls'
 
 const POLL_MS = 5_000
+const NAME_TAIL = 3
 type Confirm = { kind: 'select' | 'remove'; project: FactoryProject } | null
 
-export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }) {
+export function FactoryProjectPicker({ snapshot, open: openProp, onOpenChange }: { snapshot: FactorySnapshot; open?: boolean; onOpenChange?: (open: boolean) => void }) {
     const t = useTranslations('factory.projects')
     const errorText = useErrorText()
     const [projects, setProjects] = useState<FactoryProject[] | null>(null)
     const [isOwner, setIsOwner] = useState(false)
     const [loadError, setLoadError] = useState<string | null>(null)
-    const [open, setOpen] = useState(false)
+    const [ownOpen, setOwnOpen] = useState(false)
+    const open = openProp ?? ownOpen
+    const setOpen = onOpenChange ?? setOwnOpen
     const [adding, setAdding] = useState(false)
     const [path, setPath] = useState('')
     const [busy, setBusy] = useState(false)
@@ -52,8 +56,8 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
     useEffect(() => { listFactoryProjectsAction(false).catch(thrown).then(apply) }, [apply])
 
     const active = projects?.find(p => p.active)?.repo ?? snapshot.repo
+    const name = active.split('/').pop() || active
     const inFlight = snapshot.jobs.filter(j => groupOf(j.state) === 'active').length
-    const finishing = (snapshot.finishing ?? []).filter(f => f.jobs > 0)
     const known = new Set(projects?.map(p => p.repo))
     const reachable = snapshot.projects?.repos.filter(r => !known.has(r))
 
@@ -114,14 +118,19 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
     return (
         <div data-project-picker className="flex min-w-0 flex-col items-center gap-1">
             <Popover open={open} onOpenChange={o => { setOpen(o); if (!o) setAdding(false) }}>
-                <PopoverTrigger asChild>
-                    <button ref={triggerRef} type="button" aria-label={t('trigger', { repo: active })}
-                        className="flex max-w-[min(20rem,calc(100vw-2rem))] items-center gap-1.5 rounded-full border border-border/60 px-3 py-1 text-xs hover:bg-accent">
-                        <ProjectMark repo={active} />
-                        <span className="truncate">{active}</span>
-                        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                    </button>
-                </PopoverTrigger>
+                <TooltipLabeled label={<span className="flex flex-col gap-0.5"><span>{active}</span>{status && <span>{status}</span>}{lines.map(l => <span key={l.name}>{l.name}: {l.why}</span>)}</span>}>
+                    <PopoverTrigger asChild>
+                        <button ref={triggerRef} type="button" aria-label={t('trigger', { repo: active })}
+                            className="flex max-w-[min(20rem,calc(100vw-2rem))] items-center gap-1.5 rounded-full border border-border/60 px-3 py-1 text-xs hover:bg-accent">
+                            <ProjectMark repo={active} />
+                            <span className="flex min-w-0">
+                                <span className="truncate">{name.slice(0, -NAME_TAIL)}</span>
+                                <span className="shrink-0">{name.slice(-NAME_TAIL)}</span>
+                            </span>
+                            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        </button>
+                    </PopoverTrigger>
+                </TooltipLabeled>
                 <PopoverContent align="start" sideOffset={8} className="w-80 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0">
                     {adding ? (
                         <div className="flex max-h-[min(28rem,70vh)] flex-col gap-3 overflow-y-auto p-3">
@@ -198,8 +207,7 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
                     )}
                 </PopoverContent>
             </Popover>
-            <div role="status" aria-live="polite" className="flex max-w-[min(28rem,calc(100vw-2rem))] flex-col items-center text-center text-xs text-muted-foreground">
-                {finishing.map(f => <span key={f.repo} data-finishing={f.repo}>{t('finishing', { count: f.jobs, repo: f.repo })}</span>)}
+            <div role="status" aria-live="polite" className="sr-only">
                 {status && <span data-project-status>{status}</span>}
                 {lines.length > 0 && (
                     <ul data-ready-lines className="text-left">
