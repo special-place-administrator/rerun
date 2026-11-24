@@ -156,7 +156,8 @@ export type { ContainerHandle, ContainerSide }
 export type ResizePatch = Partial<Pick<Container, 'col_start' | 'row_start' | 'col_end' | 'row_end'>>
 export type ContainerCellRect = Pick<Container, 'col_start' | 'row_start' | 'col_end' | 'row_end'>
 
-export type IsoCamera = { pan: { x: number; y: number }; zoom: number }
+export type IsoCamera = { pan: { x: number; y: number }; zoom: number; nonce?: number }
+export type IsoZoomRange = { min: number; max: number }
 
 export type IsoFocusRequest = { tileId: string; nonce: number; insetRight?: number }
 
@@ -195,6 +196,7 @@ export type IsoGridProps = {
     className?: string
     paused?: boolean
     scrollGestures?: boolean
+    zoomRange?: IsoZoomRange
     locked?: boolean
     showViewControls?: boolean
     viewControlsPlacement?: CanvasViewControlsPlacement

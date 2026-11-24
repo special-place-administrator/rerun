@@ -40,6 +40,23 @@ export function podPath(ids: string[], byId: Map<string, Tile>, routes: Map<stri
 export const settles = (p: PodView) => p.state === 'working' || p.state === 'checks' || p.state === 'fixing'
 export const inScanner = (p: PodView) => p.state === 'working' && p.band === 'review' && p.travel >= 1
 
+export function podSpots(pods: PodView[], byId: Map<string, Tile>, routes: Map<string, AxisPoint[]>): { pod: PodView; at: P }[] {
+    const lineIndex = new Map<string, number>()
+    const belts = new Map<string, PodView[]>()
+    for (const p of pods) if (p.state === 'queued' || p.state === 'held') {
+        const key = `${p.path[0]}>${p.path[1]}`
+        belts.set(key, [...(belts.get(key) ?? []), p])
+    }
+    for (const group of belts.values()) group.sort((a, b) => (a.since ?? 0) - (b.since ?? 0) || a.issue - b.issue).forEach((p, i) => lineIndex.set(p.id, i))
+    return pods.flatMap(p => {
+        const pts = podPath(p.path, byId, routes)
+        if (pts.length < 2) return []
+        const holder = settles(p) ? byId.get(p.path[p.path.length - 1]) : undefined
+        const at = lineIndex.has(p.id) ? lineUp(pts, lineIndex.get(p.id)!) : holder ? along([...pts, workSpot(holder, inScanner(p))], p.travel) : along(pts, p.travel)
+        return [{ pod: p, at }]
+    })
+}
+
 const REST_PX = 24
 const STEP_PX = 4
 const BLOCK_UP = 30

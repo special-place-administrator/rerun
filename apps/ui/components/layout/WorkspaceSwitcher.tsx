@@ -21,12 +21,12 @@ import { WorkspaceSettingsDialog } from '@/components/dialogs/WorkspaceSettingsD
 import { SignInPillButton } from '@/components/layout/SignInPill'
 import { ThemeMenuRow } from '@/components/layout/ThemeMenuRow'
 import { LanguageMenuRow } from '@/components/layout/LanguageMenuRow'
-import { HelpButton } from '@/components/layout/HelpButton'
+import { HelpButton, HelpMenuSub } from '@/components/layout/HelpButton'
 import { WeeklyRewindMenuItem, WhatsNewMenuItem } from '@/components/layout/ToolbarActions'
 import { WorkspacePowerDialog, WorkspacePowerMenuItems, type PowerAction } from '@/components/layout/WorkspacePowerControl'
 import { WorkspaceLogoImage, WorkspacePill } from '@moldwright/ui/chrome'
 import { Badge } from '@moldwright/ui/primitives'
-import { TooltipDisabledReason } from '@/components/ui/tooltip'
+import { TooltipDisabledReason, TooltipLabeled } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { activeAgentLimitFor, BILLING_ENABLED, isLifetimePlan, isWorkspaceApiEntitled } from '@moldwright/cloud/billing'
 import { useBrainProposalCount } from '@/hooks/useBrainProposalCount'
@@ -45,7 +45,7 @@ import { BadgeCheck, BellIcon, BrainIcon, CheckIcon, CreditCardIcon, FlaskConica
 import { cn } from '@/lib/utils'
 import { abortWorkspaceSwitch, beginWorkspaceSwitch, enterActiveWorkspace } from '@/lib/workspace/workspace-switch'
 import Link from 'next/link'
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
@@ -75,7 +75,7 @@ function workspaceSummary(workspace: SessionWorkspace, t: WorkspaceMenuTranslato
     return isLifetimePlan(workspace) ? t('summary.lifetime', { limits }) : limits
 }
 
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({ inline = false, pillClassName }: { inline?: boolean; pillClassName?: string }) {
     const t = useTranslations('layout.workspaceMenu')
     const errorText = useErrorText()
     const { user, workspace, workspaces, session, isAnonymous, signOut } = useSession()
@@ -108,6 +108,7 @@ export function WorkspaceSwitcher() {
     const brainProposals = useBrainProposalCount(Boolean(workspace) && !isAnonymous)
     const guided = useForemanStore(state => state.funnel === 'guided')
     const credit = useMoldwrightCredit()
+    const openingGettingStarted = useRef(false)
 
     const sandbox = workspace?.is_sandbox ?? true
     useEffect(() => {
@@ -120,7 +121,7 @@ export function WorkspaceSwitcher() {
 
     if (isAnonymous) {
         return (
-            <div className={cn('absolute top-4 left-4 z-40', guided && 'max-md:hidden')}>
+            <div className={cn(!inline && 'absolute top-4 left-4 z-40', guided && 'max-md:hidden')}>
                 <SignInPillButton />
             </div>
         )
@@ -175,9 +176,9 @@ export function WorkspaceSwitcher() {
     )
 
     const headerSection = (
-        <div className="flex flex-col gap-2.5 p-1.5">
-            <div className="flex items-center gap-2.5">
-                <WorkspaceLogoImage src={workspace.icon_url || activeIcon} fallbackSrc={activeIcon} className="size-8 shrink-0 rounded-full object-cover" />
+        <div className="flex flex-col gap-2 p-1.5">
+            <div className="flex items-center gap-2">
+                <WorkspaceLogoImage src={workspace.icon_url || activeIcon} fallbackSrc={activeIcon} className="size-6 shrink-0 rounded-full object-cover" />
                 <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-foreground">{workspace.name || t('defaultName')}</div>
                     <div className="truncate text-xs text-muted-foreground">{workspaceSummary(workspace, t)}</div>
@@ -358,10 +359,24 @@ export function WorkspaceSwitcher() {
         </>
     )
 
-    const sections = [headerSection, workspaceItemsSection, workspacesSection, rolesSection, footerSection].filter(Boolean)
+    const helpSection = inline && (
+        <>
+            <HelpMenuSub onOpenGettingStarted={() => { openingGettingStarted.current = true }} />
+            <UpgradePill />
+        </>
+    )
+
+    const sections = [helpSection, headerSection, workspaceItemsSection, workspacesSection, rolesSection, footerSection].filter(Boolean)
+    const workspaceName = workspace.name || t('defaultName')
+    const pill = (
+        <DropdownMenuTrigger asChild>
+            <WorkspacePill className={cn('max-w-full shrink', inline && cn('max-w-56', pillClassName))} name={workspaceName} iconUrl={workspace.icon_url || activeIcon} fallbackIconUrl={activeIcon} stripes={workspace.is_sandbox}
+                {...(inline ? { 'aria-label': workspaceName } : {})} />
+        </DropdownMenuTrigger>
+    )
 
     return (
-        <div className="absolute top-4 left-4 z-40 flex max-w-[calc(100%-2*var(--chrome-edge)-var(--chrome-size)-var(--chrome-gap))] items-center gap-2">
+        <div className={cn('flex items-center gap-2', inline ? 'min-w-0' : 'absolute top-4 left-4 z-40 max-w-[calc(100%-2*var(--chrome-edge)-var(--chrome-size)-var(--chrome-gap))]')}>
             <DropdownMenu
                 onOpenChange={open => {
                     if (!open) return
@@ -370,15 +385,18 @@ export function WorkspaceSwitcher() {
                 }}
             >
                 <div className="relative min-w-0">
-                    <DropdownMenuTrigger asChild>
-                        <WorkspacePill className="max-w-full shrink" name={workspace.name || t('defaultName')} iconUrl={workspace.icon_url || activeIcon} fallbackIconUrl={activeIcon} stripes={workspace.is_sandbox} />
-                    </DropdownMenuTrigger>
+                    {inline ? <TooltipLabeled label={workspaceName} side="bottom">{pill}</TooltipLabeled> : pill}
                     {brainProposals > 0 && <span className="pointer-events-none absolute top-0.5 right-0.5 size-2 rounded-full bg-red-500 ring-2 ring-card" />}
                 </div>
                 <DropdownMenuContent
                     align="start"
                     side="bottom"
                     className="w-64 max-h-[calc(100dvh-5rem)] overflow-y-auto"
+                    onCloseAutoFocus={event => {
+                        if (!openingGettingStarted.current) return
+                        openingGettingStarted.current = false
+                        event.preventDefault()
+                    }}
                 >
                     {sections.map((section, index) => (
                         <Fragment key={index}>
@@ -388,8 +406,12 @@ export function WorkspaceSwitcher() {
                     ))}
                 </DropdownMenuContent>
             </DropdownMenu>
-            <HelpButton />
-            <UpgradePill />
+            {!inline && (
+                <>
+                    <HelpButton />
+                    <UpgradePill />
+                </>
+            )}
 
             <AccountDialog />
             <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />

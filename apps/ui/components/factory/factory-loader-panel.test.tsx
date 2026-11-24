@@ -29,7 +29,11 @@ describe('FactoryLoader', () => {
     it('shows the queue with what each waiting job waits on', () => {
         const h = html(sample())
         expect(h).toContain('#332')
-        expect(h).toContain('waits on #331')
+        expect(h).toContain('waits on #331 (reviewing)')
+        const fileWait = sample()
+        fileWait.jobs = fileWait.jobs.map(j => (j.issue === 332 ? { ...j, reason: 'waits for #331, same file a/b.py' } : j))
+        expect(html(fileWait)).toContain('waits for #331, same file a/b.py')
+        expect(html(fileWait)).not.toContain('waits on #331')
         const s = sample()
         s.jobs = s.jobs.filter(j => j.state !== 'waiting' && j.state !== 'queued')
         expect(html(s)).toContain('Nothing queued or waiting')

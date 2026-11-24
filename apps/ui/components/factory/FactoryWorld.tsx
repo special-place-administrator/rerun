@@ -2,27 +2,37 @@
 
 import type { FactorySnapshot } from '@moldwright/contracts'
 import { formatDate } from '@moldwright/i18n/format'
-import { IsoGrid, frameTemplateBoard, routeTileLinks, useRenderedFrame, type AxisPoint, type Tile } from '@moldwright/ui/iso-grid'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { ChromeBar, ChromeButton } from '@moldwright/ui/chrome'
+import { IsoGrid, frameTemplateBoard, routeTileLinks, useRenderedFrame, type AxisPoint, type IsoCamera, type Tile } from '@moldwright/ui/iso-grid'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 
 import { fireMoldwrightConfetti } from '@/lib/confetti'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { FocusCenterIcon } from '@/lib/icons'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipLabeled, TooltipTrigger } from '@/components/ui/tooltip'
 import { applyMoves, canMove, copyTree, dropReason, layoutStorageKey, loadLayout, readMoves, saveLayout, subscribeLayout, treeRoutes } from './factory-layout'
 import { type Bucket } from './factory-bucket'
-import { METRICS, barModel, type MetricDef, type MetricKey, type MetricValues } from './factory-metrics'
+import { METRICS, barModel, hasData, type MetricDef, type MetricGroup, type MetricKey, type MetricValues } from './factory-metrics'
+import { clearCamera, flushCamera, readCamera, writeCamera } from '@/lib/camera-storage'
+import { cn } from '@/lib/utils'
 import { FactoryBarFrame } from './FactoryBarFrame'
-import { floorFrame } from './factory-camera'
+import { BAR_TIERS } from './factory-bar-tiers'
+import { botCentre, floorFrame } from './factory-camera'
 import { FactoryOverlay } from './FactoryOverlay'
 import { LOOP_MS, factoryScene, type Cell, type FactoryFrame } from './factory-scene'
 
 const OVERHEAD_PX = 120
-const BAR_PX = 110
-const BAR_MARGIN_PX = 20
+const BAR_PX = 80
+const BAR_MARGIN_PX = 12
 const SIDE_PX = 40
+const ZOOM_RANGE = { min: 0.1, max: 3 }
+const ZOOM_STEP = 1.2
 
 const TICK_MS = 250
+const METRIC_GROUPS: MetricGroup[] = ['flow', 'cost', 'runs', 'plan']
+const FOLDING_GROUPS: MetricGroup[] = ['cost', 'runs', 'plan']
 
 function useStable<T>(value: T): T {
     const key = JSON.stringify(value)
@@ -43,7 +53,7 @@ function LiveOverlay({ start, tiles, routes, scene, selectedIssue, onSelectJob, 
     return <FactoryOverlay tiles={tiles} routes={routes} pods={frame.pods} cabinets={frame.cabinets} plans={frame.plans ?? []} rejects={frame.rejects} held={frame.held} holdLeftMs={frame.holdLeftMs} links={frame.links} selectedIssue={selectedIssue} {...(onSelectJob ? { onSelectJob } : {})} {...(onOpenBucket ? { onOpenBucket } : {})} />
 }
 
-export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace = 'sample', selectedIssue = null, onSelectJob, onOpenBucket, onOpenCoworker, rightInset = 0, snapshot = null, topBar }: { theme?: 'light' | 'dark'; scene?: SceneFn; workspace?: string; selectedIssue?: number | null; onSelectJob?: (issue: number) => void; onOpenBucket?: (bucket: Bucket) => void; onOpenCoworker?: (name: string) => void; rightInset?: number; snapshot?: FactorySnapshot | null; topBar?: ReactNode }) {
+export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace = 'sample', selectedIssue = null, onSelectJob, onOpenBucket, onOpenCoworker, rightInset = 0, snapshot = null, topBar, cameraScope = `factory:${workspace}` }: { theme?: 'light' | 'dark'; scene?: SceneFn; workspace?: string; cameraScope?: string | null; selectedIssue?: number | null; onSelectJob?: (issue: number) => void; onOpenBucket?: (bucket: Bucket) => void; onOpenCoworker?: (name: string) => void; rightInset?: number; snapshot?: FactorySnapshot | null; topBar?: ReactNode }) {
     const t = useTranslations('factory.floor')
     const locale = useLocale()
     const [clock, setClock] = useState(() => ({ start: Date.now(), now: Date.now() }))
@@ -95,21 +105,88 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     ] as Tile[]), [frame.containers])
     const barSpace = bar ? bar.height + 2 * BAR_MARGIN_PX : BAR_PX
     const topSpace = topBar ? (top ? top.height + 2 * BAR_MARGIN_PX : BAR_PX) : 0
-    const camera = useMemo(() => {
-        if (!size) return null
-        const { width, height, shiftX, shiftY } = floorFrame({ stage: size, rightInset, topSpace, bottomSpace: barSpace, overhead: OVERHEAD_PX, side: SIDE_PX })
-        const c = frameTemplateBoard(corners, { width, height }, 2, 0.94, 0.1)
-        return { zoom: c.zoom, pan: { x: c.pan.x + shiftX / c.zoom, y: c.pan.y + shiftY / c.zoom } }
-    }, [size, corners, rightInset, barSpace, topSpace])
+    const floor = useMemo(() => (size ? floorFrame({ stage: size, rightInset, topSpace, bottomSpace: barSpace, overhead: OVERHEAD_PX, side: SIDE_PX }) : null), [size, rightInset, barSpace, topSpace])
+    const fitZoom = useMemo(() => (floor ? frameTemplateBoard(corners, floor, 2, 0.94, ZOOM_RANGE.min).zoom : null), [floor, corners])
+
+    const [camera, setCamera] = useState<IsoCamera | null>(() => readCamera(cameraScope))
+    const [zoom, setZoom] = useState(() => camera?.zoom ?? 1)
+    const [scopeRead, setScopeRead] = useState(cameraScope)
+    const [userCamera, setUserCamera] = useState(() => camera !== null)
+    const [moreMetricsRoot, setMoreMetricsRoot] = useState<HTMLDivElement | null>(null)
+    const view = useRef<IsoCamera | null>(null)
+    const applied = useRef(camera?.nonce)
+    useEffect(() => {
+        if (camera) view.current = camera
+        applied.current = camera?.nonce
+    }, [camera])
+    useEffect(() => flushCamera, [])
+    const onCameraChange = useCallback((c: IsoCamera) => {
+        if (camera && camera.nonce !== applied.current) return
+        view.current = c
+        setZoom(c.zoom)
+        if (!camera || cameraScope === null) return
+        writeCamera(cameraScope, { zoom: c.zoom, pan: c.pan })
+        setUserCamera(true)
+    }, [camera, cameraScope])
+    const centred = (z: number) => {
+        const c = botCentre({ tiles, pods: frame.pods, routes, floor: frame.containers })
+        return { x: -c.x + (floor?.shiftX ?? 0) / z, y: -c.y + (floor?.shiftY ?? 0) / z }
+    }
+    const show = (next: IsoCamera) => {
+        setZoom(next.zoom)
+        setCamera(prev => ({ ...next, nonce: (prev?.nonce ?? 0) + 1 }))
+    }
+    const move = (next: IsoCamera) => {
+        show(next)
+        if (cameraScope !== null) writeCamera(cameraScope, { zoom: next.zoom, pan: next.pan })
+        setUserCamera(true)
+    }
+    const showFit = () => { if (fitZoom !== null) show({ zoom: fitZoom, pan: centred(fitZoom) }) }
+    const zoomTo = (z: number) => {
+        const at = view.current ?? camera
+        if (at) move({ zoom: Math.min(ZOOM_RANGE.max, Math.max(ZOOM_RANGE.min, z)), pan: at.pan })
+    }
+    const centre = () => {
+        const z = view.current?.zoom ?? zoom
+        move({ zoom: z, pan: centred(z) })
+    }
+    const resetLayout = () => {
+        saveLayout(storageKey, null)
+        if (cameraScope !== null) clearCamera(cameraScope)
+        setUserCamera(false)
+        showFit()
+    }
+    if (scopeRead !== cameraScope) {
+        setScopeRead(cameraScope)
+        const stored = readCamera(cameraScope)
+        if (stored) {
+            show(stored)
+            setUserCamera(true)
+        }
+    } else if (camera === null && floor && cameraScope !== null) showFit()
+    const onMapKey = (e: KeyboardEvent<HTMLDivElement>) => {
+        if (e.target !== e.currentTarget) return
+        const z = view.current?.zoom ?? zoom
+        if (e.key === '+' || e.key === '=') zoomTo(z * ZOOM_STEP)
+        else if (e.key === '-' || e.key === '_') zoomTo(z / ZOOM_STEP)
+        else if (e.key === '0') centre()
+        else return
+        e.preventDefault()
+    }
 
     const stale = frame.notAnswering === true && snapshot !== null
     const asOf = stale ? t('asOf', { time: formatDate(snapshot.madeAt, locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) }) : undefined
     const { sample, values } = barModel({ snapshot, counts: frame.counts, held: frame.held, now: clock.now, start: clock.start })
+    const noData = METRICS.filter(m => !hasData(values[m.key]))
+    const groups = METRIC_GROUPS.map(group => ({ group, metrics: METRICS.filter(m => m.group === group && hasData(values[m.key])) })).filter(g => g.metrics.length > 0)
+    const folded = groups.filter(g => FOLDING_GROUPS.includes(g.group)).flatMap(g => g.metrics)
+    const tile = (m: MetricDef) => <Metric key={m.key} def={m} value={values[m.key]} {...(m.key === 'building' && asOf ? { asOf } : {})} />
 
     return (
-        <div ref={ref} className={`${theme} relative h-dvh w-full overflow-hidden bg-background text-foreground`} style={{ '--factory-drop-max': `${size ? size.height - topSpace - barSpace : 0}px` } as CSSProperties}>
+        <div ref={ref} className={`${theme} relative h-full w-full overflow-hidden bg-background text-foreground`} style={{ '--factory-drop-max': `${size ? size.height - topSpace - barSpace : 0}px` } as CSSProperties}>
+            <div data-factory-map role="region" tabIndex={0} aria-label={t('map')} onKeyDown={onMapKey}
+                className="absolute inset-0 overflow-hidden outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50">
             <IsoGrid
-                {...(stale ? { className: 'opacity-50' } : {})}
                 tiles={gridTiles}
                 containers={frame.containers}
                 liveLinks={tree}
@@ -117,6 +194,8 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                 onToastExpire={onToastExpire}
                 camera={camera}
                 cameraTransitionMs={0}
+                onCameraChange={onCameraChange}
+                zoomRange={ZOOM_RANGE}
                 showLinks
                 onTileMove={onTileMove}
                 canDropTile={canDropTile}
@@ -125,22 +204,54 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                 scrollGestures
                 worldOverlay={worldOverlay}
             />
+            </div>
 
-            <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef}>
-                <div className="flex items-center gap-2 pr-1">
-                    <span className={`size-2 rounded-full ${stale ? 'bg-amber-500' : frame.held ? 'bg-red-500' : 'animate-pulse bg-emerald-500 motion-reduce:animate-none'}`} />
-                    <span className="text-sm font-semibold tracking-tight">Factory</span>
-                    {stale && <span data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{t('lastBeat', { minutes: Math.max(1, Math.floor((frame.lastBeatMs ?? 0) / 60_000)) })}</span>}
-                    {sample && <span className="text-[10px] text-muted-foreground">sample</span>}
+            <ChromeBar data-map-view className="absolute z-30 px-1" style={{ left: BAR_MARGIN_PX, bottom: barSpace }}>
+                <input type="range" aria-label={t('zoom')} min={ZOOM_RANGE.min} max={ZOOM_RANGE.max} step={0.05} value={zoom}
+                    onChange={e => zoomTo(Number(e.currentTarget.value))}
+                    className="mx-2 h-1 w-24 cursor-pointer rounded-full accent-primary outline-none focus-visible:ring-3 focus-visible:ring-ring/50" />
+                <TooltipLabeled label={t('centerHint')}>
+                    <ChromeButton aria-label={t('center')} icon={FocusCenterIcon} onClick={centre} className="outline-none focus-visible:ring-3 focus-visible:ring-ring/50" />
+                </TooltipLabeled>
+            </ChromeBar>
+
+            <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef} className="items-stretch gap-3 px-5 py-2">
+                <div className="flex shrink-0 items-center gap-2 pr-1">
+                    <TooltipLabeled label={<span className="flex flex-col gap-0.5"><span>Factory</span>{noData.length > 0 && <span>{t('noData', { metrics: noData.map(m => m.label).join(', ') })}</span>}</span>}>
+                        <span {...(noData.length > 0 ? { 'data-no-data': true } : {})} tabIndex={0}
+                            className="flex items-center gap-2 rounded-sm text-sm font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                            <span className={`size-2 rounded-full ${stale ? 'bg-amber-500' : frame.held ? 'bg-red-500' : 'animate-pulse bg-emerald-500 motion-reduce:animate-none'}`} />
+                            <span className={BAR_TIERS.t3.srOnly}>Factory</span>
+                        </span>
+                    </TooltipLabeled>
+                    {stale && <span data-stale-age data-last-beat className="text-[10px] text-amber-700 dark:text-amber-400">{dataAge(t, frame.lastBeatMs ?? 0)}</span>}
+                    {sample && <span className="text-[10px] text-neutral-600 dark:text-muted-foreground">sample</span>}
                 </div>
-                {(['jobs', 'runs', 'plan'] as const).map(group => (
-                    <div key={group} className="flex flex-wrap items-center justify-center gap-4 border-l border-border/70 pl-4">
-                        {METRICS.filter(m => m.group === group).map(m => <Metric key={m.key} def={m} value={values[m.key]} {...(m.key === 'building' && asOf ? { asOf } : {})} />)}
+                {groups.map(({ group, metrics }) => (
+                    <div key={group} data-metric-group={group}
+                        className={cn('flex shrink-0 items-center gap-4 border-l border-border/70 pl-4', FOLDING_GROUPS.includes(group) && BAR_TIERS.t3.hide)}>
+                        {metrics.map(tile)}
                     </div>
                 ))}
-                {moved && (
+                {folded.length > 0 && (
+                    <div ref={setMoreMetricsRoot} className={cn('hidden shrink-0 items-center border-l border-border/70 pl-4', BAR_TIERS.t3.show)}>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <button type="button" data-more-metrics aria-label={t('moreMetrics', { count: folded.length })}
+                                    className="flex flex-col items-center justify-center rounded-sm leading-none outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50">
+                                    <span className="font-mono text-sm/4 font-semibold tabular-nums">+{folded.length}</span>
+                                    <span className="mt-1 text-[10px] uppercase tracking-wider text-neutral-600 dark:text-muted-foreground">{t('moreLabel')}</span>
+                                </button>
+                            </PopoverTrigger>
+                            <PopoverContent container={moreMetricsRoot} side="top" align="start" sideOffset={8} className="w-auto flex-row gap-4 rounded-2xl border border-border/60 bg-background/95 p-3 backdrop-blur-xl">
+                                {folded.map(tile)}
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+                )}
+                {(moved || userCamera) && (
                     <div className="flex items-center border-l border-border/70 pl-4">
-                        <Button type="button" variant="outline" size="sm" onClick={() => saveLayout(storageKey, null)}>
+                        <Button type="button" variant="outline" size="sm" onClick={resetLayout}>
                             Reset layout
                         </Button>
                     </div>
@@ -148,39 +259,37 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
             </FactoryBarFrame>
 
             {topBar && (
-                <FactoryBarFrame edge="top" rightInset={rightInset} frameRef={topRef}>
+                <FactoryBarFrame edge="top" rightInset={rightInset} frameRef={topRef} className="h-11 w-[calc(100%-1.5rem)] items-center px-3 py-1.5">
                     {topBar}
                 </FactoryBarFrame>
             )}
-
-            <div
-                className="pointer-events-none absolute left-0 flex justify-center transition-all duration-500 motion-reduce:transition-none"
-                style={{ right: rightInset, top: 24 + topSpace, opacity: frame.held ? 1 : 0, transform: frame.held ? 'translateY(0)' : 'translateY(-12px)' }}
-            >
-                <div className="flex items-center gap-3 rounded-full border border-red-500/40 bg-red-500/15 px-4 py-1.5 text-sm text-red-600 shadow-[0_0_24px_rgba(239,68,68,0.35)] backdrop-blur-xl dark:text-red-300">
-                    <span className="font-semibold">Line held</span>
-                    <span>{frame.holdKind ?? 'sign-in renewal'} · {Math.ceil(frame.holdLeftMs / 1000)} s left · running builds finish</span>
-                </div>
-            </div>
         </div>
     )
 }
 
-const TONES: Partial<Record<MetricKey, string>> = { building: 'text-amber-500', review: 'text-emerald-500', checks: 'text-sky-500', solvedGreen: 'text-green-500' }
+function dataAge(t: ReturnType<typeof useTranslations<'factory.floor'>>, ageMs: number): string {
+    const seconds = Math.max(1, Math.round(ageMs / 1000))
+    if (seconds < 60) return t('dataAgeSeconds', { seconds })
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return t('dataAgeMinutes', { minutes })
+    return t('dataAgeHours', { hours: Math.floor(minutes / 60) })
+}
+
+const TONES: Partial<Record<MetricKey, string>> = { building: 'text-amber-700 dark:text-amber-500', review: 'text-emerald-700 dark:text-emerald-500', checks: 'text-sky-700 dark:text-sky-500', solvedGreen: 'text-green-700 dark:text-green-500' }
 
 function Metric({ def, value, asOf }: { def: MetricDef; value: MetricValues[MetricKey]; asOf?: string }) {
     return (
         <Tooltip>
             <TooltipTrigger asChild>
                 <div className="flex cursor-help flex-col items-center justify-center leading-none" tabIndex={0} {...(value.title ? { title: value.title } : {})}>
-                    <span className={`font-mono text-base font-semibold tabular-nums ${value.warn ? 'text-red-500' : (TONES[def.key] ?? 'text-foreground')}`}>{value.text}</span>
+                    <span className={`font-mono text-sm/4 font-semibold tabular-nums ${value.warn ? 'text-destructive' : (TONES[def.key] ?? 'text-foreground')}`}>{value.text}</span>
                     {value.fill !== undefined && (
                         <span className="mt-1 h-1 w-14 overflow-hidden rounded-full bg-muted">
                             <span className={`block h-full rounded-full transition-all duration-700 ${value.warn ? 'bg-red-500' : 'bg-[#4d34f7]'}`} style={{ width: `${value.fill}%` }} />
                         </span>
                     )}
-                    <span className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{def.label}</span>
-                    {asOf && <span data-as-of className="mt-0.5 text-[10px] text-muted-foreground">{asOf}</span>}
+                    <span className="mt-1 text-[10px] uppercase tracking-wider text-neutral-600 dark:text-muted-foreground">{def.label}</span>
+                    {asOf && <span data-as-of className="mt-0.5 text-[10px] text-neutral-600 dark:text-muted-foreground">{asOf}</span>}
                 </div>
             </TooltipTrigger>
             <TooltipContent className="max-w-64">

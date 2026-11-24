@@ -3,7 +3,7 @@
 import { SUPPORT_CHAT_ENABLED } from '@moldwright/cloud/support'
 import { ChromePill } from '@moldwright/ui/chrome'
 import { HelpMenuItems } from '@/components/layout/ToolbarActions'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { TooltipLabeled } from '@/components/ui/tooltip'
 import { HeadsetIcon, HelpCircleIcon } from '@/lib/icons'
 import { openCrisp } from '@/lib/crisp'
@@ -13,7 +13,6 @@ import { useRef } from 'react'
 
 export function HelpButton() {
     const t = useTranslations('layout.help')
-    const { session } = useSession()
     const openingGettingStarted = useRef(false)
 
     return (
@@ -35,21 +34,46 @@ export function HelpButton() {
                     event.preventDefault()
                 }}
             >
-                {SUPPORT_CHAT_ENABLED && (
-                    <>
-                        <DropdownMenuItem onSelect={() => openCrisp(session?.user?.email)} className="gap-2 text-muted-foreground">
-                            <HeadsetIcon className="size-4" />
-                            {t('contactSupport')}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                    </>
-                )}
-                <HelpMenuItems
+                <HelpItems
                     onOpenGettingStarted={() => {
                         openingGettingStarted.current = true
                     }}
                 />
             </DropdownMenuContent>
         </DropdownMenu>
+    )
+}
+
+function HelpItems({ onOpenGettingStarted }: { onOpenGettingStarted: () => void }) {
+    const t = useTranslations('layout.help')
+    const { session } = useSession()
+    return (
+        <>
+            {SUPPORT_CHAT_ENABLED && (
+                <>
+                    <DropdownMenuItem onSelect={() => openCrisp(session?.user?.email)} className="gap-2 text-muted-foreground">
+                        <HeadsetIcon className="size-4" />
+                        {t('contactSupport')}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                </>
+            )}
+            <HelpMenuItems onOpenGettingStarted={onOpenGettingStarted} />
+        </>
+    )
+}
+
+export function HelpMenuSub({ onOpenGettingStarted }: { onOpenGettingStarted: () => void }) {
+    const t = useTranslations('layout.help')
+    return (
+        <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="gap-2 text-muted-foreground">
+                <HelpCircleIcon className="size-4" />
+                {t('label')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-56">
+                <HelpItems onOpenGettingStarted={onOpenGettingStarted} />
+            </DropdownMenuSubContent>
+        </DropdownMenuSub>
     )
 }

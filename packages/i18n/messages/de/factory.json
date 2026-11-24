@@ -47,6 +47,7 @@
     "controls": {
         "groupLabel": "Fabrik starten und stoppen",
         "start": "Starten",
+        "startBlocked": "{need, select, project {Starten: zuerst ein Projekt wählen} order {Starten: zuerst die Arbeit wählen} done {Starten: der Arbeitsauftrag ist erledigt, neue Arbeit wählen} other {Starten}}",
         "pause": "Pausieren",
         "stop": "Stoppen",
         "hardStop": "Sofort stoppen",
@@ -63,7 +64,16 @@
         "pool": "Pool",
         "seats": "Plätze",
         "usage": "{running} / {max} aktiv",
-        "throttleSaved": "{label} auf {value} gesetzt"
+        "throttleSaved": "{label} auf {value} gesetzt",
+        "poolValue": "Pool {count}",
+        "moreControls": "Weitere Fabriksteuerung",
+        "holdShort": "{kind, select, paused {Pausiert} other {Angehalten}}",
+        "holdLong": "{kind, select, paused {Pausiert · Builds laufen aus {seconds} s} other {Angehalten · {kind} {seconds} s}}",
+        "holdSentence": "{kind, select, paused {Die Fabrik ist bis {time} pausiert: laufende Builds werden fertig} other {Das Senden ist wegen {kind} bis {time} angehalten: laufende Builds werden fertig}}",
+        "idleShort": "{wait, select, project {Kein Projekt} order {Kein Auftrag} done {Alles erledigt} other {Keine Arbeit}}",
+        "idleLong": "Keine Arbeit · {reason}",
+        "idleSentence": "Läuft, nichts zu tun: {reason}",
+        "wait": "{wait, select, project {kein Projekt gewählt} order {kein Arbeitsauftrag} done {der Arbeitsauftrag ist erledigt} other {{text}}}"
     },
     "orders": {
         "trigger": "Arbeitsauftrag",
@@ -99,7 +109,9 @@
         "replaceBody": "Der aktuelle Auftrag wird abgebrochen und die Fabrik beginnt diesen.",
         "replaceConfirm": "Ersetzen",
         "loadFailed": "Die Arbeitsaufträge wurden nicht geladen",
-        "retryLoad": "Erneut versuchen"
+        "retryLoad": "Erneut versuchen",
+        "needsProject": "Zuerst ein Projekt wählen",
+        "needsProjectWhy": "Die Arbeit kommt aus dem aktiven Projekt: wähle eines unter Projekte, dann wähle die Arbeit."
     },
     "providers": {
         "label": "Fabrik",
@@ -109,7 +121,20 @@
         "noteReadOnly": "Nur der Inhaber des Workspace kann Verbindungen für die Fabrik ein- oder ausschalten"
     },
     "floor": {
-        "lastBeat": "Letzter Takt vor {minutes} Min.",
-        "asOf": "Stand {time}"
+        "asOf": "Stand {time}",
+        "noData": "Noch keine Daten: {metrics}",
+        "moreMetrics": "{count, plural, one {# weitere Kennzahl} other {# weitere Kennzahlen}}",
+        "moreLabel": "Mehr",
+        "moreChips": "{count, plural, one {# weiterer Filter} other {# weitere Filter}}",
+        "activityName": "Aktivität, {problems, plural, =0 {keine Probleme} one {# Problem} other {# Probleme}}",
+        "activity": "Aktivität: {running}/{pool} laufen, {problems, plural, =0 {keine Probleme} one {# Problem} other {# Probleme}}",
+        "map": "Fabrikkarte",
+        "zoom": "Zoom",
+        "center": "Zentrieren",
+        "centerHint": "Auf die Bots zentrieren (Taste 0). Mausrad oder zwei Finger zum Zoomen, ziehen zum Verschieben.",
+        "waitingOutside": "· {count} nicht im Auftrag",
+        "dataAgeSeconds": "Daten {seconds}s alt",
+        "dataAgeMinutes": "Daten {minutes} Min. alt",
+        "dataAgeHours": "Daten {hours} Std. alt"
     }
 }

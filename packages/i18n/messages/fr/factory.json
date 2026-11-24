@@ -47,6 +47,7 @@
     "controls": {
         "groupLabel": "Démarrer et arrêter l'usine",
         "start": "Démarrer",
+        "startBlocked": "{need, select, project {Démarrer : choisissez d’abord un projet} order {Démarrer : choisissez d’abord le travail} done {Démarrer : l’ordre de travail est terminé, choisissez un nouveau travail} other {Démarrer}}",
         "pause": "Pause",
         "stop": "Arrêter",
         "hardStop": "Arrêt immédiat",
@@ -63,7 +64,16 @@
         "pool": "Pool",
         "seats": "Places",
         "usage": "{running} / {max} en cours",
-        "throttleSaved": "{label} réglé sur {value}"
+        "throttleSaved": "{label} réglé sur {value}",
+        "poolValue": "Pool {count}",
+        "moreControls": "Autres commandes de l'usine",
+        "holdShort": "{kind, select, paused {En pause} other {Retenue}}",
+        "holdLong": "{kind, select, paused {En pause · builds en fin {seconds} s} other {Retenue · {kind} {seconds} s}}",
+        "holdSentence": "{kind, select, paused {L'usine est en pause jusqu'à {time} : les builds en cours se terminent} other {L'envoi est retenu pour {kind} jusqu'à {time} : les builds en cours se terminent}}",
+        "idleShort": "{wait, select, project {Sans projet} order {Sans ordre} done {Tout est fait} other {Sans travail}}",
+        "idleLong": "Sans travail · {reason}",
+        "idleSentence": "En marche, rien à faire : {reason}",
+        "wait": "{wait, select, project {aucun projet choisi} order {aucun ordre de travail} done {l’ordre de travail est terminé} other {{text}}}"
     },
     "orders": {
         "trigger": "Ordre de travail",
@@ -99,7 +109,9 @@
         "replaceBody": "L'ordre actuel est annulé et l'usine commence celui-ci.",
         "replaceConfirm": "Remplacer",
         "loadFailed": "Les ordres de travail n'ont pas chargé",
-        "retryLoad": "Réessayer"
+        "retryLoad": "Réessayer",
+        "needsProject": "Choisissez d’abord un projet",
+        "needsProjectWhy": "Le travail vient du projet actif : choisissez-en un dans Projets, puis choisissez le travail."
     },
     "providers": {
         "label": "Usine",
@@ -109,7 +121,20 @@
         "noteReadOnly": "Seul le propriétaire du workspace peut activer ou couper des connexions pour l'usine"
     },
     "floor": {
-        "lastBeat": "Dernier battement il y a {minutes} min",
-        "asOf": "à {time}"
+        "asOf": "à {time}",
+        "noData": "Pas encore de données : {metrics}",
+        "moreMetrics": "{count, plural, one {# chiffre de plus} other {# chiffres de plus}}",
+        "moreLabel": "Plus",
+        "moreChips": "{count, plural, one {# filtre de plus} other {# filtres de plus}}",
+        "activityName": "Activité, {problems, plural, =0 {aucun problème} one {# problème} other {# problèmes}}",
+        "activity": "Activité : {running}/{pool} en cours, {problems, plural, =0 {aucun problème} one {# problème} other {# problèmes}}",
+        "map": "Plan de l’usine",
+        "zoom": "Zoom",
+        "center": "Centrer",
+        "centerHint": "Centrer sur les bots (touche 0). Molette ou pincement pour zoomer, glisser pour déplacer.",
+        "waitingOutside": "· {count} hors de l’ordre",
+        "dataAgeSeconds": "données vieilles de {seconds}s",
+        "dataAgeMinutes": "données vieilles de {minutes} min",
+        "dataAgeHours": "données vieilles de {hours} h"
     }
 }

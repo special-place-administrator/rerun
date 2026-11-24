@@ -47,6 +47,7 @@
     "controls": {
         "groupLabel": "Iniciar e parar a fábrica",
         "start": "Iniciar",
+        "startBlocked": "{need, select, project {Iniciar: escolha primeiro um projeto} order {Iniciar: escolha primeiro o trabalho} done {Iniciar: a ordem de trabalho terminou, escolha trabalho novo} other {Iniciar}}",
         "pause": "Pausar",
         "stop": "Parar",
         "hardStop": "Parada imediata",
@@ -63,7 +64,16 @@
         "pool": "Grupo",
         "seats": "Lugares",
         "usage": "{running} / {max} em execução",
-        "throttleSaved": "{label} definido para {value}"
+        "throttleSaved": "{label} definido para {value}",
+        "poolValue": "Grupo {count}",
+        "moreControls": "Mais controles da fábrica",
+        "holdShort": "{kind, select, paused {Em pausa} other {Retida}}",
+        "holdLong": "{kind, select, paused {Em pausa · builds terminando {seconds} s} other {Retida · {kind} {seconds} s}}",
+        "holdSentence": "{kind, select, paused {A fábrica está em pausa até {time}: os builds em andamento terminam} other {O envio está retido por {kind} até {time}: os builds em andamento terminam}}",
+        "idleShort": "{wait, select, project {Sem projeto} order {Sem ordem} done {Tudo feito} other {Sem trabalho}}",
+        "idleLong": "Sem trabalho · {reason}",
+        "idleSentence": "Em execução, nada para fazer: {reason}",
+        "wait": "{wait, select, project {nenhum projeto escolhido} order {nenhuma ordem de trabalho} done {a ordem de trabalho terminou} other {{text}}}"
     },
     "orders": {
         "trigger": "Ordem de trabalho",
@@ -99,7 +109,9 @@
         "replaceBody": "A ordem atual é cancelada e a fábrica começa esta.",
         "replaceConfirm": "Substituir",
         "loadFailed": "As ordens de trabalho não carregaram",
-        "retryLoad": "Tentar de novo"
+        "retryLoad": "Tentar de novo",
+        "needsProject": "Escolha primeiro um projeto",
+        "needsProjectWhy": "O trabalho vem do projeto ativo: escolha um em Projetos e depois escolha o trabalho."
     },
     "providers": {
         "label": "Fábrica",
@@ -109,7 +121,20 @@
         "noteReadOnly": "Só o proprietário do workspace pode ligar ou desligar conexões para a fábrica"
     },
     "floor": {
-        "lastBeat": "Último batimento há {minutes} min",
-        "asOf": "às {time}"
+        "asOf": "às {time}",
+        "noData": "Ainda sem dados: {metrics}",
+        "moreMetrics": "{count, plural, one {# número a mais} other {# números a mais}}",
+        "moreLabel": "Mais",
+        "moreChips": "{count, plural, one {# filtro a mais} other {# filtros a mais}}",
+        "activityName": "Atividade, {problems, plural, =0 {nenhum problema} one {# problema} other {# problemas}}",
+        "activity": "Atividade: {running}/{pool} em execução, {problems, plural, =0 {nenhum problema} one {# problema} other {# problemas}}",
+        "map": "Mapa da fábrica",
+        "zoom": "Zoom",
+        "center": "Centralizar",
+        "centerHint": "Centralizar nos bots (tecla 0). Roda ou pinça para dar zoom, arraste para mover.",
+        "waitingOutside": "· {count} fora da ordem",
+        "dataAgeSeconds": "dados de {seconds}s atrás",
+        "dataAgeMinutes": "dados de {minutes} min atrás",
+        "dataAgeHours": "dados de {hours} h atrás"
     }
 }

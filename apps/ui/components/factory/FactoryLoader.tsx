@@ -40,6 +40,8 @@ function StateIcon({ state }: { state: FactoryJobState }) {
     return <Icon className="size-4 shrink-0" style={{ color: v.color }} aria-hidden />
 }
 
+const FILE_WAIT = 'same file'
+
 export function FactoryLoader({ snapshot, now: fixedNow, controls }: { snapshot: FactorySnapshot | null; now?: number; controls?: FactoryControlsState }) {
     const [tick, setTick] = useState(() => Date.now())
     useEffect(() => {
@@ -92,9 +94,7 @@ export function FactoryLoader({ snapshot, now: fixedNow, controls }: { snapshot:
                         <span className="shrink-0 tabular-nums text-muted-foreground">#{w.issue}</span>
                         <span className="min-w-0 flex-1 truncate">{w.title}</span>
                         <span className="shrink-0 text-muted-foreground">
-                            {w.waitsOn.length === 0
-                                ? (w.reason ?? '')
-                                : `waits on ${w.waitsOn.map(d => `#${d.issue}${d.state === null ? '' : ` (${d.state})`}`).join(', ')}`}
+                            {w.reason !== null && (w.waitsOn.length === 0 || w.reason.includes(FILE_WAIT)) ? w.reason : w.waitsOn.length === 0 ? '' : `waits on ${w.waitsOn.map(d => `#${d.issue}${d.state === null ? '' : ` (${d.state})`}`).join(', ')}`}
                         </span>
                     </div>
                 ))}

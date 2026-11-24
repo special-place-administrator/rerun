@@ -9,6 +9,7 @@ import {
     SIDE_PANEL_WIDTH_STORAGE_KEY,
     clampSidePanelWidth,
     getSidePanelMaxWidth,
+    getSidePanelMinWidth,
     loadSidePanelWidth,
     saveSidePanelWidth,
 } from '@/lib/side-panel-width'
@@ -34,21 +35,22 @@ export function SidePanelResizeHandle({ panelRef }: { panelRef: RefObject<HTMLDi
     const handleRef = useRef<HTMLDivElement>(null)
     const dragRef = useRef<DragState | null>(null)
     const documentStylesRef = useRef<DocumentStyles | null>(null)
+    const onFactory = useCallback(() => !!panelRef.current?.closest('[data-factory]'), [panelRef])
 
     const syncAria = useCallback((width: number) => {
         const handle = handleRef.current
         if (!handle) return
-        handle.setAttribute('aria-valuemin', String(SIDE_PANEL_MIN_WIDTH))
-        handle.setAttribute('aria-valuemax', String(getSidePanelMaxWidth(window.innerWidth)))
+        handle.setAttribute('aria-valuemin', String(getSidePanelMinWidth(window.innerWidth, onFactory())))
+        handle.setAttribute('aria-valuemax', String(getSidePanelMaxWidth(window.innerWidth, onFactory())))
         handle.setAttribute('aria-valuenow', String(Math.round(width)))
-    }, [])
+    }, [onFactory])
 
     const applyWidth = useCallback((width: number) => {
-        const clamped = clampSidePanelWidth(width, window.innerWidth)
+        const clamped = clampSidePanelWidth(width, window.innerWidth, onFactory())
         panelRef.current?.style.setProperty('--side-panel-width', `${clamped}px`)
         syncAria(clamped)
         return clamped
-    }, [panelRef, syncAria])
+    }, [panelRef, syncAria, onFactory])
 
     const restoreDocumentStyles = useCallback(() => {
         if (!documentStylesRef.current) return
@@ -67,11 +69,11 @@ export function SidePanelResizeHandle({ panelRef }: { panelRef: RefObject<HTMLDi
         if (handle?.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
         restoreDocumentStyles()
 
-        if (persist) saveSidePanelWidth(drag.currentWidth, window.innerWidth)
-    }, [restoreDocumentStyles])
+        if (persist) saveSidePanelWidth(drag.currentWidth, window.innerWidth, onFactory())
+    }, [restoreDocumentStyles, onFactory])
 
     useEffect(() => {
-        applyWidth(loadSidePanelWidth(window.innerWidth))
+        applyWidth(loadSidePanelWidth(window.innerWidth, onFactory()))
         const mountedHandle = handleRef.current
 
         let frame: number | null = null
@@ -85,7 +87,7 @@ export function SidePanelResizeHandle({ panelRef }: { panelRef: RefObject<HTMLDi
         }
         const syncStoredWidth = (event: StorageEvent) => {
             if (event.key === SIDE_PANEL_WIDTH_STORAGE_KEY) {
-                applyWidth(loadSidePanelWidth(window.innerWidth))
+                applyWidth(loadSidePanelWidth(window.innerWidth, onFactory()))
             }
         }
 
@@ -98,13 +100,13 @@ export function SidePanelResizeHandle({ panelRef }: { panelRef: RefObject<HTMLDi
 
             const drag = dragRef.current
             if (drag) {
-                saveSidePanelWidth(drag.currentWidth, window.innerWidth)
+                saveSidePanelWidth(drag.currentWidth, window.innerWidth, onFactory())
                 if (mountedHandle?.hasPointerCapture(drag.pointerId)) mountedHandle.releasePointerCapture(drag.pointerId)
                 dragRef.current = null
             }
             restoreDocumentStyles()
         }
-    }, [applyWidth, panelRef, restoreDocumentStyles, syncAria])
+    }, [applyWidth, panelRef, restoreDocumentStyles, syncAria, onFactory])
 
     const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
         if (event.button !== 0 || dragRef.current) return
@@ -146,16 +148,16 @@ export function SidePanelResizeHandle({ panelRef }: { panelRef: RefObject<HTMLDi
         let nextWidth: number | null = null
         if (event.key === 'ArrowLeft') nextWidth = currentWidth + KEYBOARD_RESIZE_STEP
         if (event.key === 'ArrowRight') nextWidth = currentWidth - KEYBOARD_RESIZE_STEP
-        if (event.key === 'Home') nextWidth = SIDE_PANEL_MIN_WIDTH
-        if (event.key === 'End') nextWidth = getSidePanelMaxWidth(window.innerWidth)
+        if (event.key === 'Home') nextWidth = getSidePanelMinWidth(window.innerWidth, onFactory())
+        if (event.key === 'End') nextWidth = getSidePanelMaxWidth(window.innerWidth, onFactory())
         if (nextWidth === null) return
 
         event.preventDefault()
-        saveSidePanelWidth(applyWidth(nextWidth), window.innerWidth)
+        saveSidePanelWidth(applyWidth(nextWidth), window.innerWidth, onFactory())
     }
 
     const resetWidth = () => {
-        saveSidePanelWidth(applyWidth(SIDE_PANEL_DEFAULT_WIDTH), window.innerWidth)
+        saveSidePanelWidth(applyWidth(SIDE_PANEL_DEFAULT_WIDTH), window.innerWidth, onFactory())
     }
 
     return (

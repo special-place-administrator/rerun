@@ -6,8 +6,20 @@
         "controls.hardStop": "Stops the factory at once and cancels everything that runs.",
         "orders.ask": "The foreman's question once a project is chosen; {repo} is a GitHub owner/name.",
         "providers.label": "Short caption next to the on/off switch of a connection: whether the factory may use it.",
-        "floor.lastBeat": "Shown next to the factory status dot when the factory stopped reporting; {minutes} is the whole minutes since its last report.",
-        "floor.asOf": "Shown under a live count when the factory stopped reporting: the count is the one of its last report; {time} is that report's local time, HH:MM."
+        "floor.dataAgeSeconds": "Shown next to the factory status dot when the factory stopped reporting; {seconds} is the whole seconds (1-59) since its last report.",
+        "floor.dataAgeMinutes": "Shown next to the factory status dot when the factory stopped reporting; {minutes} is the whole minutes (1-59) since its last report.",
+        "floor.dataAgeHours": "Shown next to the factory status dot when the factory stopped reporting; {hours} is the whole hours since its last report.",
+        "floor.asOf": "Shown under a live count when the factory stopped reporting: the count is the one of its last report; {time} is that report's local time, HH:MM.",
+        "controls.holdLong": "Short text of the factory state pill while sending is held; {kind} is the hold reason as the factory reports it (for example sign-in renewal), {seconds} the seconds left.",
+        "controls.holdSentence": "Full sentence behind the state pill while sending is held; {time} is the local time the hold ends, HH:MM.",
+        "floor.moreMetrics": "Accessible name of the tile that gathers the figures hidden on a narrow screen.",
+        "floor.center": "Button that moves the factory map so the bots are in the middle of the visible floor; the zoom stays.",
+        "floor.centerHint": "Tooltip of the center button. Key 0 does the same when the map has focus.",
+        "controls.idleSentence": "Full sentence behind the state pill when the factory runs but has nothing it may work on; {reason} is controls.wait.",
+        "controls.wait": "Why the factory has nothing to work on, as the factory reports it; other {text} is the factory's own English text, shown as is.",
+        "floor.waitingOutside": "After the Waiting count: how many waiting jobs are not in the work order, so they will not start.",
+        "controls.startBlocked": "Tooltip and accessible name of the Start button while it is unavailable; {need} is what is missing before the factory has work to start on.",
+        "controls.idleShort": "Short text of the state pill on a narrow bar when the factory runs with nothing to work on: names the missing thing in one or two words."
     },
     "projects": {
         "trigger": "Factory project: {repo}. Open the projects",
@@ -57,6 +69,7 @@
     "controls": {
         "groupLabel": "Factory start and stop",
         "start": "Start",
+        "startBlocked": "{need, select, project {Start: pick a project first} order {Start: choose the work first} done {Start: the work order is done, choose new work} other {Start}}",
         "pause": "Pause",
         "stop": "Stop",
         "hardStop": "Hard stop",
@@ -73,7 +86,16 @@
         "pool": "Pool",
         "seats": "Seats",
         "usage": "{running} / {max} running",
-        "throttleSaved": "{label} set to {value}"
+        "throttleSaved": "{label} set to {value}",
+        "poolValue": "Pool {count}",
+        "moreControls": "More factory controls",
+        "holdShort": "{kind, select, paused {Paused} other {Held}}",
+        "holdLong": "{kind, select, paused {Paused · builds finishing {seconds} s} other {Held · {kind} {seconds} s}}",
+        "holdSentence": "{kind, select, paused {The factory is paused until {time}: running builds finish} other {Sending is held for {kind} until {time}: running builds finish}}",
+        "idleShort": "{wait, select, project {No project} order {No order} done {All done} other {No work}}",
+        "idleLong": "No work · {reason}",
+        "idleSentence": "Running, nothing to work on: {reason}",
+        "wait": "{wait, select, project {no project chosen} order {no work order} done {the work order is done} other {{text}}}"
     },
     "orders": {
         "trigger": "Work order",
@@ -109,7 +131,9 @@
         "replaceBody": "The current order is cancelled and the factory starts this one.",
         "replaceConfirm": "Replace",
         "loadFailed": "The work orders did not load",
-        "retryLoad": "Try again"
+        "retryLoad": "Try again",
+        "needsProject": "Pick a project first",
+        "needsProjectWhy": "The work comes from the active project: choose one in Projects, then choose the work."
     },
     "providers": {
         "label": "Factory",
@@ -119,7 +143,20 @@
         "noteReadOnly": "Only the workspace owner can switch connections on or off for the factory"
     },
     "floor": {
-        "lastBeat": "Last beat {minutes} min ago",
-        "asOf": "as of {time}"
+        "asOf": "as of {time}",
+        "noData": "No data yet: {metrics}",
+        "moreMetrics": "{count, plural, one {# more figure} other {# more figures}}",
+        "moreLabel": "More",
+        "moreChips": "{count, plural, one {# more filter} other {# more filters}}",
+        "activityName": "Activity, {problems, plural, =0 {no problems} one {# problem} other {# problems}}",
+        "activity": "Activity: {running}/{pool} running, {problems, plural, =0 {no problems} one {# problem} other {# problems}}",
+        "map": "Factory map",
+        "zoom": "Zoom",
+        "center": "Center",
+        "centerHint": "Center on the bots (key 0). Wheel or pinch to zoom, drag to move.",
+        "waitingOutside": "· {count} not in order",
+        "dataAgeSeconds": "data {seconds}s old",
+        "dataAgeMinutes": "data {minutes}m old",
+        "dataAgeHours": "data {hours}h old"
     }
 }

@@ -33,7 +33,7 @@ vi.mock('@/stores/board.store', () => ({
 }))
 vi.mock('@/supabase/session/SessionProvider', () => ({ useSession: () => ({ workspace: mocks.workspace }) }))
 
-import { SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
+import { FACTORY_OVERLAY_BELOW, SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
 import { FactoryPage } from './FactoryPage'
 
 const NOW = Date.parse('2026-11-14T12:00:00Z')
@@ -44,7 +44,7 @@ const job = (issue: number, over: Record<string, unknown> = {}) => ({
 })
 const snapshotWith = (jobs: unknown[], coworkers: unknown[] = [{ name: 'code', id: 'c1', runs: 1, out: 0 }]) => ({
     snapshot: {
-        repo: 'o/r', jobs, pools: [{ name: 'build', coworkers }],
+        repo: 'o/r', jobs, pools: [{ name: 'build', coworkers }], holds: [],
         endedToday: { merged: 0, rejected: 0, blocked: 0, failed: 0, returned: 0 },
     },
     receivedAt: NOW, ageMs: 0,
@@ -97,14 +97,17 @@ describe('factory page', () => {
         expect(host.querySelector('[data-topbar]')).not.toBeNull()
     })
 
-    it("the coworker panel's width becomes rightInset while a coworker is selected, 0 when none", async () => {
+    it("the coworker panel's width becomes rightInset while a coworker is selected, 0 when none or when the chat overlays the board", async () => {
         window.innerWidth = 1400
         await mount()
         expect(mocks.world.current!.rightInset).toBe(0)
         mocks.board.selectedAgentId = 'c1'
         await remount()
-        expect(mocks.world.current!.rightInset).toBe(loadSidePanelWidth(1400) + SIDE_PANEL_GAP)
-        window.innerWidth = 600
+        expect(mocks.world.current!.rightInset).toBe(loadSidePanelWidth(1400, true) + SIDE_PANEL_GAP)
+        window.innerWidth = FACTORY_OVERLAY_BELOW
+        await act(async () => { window.dispatchEvent(new Event('resize')) })
+        expect(mocks.world.current!.rightInset).toBe(loadSidePanelWidth(FACTORY_OVERLAY_BELOW, true) + SIDE_PANEL_GAP)
+        window.innerWidth = FACTORY_OVERLAY_BELOW - 1
         await act(async () => { window.dispatchEvent(new Event('resize')) })
         expect(mocks.world.current!.rightInset).toBe(0)
         window.innerWidth = 1024
@@ -167,15 +170,13 @@ describe('factory page', () => {
         expect(host.querySelector('[data-control-center]')).not.toBeNull()
     })
 
-    it('puts Talk to Boss below the corner menu, and it still opens the chat of boss', async () => {
+    it('puts Talk to Boss and the corner menu in the top bar, and it still opens the chat of boss', async () => {
         mocks.board.agents = [{ id: 'b1', name: 'x', handle: 'Boss' }]
         await mount()
         const btn = byText('button', 'Talk to Boss') as HTMLButtonElement
-        const cls = btn.parentElement!.classList
-        expect(cls.contains('left-4')).toBe(true)
-        expect(cls.contains('top-16')).toBe(true)
-        expect(cls.contains('z-30')).toBe(true)
-        expect(cls.contains('top-4')).toBe(false)
+        expect(btn.closest('[data-topbar]')).not.toBeNull()
+        expect(btn.getAttribute('aria-label')).toBe('Talk to Boss')
+        expect(host.querySelector('[data-workspace-switcher]')?.closest('[data-topbar]')).not.toBeNull()
         await click(btn)
         expect(mocks.board.focusAgentOnBoard).toHaveBeenCalledWith('b1', 'chat')
     })
@@ -195,12 +196,14 @@ describe('factory page', () => {
     it('Talk to Boss opens the chat of the coworker named boss, and is disabled when there is none', async () => {
         await mount()
         const none = byText('button', 'Talk to Boss') as HTMLButtonElement
-        expect(none.disabled).toBe(true)
-        expect(none.title).not.toBe('')
+        expect(none.getAttribute('aria-disabled')).toBe('true')
+        expect(none.disabled).toBe(false)
+        await click(none)
+        expect(mocks.board.focusAgentOnBoard).not.toHaveBeenCalled()
         mocks.board.agents = [{ id: 'a1', name: 'Other' }, { id: 'b1', name: 'x', handle: 'Boss' }]
         await remount()
         const btn = byText('button', 'Talk to Boss') as HTMLButtonElement
-        expect(btn.disabled).toBe(false)
+        expect(btn.getAttribute('aria-disabled')).toBe('false')
         await click(btn)
         expect(mocks.board.focusAgentOnBoard).toHaveBeenCalledWith('b1', 'chat')
     })

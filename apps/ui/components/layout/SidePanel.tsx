@@ -41,7 +41,7 @@ export function SidePanel({
             ref={panelRef}
             data-side-panel
             className={cn(
-                'absolute inset-0 z-50 flex w-full flex-col transition-transform duration-300 ease-in-out md:top-2 md:right-2 md:bottom-2 md:left-auto md:w-(--side-panel-width) md:min-w-[480px] md:max-w-[min(800px,60vw)]',
+                'absolute inset-0 z-50 flex w-full flex-col transition-transform duration-300 ease-in-out md:top-2 md:right-2 md:bottom-2 md:left-auto md:w-(--side-panel-width) md:min-w-[480px] [[data-factory]_&]:md:min-w-[360px] md:max-w-[min(800px,60vw)]',
                 'md:rounded-xl md:border md:border-border md:bg-background md:shadow-[0_8px_24px_-10px_rgb(0_0_0/0.28)]',
                 'max-md:top-auto max-md:h-[var(--side-sheet-drag-h,var(--side-sheet-detent-h,calc(96dvh-env(safe-area-inset-top))))] max-md:max-h-[calc(96dvh-env(safe-area-inset-top))] max-md:overflow-hidden max-md:rounded-t-2xl max-md:border-t max-md:border-border max-md:bg-background max-md:pb-[var(--consent-inset)] max-md:shadow-2xl',
                 'max-md:transition-[translate,height] max-md:duration-500 max-md:ease-[cubic-bezier(0.32,0.72,0,1)] max-md:data-[sheet-dragging]:max-h-none max-md:data-[sheet-dragging]:transition-none',
