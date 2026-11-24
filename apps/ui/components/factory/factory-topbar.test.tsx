@@ -149,6 +149,30 @@ describe('FactoryTopBar', () => {
         expect(strip.querySelector('[data-no-data]')).not.toBeNull()
     })
 
+    it('running with no project names why nothing starts, and its action opens Projects', async () => {
+        const s = snapshot()
+        const idle: FactorySnapshot = {
+            ...s,
+            control: { state: 'RUNNING', by: 'owner', at: s.madeAt },
+            holds: [{ kind: 'no work', until: new Date(Date.now() + 60_000).toISOString() }],
+            work_order: { id: null, repo: null, kind: null, issues: [], text: null, by: 'owner', at: s.madeAt, current: null, done: [], skipped: [], halted: null, wait: 'no project chosen' },
+        }
+        await act(async () => {
+            root.render(createElement(TooltipProvider, null, createElement(FactoryTopBar, {
+                snapshot: idle, selected: null, onSelect: () => {}, names: {}, onOpenCoworker: () => {},
+                controls: { view: { isOwner: true, activeRepo: null, state: 'RUNNING', providersOff: [], throttle: null, orders: [] }, loadError: null, reload: async () => {} },
+            })))
+        })
+        const pill = q('[data-topbar] [role="status"][data-state-pill]')!
+        expect(pill.textContent).toContain('Running, nothing to work on: no project chosen')
+        expect(pill.textContent).toContain('Nothing to work on · no project chosen')
+        const projects = q('[data-project-picker] > button')!
+        expect(projects.getAttribute('aria-expanded')).toBe('false')
+        await click(q('[data-pill-action="project"]'))
+        expect(q('[data-pill-action="project"]')!.textContent).toBe('Projects')
+        expect(projects.getAttribute('aria-expanded')).toBe('true')
+    })
+
     it('with no snapshot says it is the sample and has no chips', () => {
         render({ snapshot: null })
         expect(host.textContent).toContain(SAMPLE_TEXT)
