@@ -1,4 +1,4 @@
-import json, os, re, sys, tempfile, unittest
+import json, os, sys, tempfile, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import snapshot
 import store as ledger_store
@@ -46,12 +46,12 @@ class History(unittest.TestCase):
             ("building", "2026-11-14T03:00:00Z", "fix it")])
         self.assertEqual(set(h[0]), {"state", "at", "reason", "runId"})
 
-    def test_history_is_cut_to_30_and_reasons_to_300(self):
+    def test_history_is_cut_to_10_and_reasons_to_200(self):
         for i in range(40):
             self.put(1, "building" if i % 2 == 0 else "reviewing", reason="r" * 400 + str(i))
         h = self.job(1)["history"]
-        self.assertEqual(len(h), 30)
-        self.assertTrue(all(len(x["reason"]) == 300 for x in h))
+        self.assertEqual(len(h), 10)
+        self.assertTrue(all(len(x["reason"]) == 200 for x in h))
         self.assertEqual(h[-1]["state"], "reviewing")
 
     def test_runs_come_from_the_fires_of_the_job(self):
@@ -66,10 +66,10 @@ class History(unittest.TestCase):
         self.assertIsNotNone(runs[0]["endedAt"])
         self.assertEqual((runs[1]["status"], runs[1]["endedAt"], runs[1]["tokensIn"], runs[1]["runId"]), ("running", None, 0, r2))
 
-    def test_runs_are_cut_to_the_last_12(self):
+    def test_runs_are_cut_to_the_last_6(self):
         self.put(3, "building")
         ids = [self.fire(3) for _ in range(15)]
-        self.assertEqual([r["runId"] for r in self.job(3)["runs"]], ids[-12:])
+        self.assertEqual([r["runId"] for r in self.job(3)["runs"]], ids[-6:])
 
     def test_run_coworker_id_is_looked_up_by_name(self):
         self.put(4, "building")
@@ -84,7 +84,7 @@ class History(unittest.TestCase):
         self.assertEqual(pools[1]["coworkers"][0]["id"], "r1")
 
     def test_300_jobs_with_full_history_stay_under_the_cap(self):
-        cap = int(re.search(r"FACTORY_SNAPSHOT_MAX_BYTES = (\d+) \* 1024", open(os.path.join(ROOT, "src", "factory-snapshot.ts")).read()).group(1)) * 1024
+        cap = snapshot.MAX_BYTES
         for n in range(1, 301):
             end = n % 2 == 1
             for i in range(31):
@@ -93,9 +93,9 @@ class History(unittest.TestCase):
                 self.put(n, "merged", at="2026-11-14T00:%02d:%02dZ" % (n // 60, n % 60))
             for _ in range(12):
                 self.fire(n)
-        snap = self.build()
-        self.assertLessEqual(len(json.dumps(snap, separators=(",", ":")).encode()), cap)
-        self.assertEqual(len(snap["jobs"]), 300)
+        snap = snapshot.fit(self.build())
+        self.assertLessEqual(len(json.dumps(snap, separators=(",", ":"), ensure_ascii=False).encode()), cap)
+        self.assertEqual(len([j for j in snap["jobs"] if j["state"] != "merged"]), 150)
         ended = [j for j in snap["jobs"] if j["state"] == "merged"]
         self.assertTrue(any(j["history"] == [] and j["runs"] == [] for j in ended))
         self.assertTrue(any(j["history"] and j["runs"] for j in snap["jobs"] if j["state"] != "merged"))

@@ -310,4 +310,18 @@ describe('pod card facts', () => {
             }
         }
     })
+
+    it('flags a snapshot 5 h old as stale and stops the in-stage time of a building job at madeAt', () => {
+        const s = sample()
+        s.jobs = s.jobs.filter(j => j.state === 'building')
+        const madeAt = Date.parse(s.madeAt)
+        const enteredAt = Date.parse(s.jobs[0]!.enteredAt)
+        const f = sceneFromSnapshot(s, madeAt + 5 * 3_600_000)
+        expect(f.notAnswering).toBe(true)
+        expect(f.lastBeatMs).toBe(5 * 3_600_000)
+        const p = pod(f, s.jobs[0]!.issue)!
+        expect(p.asOf).toBe(madeAt)
+        expect(p.asOf! - p.since!).toBe(madeAt - enteredAt)
+        expect(p.travel).toBeCloseTo(Math.min(1, (madeAt - enteredAt) / 2_240))
+    })
 })

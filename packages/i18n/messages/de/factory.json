@@ -107,5 +107,9 @@
         "offBadge": "Aus für die Fabrik",
         "note": "Schalte eine Verbindung aus, und die Fabrik nutzt sie nie. Ein laufender Job darauf wird beendet.",
         "noteReadOnly": "Nur der Inhaber des Workspace kann Verbindungen für die Fabrik ein- oder ausschalten"
+    },
+    "floor": {
+        "lastBeat": "Letzter Takt vor {minutes} Min.",
+        "asOf": "Stand {time}"
     }
 }
