@@ -166,11 +166,44 @@ describe('FactoryTopBar', () => {
         const pill = q('[data-topbar] [role="status"][data-state-pill]')!
         expect(pill.textContent).toContain('Running, nothing to work on: no project chosen')
         expect(pill.textContent).toContain('No work · no project chosen')
+        const start = q('[data-state-button="RUNNING"]')!
+        expect(start.getAttribute('aria-disabled')).toBe('true')
+        expect(start.getAttribute('aria-label')).toBe('Start: pick a project first')
         const projects = q('[data-project-picker] > button')!
+        expect(projects.getAttribute('aria-expanded')).toBe('false')
+        await click(q('[data-needs-project]'))
+        expect(projects.getAttribute('aria-expanded')).toBe('true')
+        await click(projects)
         expect(projects.getAttribute('aria-expanded')).toBe('false')
         await click(q('[data-pill-action="project"]'))
         expect(q('[data-pill-action="project"]')!.textContent).toBe('Projects')
         expect(projects.getAttribute('aria-expanded')).toBe('true')
+    })
+
+    it('with a project but no work order, Start waits for the work and the primary Choose the work opens it', async () => {
+        const s = snapshot()
+        const idle: FactorySnapshot = {
+            ...s,
+            control: { state: 'RUNNING', by: 'owner', at: s.madeAt },
+            holds: [{ kind: 'no work', until: new Date(Date.now() + 60_000).toISOString() }],
+            work_order: { id: null, repo: 'o/r', kind: null, issues: [], text: null, by: 'owner', at: s.madeAt, current: null, done: [], skipped: [], halted: null, wait: 'no work order' },
+        }
+        await act(async () => {
+            root.render(createElement(TooltipProvider, null, createElement(FactoryTopBar, {
+                snapshot: idle, selected: null, onSelect: () => {}, names: {}, onOpenCoworker: () => {},
+                controls: { view: { isOwner: true, activeRepo: 'o/r', state: 'RUNNING', providersOff: [], throttle: null, orders: [] }, loadError: null, reload: async () => {} },
+            })))
+        })
+        const start = q('[data-state-button="RUNNING"]')!
+        expect(start.getAttribute('aria-disabled')).toBe('true')
+        expect(start.getAttribute('aria-label')).toBe('Start: choose the work first')
+        expect(q('[data-state-button="PAUSED"]')!.hasAttribute('aria-disabled')).toBe(false)
+        const trigger = q('[data-order-trigger="ask"]')!
+        expect(trigger.className).toContain('bg-primary')
+        expect(trigger.getAttribute('aria-expanded')).toBe('false')
+        expect(q('[data-state-pill]')!.textContent).toContain('No work · no work order')
+        await click(q('[data-pill-action="order"]'))
+        expect(trigger.getAttribute('aria-expanded')).toBe('true')
     })
 
     it('with no snapshot says it is the sample and has no chips', () => {
