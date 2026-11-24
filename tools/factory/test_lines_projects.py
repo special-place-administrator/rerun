@@ -60,6 +60,12 @@ class LearnProjects(Pair):
         self.assertEqual(self.items()[5], {"id": 5, "state": "failed", "progress": None, "error_code": "owner_not_allowed"})
         self.popen.assert_not_called()
 
+    def test_an_owner_in_another_case_than_the_owners_list_is_failed_owner_not_allowed(self):
+        self.cfg["project_owners"] = ["special-place-ai-heaven"]
+        self.learn([{"id": 5, "repo": "Special-Place-AI-Heaven/app", "source": "github"}])
+        self.assertEqual(self.items()[5]["error_code"], "owner_not_allowed")
+        self.popen.assert_not_called()
+
     def test_a_repo_outside_the_rules_is_failed_invalid_link_and_nothing_is_cloned(self):
         self.learn([{"id": 5, "repo": "acme/..", "source": "github"}, {"id": 6, "repo": "acme/-x", "source": "github"}])
         self.assertEqual({i: x["error_code"] for i, x in self.items().items()}, {5: "invalid_link", 6: "invalid_link"})

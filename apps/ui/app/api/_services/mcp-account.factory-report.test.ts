@@ -17,7 +17,12 @@ vi.mock('./agent-setup.service', () => ({ declareService: vi.fn(), installServic
 vi.mock('./chat.service', () => ({ ensureSessionRow: vi.fn(), resolveAgentTarget: vi.fn() }))
 vi.mock('./services.service', () => ({ allocateServiceInstance: vi.fn(), listCatalogServices: vi.fn(), listInstalledServices: vi.fn(), loadManifest: vi.fn(), searchCatalogServices: vi.fn(), toAuthMethodSummaries: vi.fn(() => []), uninstallService: vi.fn() }))
 vi.mock('./mcp-shares.service', () => ({ dispatchShareTool: vi.fn() }))
-vi.mock('./factory-projects.service', () => ({ factoryReportAnswer: vi.fn(async () => ({})), applyFactoryProjectItems: vi.fn(async () => undefined) }))
+vi.mock('@/app/api/_auth/ownership', () => ({ workspaceFounderUserId: vi.fn(async () => 'founder') }))
+vi.mock('./factory-projects.service', async importOriginal => ({
+    ...await importOriginal<typeof import('./factory-projects.service')>(),
+    factoryReportAnswer: vi.fn(async () => ({})),
+    applyFactoryProjectItems: vi.fn(async () => undefined),
+}))
 
 const snap = (madeAt: string, beat = 1, extra: Record<string, unknown> = {}) => ({
     version: 1, madeAt, beat, repo: 'a/b', jobs: [], holds: [], pools: [],
@@ -90,7 +95,13 @@ describe('factory_report account tool', () => {
             expect(applyFactoryProjectItems).toHaveBeenCalledWith(109, items)
         })
 
-        it('keeps the picture of a user admin but changes no project state with it', async () => {
+        it('applies the states reported through an account key of the workspace owner', async () => {
+            const founder: Actor = { kind: 'user', userId: 'founder', workspaceId: 112, role: 'admin', boxScope: 'all' } as Actor
+            expect(await dispatchAccountTool(founder, 'factory_report', { snapshot: withItems('2026-11-14T06:00:00Z') })).toEqual({ kept: true })
+            expect(applyFactoryProjectItems).toHaveBeenCalledWith(112, items)
+        })
+
+        it('keeps the picture of another admin but changes no project state with it', async () => {
             const admin: Actor = { kind: 'user', userId: 'u1', workspaceId: 110, role: 'admin', boxScope: 'all' } as Actor
             expect(await dispatchAccountTool(admin, 'factory_report', { snapshot: withItems('2026-11-14T06:00:00Z') })).toEqual({ kept: true })
             expect(getFactorySnapshot(110)).not.toBeNull()

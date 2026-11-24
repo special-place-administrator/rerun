@@ -3,15 +3,16 @@ import { factoryProjectsSchema } from '@moldwright/contracts'
 
 import { workspaceFounderUserId } from '@/app/api/_auth/ownership'
 import { askProjectCheck, clearProjectAsk } from '@/lib/factory/project-asks'
+import { putFactorySnapshot } from '@/lib/factory/snapshot-store'
 import { createServiceRoleClient } from '@/supabase/serviceRole'
-import { selectMany, selectMaybeSingle } from '@/supabase/supabase-helpers'
+import { selectCount, selectMany, selectMaybeSingle } from '@/supabase/supabase-helpers'
 
-import { addPathProject, addRepoProject, applyFactoryProjectItems, factoryReportAnswer, removeProject, selectProject } from './factory-projects.service'
+import { addGithubProject, addPathProject, addRepoProject, applyFactoryProjectItems, factoryReportAnswer, removeProject, selectProject } from './factory-projects.service'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/app/api/_auth/ownership', () => ({ workspaceFounderUserId: vi.fn() }))
 vi.mock('@/supabase/serviceRole', () => ({ createServiceRoleClient: vi.fn() }))
-vi.mock('@/supabase/supabase-helpers', () => ({ selectMaybeSingle: vi.fn(), selectMany: vi.fn() }))
+vi.mock('@/supabase/supabase-helpers', () => ({ selectMaybeSingle: vi.fn(), selectMany: vi.fn(), selectCount: vi.fn() }))
 
 const OWNER = 'owner-1'
 const MEMBER = 'member-2'
@@ -60,6 +61,38 @@ describe('factory_report answer', () => {
         const answer = await factoryReportAnswer(302)
         expect(answer).toEqual({ project: { repo: 'acme/app', by: OWNER, at: '2026-11-23T18:00:00Z' }, check: { repo: 'acme/site', at: '2026-11-23T18:05:00Z' }, projects: { workspace_id: 302, limits: null, ids: [], queue: [] } })
         expect(await factoryReportAnswer(302)).toEqual(answer)
+    })
+
+    it('still carries the active project and the pending check when the projects part fails', async () => {
+        vi.mocked(selectMaybeSingle).mockResolvedValue({ data: { repo: 'acme/app', activated_at: '2026-11-23T18:00:00.000+00:00', activated_by: OWNER }, error: null } as never)
+        vi.mocked(selectMany).mockResolvedValue({ data: null, error: { message: 'down' } } as never)
+        askProjectCheck(302, { kind: 'repo', repo: 'acme/site', at: '2026-11-23T18:05:00Z', sentAt: null })
+        expect(await factoryReportAnswer(302)).toEqual({ project: { repo: 'acme/app', by: OWNER, at: '2026-11-23T18:00:00Z' }, check: { repo: 'acme/site', at: '2026-11-23T18:05:00Z' } })
+    })
+})
+
+describe('factory projects: added by GitHub link', () => {
+    const LIMITS = { max_count: 10, max_project_mb: 500, max_total_mb: 2000, upload_max_mb: 200, upload_max_files: 20000, upload_max_depth: 32, upload_max_file_mb: 50 }
+    const inserts: unknown[] = []
+
+    beforeEach(() => {
+        inserts.length = 0
+        vi.mocked(selectMaybeSingle).mockImplementation(((_c: unknown, table: string) => Promise.resolve({
+            data: table === 'workspace_members' ? { role: 'admin' } : table === 'factory_controls' ? { project_limits: LIMITS } : null, error: null,
+        })) as never)
+        vi.mocked(selectCount).mockResolvedValue({ data: 0, error: null } as never)
+        from.mockImplementation(() => ({ insert: (payload: Record<string, unknown>) => {
+            inserts.push(payload)
+            return { select: () => ({ single: () => Promise.resolve({ data: { id: 1, ...payload }, error: null }) }) }
+        } }))
+    })
+
+    it('writes the owner with the case of the factory owners list', async () => {
+        putFactorySnapshot(501, { version: 1, madeAt: '2026-11-24T06:00:00Z', projects: { repos: [], ready: [], probes: [], owners: ['special-place-ai-heaven'] } } as never)
+        const added = await addGithubProject(501, OWNER, 'https://github.com/Special-Place-AI-Heaven/x')
+        expect(added.existed).toBe(false)
+        expect(inserts).toEqual([expect.objectContaining({ repo: 'special-place-ai-heaven/x', name: 'x' })])
+        expect(vi.mocked(selectMaybeSingle).mock.calls.find(c => c[1] === 'factory_projects')?.[3]).toEqual({ workspace_id: 501, repo: 'special-place-ai-heaven/x' })
     })
 })
 
