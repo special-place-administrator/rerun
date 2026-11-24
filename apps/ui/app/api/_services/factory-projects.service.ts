@@ -174,7 +174,7 @@ async function projectRoom(workspaceId: number): Promise<{ limits: FactoryProjec
     const limits = await projectLimitsOf(workspaceId)
     if (!limits) return { limits, full: false }
     await sweepStaleUploads(workspaceId)
-    const count =await selectCount(createServiceRoleClient(), 'factory_projects', { workspace_id: workspaceId })
+    const count = await selectCount(createServiceRoleClient(), 'factory_projects', { workspace_id: workspaceId })
     if (count.error) throw new AppError('generic')
     return { limits, full: (count.data ?? 0) >= limits.max_count }
 }

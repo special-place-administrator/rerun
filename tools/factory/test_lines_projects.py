@@ -102,8 +102,10 @@ class LearnProjects(Pair):
 
     def test_a_queued_project_is_cloned_once_through_the_mirror_and_reported_cloning(self):
         queue = [{"id": 5, "repo": "acme/app", "source": "github"}, {"id": 6, "repo": "acme/site", "source": "github"}]
+        self.d.gh = unittest.mock.Mock(side_effect=OSError)
         self.learn(queue)
         self.learn(queue)
+        self.assertEqual(self.d.gh.call_args_list, [unittest.mock.call(["api", "repos/acme/app", "--jq", ".size"])])
         self.assertEqual(self.popen.call_count, 1)
         self.assertEqual(self.popen.call_args[0][0][-2:], ["refresh", "acme/app"])
         self.assertEqual(self.items()[5]["state"], "cloning")

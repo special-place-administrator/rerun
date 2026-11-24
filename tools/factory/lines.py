@@ -449,7 +449,7 @@ class Lines:
             self.take_project(ws, q, ids, quota)
         for pid, m in sorted(self.managed.items()):
             if m.get("pending") and not self.cloning:
-                self.begin_clone(ws, pid, m)
+                self.begin_clone(ws, pid, m, quota)
 
     def take_project(self, ws, q, ids, quota):
         pid, repo, source = projects.project_id(q.get("id")), q.get("repo"), q.get("source")
@@ -461,13 +461,15 @@ class Lines:
         if code:
             return self.fail_project(pid, code)
         if not self.cloning:
-            self.begin_clone(ws, pid, {"source": source, "pending": repo})
+            self.begin_clone(ws, pid, {"source": source, "pending": repo}, quota)
 
-    def begin_clone(self, ws, pid, m):
+    def begin_clone(self, ws, pid, m, quota):
         repo = m["pending"]
         d = projects.project_dir(ws, pid, ws)
         if d is None:
             return self.fail_project(pid, "unknown")
+        if quota and self.size_refusal(repo, quota):
+            return self.fail_project(pid, "quota_exceeded")
         existed = os.path.isdir(mirror.path(factory.folder(repo)))
         try:
             proc = projects.start_clone(d, repo)
@@ -522,7 +524,7 @@ class Lines:
             return "invalid_link"
         if repo.split("/")[0] not in self.owners():
             return "owner_not_allowed"
-        return self.space_refusal(quota) or self.size_refusal(repo, quota)
+        return self.space_refusal(quota)
 
     def ready_bytes(self):
         return sum(m.get("bytes", 0) for m in self.managed.values() if m["state"] == "ready")
