@@ -20,7 +20,7 @@ export function scanTextForSecrets(text: string): string[] {
 export const SENSITIVE_PATH_PATTERNS: { label: string; re: RegExp }[] = [
     { label: 'Secrets folder', re: /(^|\/)\.(secrets|ssh|aws|gnupg)(\/|$)/ },
     { label: 'Env file', re: /(^|\/)\.env(\.|$)/ },
-    { label: 'Credential file', re: /(^|\/)([^\/]*[-_.])?(cookies?|credentials?|passwords?|client[-_]secrets?|service[-_]accounts?)(([-_.][^\/]*)?\.(json|ya?ml|txt|csv|ini|toml|xml|cfg|conf|properties))?$/i },
+    { label: 'Credential file', re: /(^|\/)([^/]*[-_.])?(cookies?|credentials?|passwords?|client[-_]secrets?|service[-_]accounts?)(([-_.][^/]*)?\.(json|ya?ml|txt|csv|ini|toml|xml|cfg|conf|properties))?$/i },
     { label: 'Private key file', re: /\.(pem|p12|pfx|key)$|(^|\/)id_(rsa|ed25519|ecdsa)$/ },
 ]
 
