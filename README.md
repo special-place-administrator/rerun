@@ -282,6 +282,8 @@ in a pnpm monorepo.
 Bug reports, fixes and docs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: it explains
 how to run Rerun from source and how pull requests flow back into Rerun Cloud.
 
+The VPS deploy runbook is in [docs/deploy.md](docs/deploy.md).
+
 Self-hosted installs get community support on GitHub: an issue without logs or steps to reproduce
 is closed with a link to the guide. Questions and show-and-tell go to [Discord](https://discord.gg/cJUUgdTg5p).
 
