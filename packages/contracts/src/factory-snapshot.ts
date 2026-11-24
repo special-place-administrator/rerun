@@ -254,16 +254,18 @@ export const factoryProvidersSchema = z.object({
     enabled: z.array(z.string().max(64)).max(200),
 })
 
+const seat = z.number().int().min(1)
+
 export const factoryThrottleSchema = z.object({
-    max_ghosts: count.optional().catch(undefined),
+    max_ghosts: seat.optional().catch(undefined),
     ghosts_running: count.optional().catch(undefined),
     max_ghosts_ceiling: count.optional().catch(undefined),
-    stations: z.record(z.string().max(64), z.object({ max: count.optional().catch(undefined), running: count.optional().catch(undefined) }))
+    stations: z.record(z.string().max(64), z.object({ max: seat.optional().catch(undefined), running: count.optional().catch(undefined) }))
         .refine(stations => Object.keys(stations).length <= FACTORY_STATIONS_MAX)
         .optional().catch(undefined),
 })
 
-export const factoryStationSeatsSchema = z.record(z.string().max(64), count)
+export const factoryStationSeatsSchema = z.record(z.string().max(64), seat.catch(FACTORY_POOL_DEFAULT))
 
 export const factoryWorkOrderReportSchema = z.object({
     id: z.string().max(64).nullable(),

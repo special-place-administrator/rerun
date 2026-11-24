@@ -49,6 +49,7 @@ class World:
         self.search_finds = True
         self.souls, self.soul_updates = {}, []
         self.send_args = []
+        self.closers = {}
         self.check_runs = [{"name": n, "status": "completed", "conclusion": "success"} for n in ("Typecheck and lint", "No comments in code", "Factory tools tests")]
 
     @staticmethod
@@ -165,6 +166,9 @@ class World:
         gone = a[0] == "issue" and len(a) > 2 and a[2].isdigit() and int(a[2]) in self.deleted
         if a[:2] == ["issue", "create"] or "factory-problem" in a or (a[0] == "issue" and self.problem(a)) or timeline or gone:
             return self.problem_gh(a)
+        if a[:2] == ["api", "graphql"] and any("closedByPullRequestsReferences" in x for x in a):
+            n = int(next(x for x in a if x.startswith("n="))[2:])
+            return json.dumps([{"number": r} for r in self.closers.get(n, [])])
         if a[0] == "api" and "POST" in a and a[-1].endswith("/rerun"):
             self.reruns.append(a[-1])
             return ""
