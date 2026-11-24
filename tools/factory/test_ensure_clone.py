@@ -1,11 +1,19 @@
 import contextlib, io, os, sys, unittest
+from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import factory as F
+import mirror
 from test_factory import FactoryCase, FULL, git, write
 
 
 class EnsureCloneFollowsBase(FactoryCase):
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(mirror, "GITHUB", "file://" + self.tmp + "/")
+        p.start()
+        self.addCleanup(p.stop)
+
     def push_from_second_clone(self, branch, name, text):
         other = self.make_clone("other")
         git(other, "checkout", "--quiet", "-B", branch, "origin/" + branch)
@@ -55,6 +63,27 @@ class EnsureCloneFollowsBase(FactoryCase):
         self.ensure()
         self.assertEqual(git(self.clone, "rev-parse", "HEAD"), sha)
         self.assertTrue(os.path.isfile(os.path.join(self.clone, ".symforge", "index.bin")))
+
+
+class SharedCheckoutErrorsStayLocal(FactoryCase):
+    def test_a_failed_shared_clone_prints_only_its_code_and_logs_the_scrubbed_text(self):
+        fake = os.path.join(self.tmp, "fake-git")
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\necho \"fatal: unable to access 'https://x-access-token:ghs_%s@github.com/special-place-ai-heaven/other.git/': "
+                    "The requested URL returned error: 403\" >&2\nexit 128\n" % ("A" * 36))
+        os.chmod(fake, 0o755)
+        F.GIT = fake
+        code, out = self.call(lambda _: F.ensure_clone("special-place-ai-heaven/other"), [])
+        self.assertEqual(code, 1, out)
+        self.assertIn("not_reachable", out)
+        for raw in ("ghs_", "x-access-token", "github.com"):
+            self.assertNotIn(raw, out)
+        log = os.path.join(F.STATE, "git-errors.log")
+        self.assertEqual(os.stat(log).st_mode & 0o777, 0o600)
+        with open(log) as f:
+            text = f.read()
+        self.assertIn("403", text)
+        self.assertNotIn("ghs_", text)
 
 
 if __name__ == "__main__":
