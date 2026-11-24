@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipLabeled, TooltipTrigger } from '@/compo
 import { applyMoves, canMove, copyTree, dropReason, layoutStorageKey, loadLayout, readMoves, saveLayout, subscribeLayout, treeRoutes } from './factory-layout'
 import { type Bucket } from './factory-bucket'
 import { METRICS, barModel, hasData, type MetricDef, type MetricGroup, type MetricKey, type MetricValues } from './factory-metrics'
-import { clearCamera, readCamera, writeCamera } from '@/lib/camera-storage'
+import { clearCamera, flushCamera, readCamera, writeCamera } from '@/lib/camera-storage'
 import { cn } from '@/lib/utils'
 import { FactoryBarFrame } from './FactoryBarFrame'
 import { BAR_TIERS } from './factory-bar-tiers'
@@ -119,6 +119,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
         if (camera) view.current = camera
         applied.current = camera?.nonce
     }, [camera])
+    useEffect(() => flushCamera, [])
     const onCameraChange = useCallback((c: IsoCamera) => {
         if (camera && camera.nonce !== applied.current) return
         view.current = c
