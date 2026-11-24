@@ -230,6 +230,7 @@ class CloneCommands(CloneCase):
         hook = os.path.join(p, ".git", "hooks", "commit-msg")
         T.write(os.path.dirname(hook), "commit-msg", "#!/bin/sh\necho refused by hook >&2\nexit 1\n")
         os.chmod(hook, 0o755)
+        T.git(p, "config", "core.hooksPath", os.path.dirname(hook))
         code, out = self.pr_open(p)
         self.assertNotEqual(code, 0, out)
         self.assertFalse(os.path.exists(os.path.join(p, ".git", "MERGE_HEAD")))

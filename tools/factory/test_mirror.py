@@ -108,10 +108,10 @@ DRIVER = textwrap.dedent("""
     F.ensure_clone = lambda full: None
     mirror.BACKOFF_S = 0
     real, kill = mirror.git, os.environ.get("T_KILL")
-    def git(args, cwd="/tmp", timeout=300):
+    def git(args, cwd="/tmp", timeout=300, **fence):
         if kill == "final" and cwd == mirror.path("rerun"):
             os._exit(137)
-        r = real(args, cwd=cwd, timeout=timeout)
+        r = real(args, cwd=cwd, timeout=timeout, **fence)
         if kill == "cloned" and args[0] == "clone":
             os._exit(137)
         return r
@@ -147,7 +147,7 @@ class KilledRefresh(MirrorCase):
         self.quiet(self.M.refresh, FULL)
         fake = os.path.join(self.tmp, "slowgit")
         with open(fake, "w") as f:
-            f.write("#!/bin/sh\nif [ \"$1\" = fetch ]; then echo $$ > \"$T_DIR/fetch.pid\"; exec sleep 30; fi\nexec git \"$@\"\n")
+            f.write("#!/bin/sh\ncase \" $* \" in *\" fetch \"*) echo $$ > \"$T_DIR/fetch.pid\"; exec sleep 30;; esac\nexec git \"$@\"\n")
         os.chmod(fake, 0o755)
         p = self.drive(T_GIT=fake, T_DIR=self.tmp)
         pid = os.path.join(self.tmp, "fetch.pid")
@@ -280,3 +280,31 @@ class LaunchedAsTheWrapperDoes(unittest.TestCase):
             if "ModuleNotFoundError" in r.stderr or "ImportError" in r.stderr:
                 failed[script] = r.stderr.strip().splitlines()[-1]
         self.assertEqual(failed, {})
+
+
+class CloneErrorsStayLocal(MirrorCase):
+    def test_a_failed_mirror_clone_prints_only_its_code_and_logs_the_scrubbed_text(self):
+        leaked = "https://x-access-token:ghs_%s@github.com/special-place-ai-heaven/rerun.git" % ("A" * 36)
+        failed = subprocess.CompletedProcess(["git"], 128, "", "remote: secret text\nfatal: unable to access '%s': The requested URL returned error: 403\n" % leaked)
+        with mock.patch.object(self.M, "git", lambda *a, **k: failed):
+            code, out = self.quiet(self.M.refresh, FULL)
+        self.assertEqual(code, 3, out)
+        self.assertIn("TRANSIENT: mirror rerun could not be cloned: not_reachable", out)
+        for raw in ("secret text", "github.com", "ghs_", "x-access-token"):
+            self.assertNotIn(raw, out)
+        log = os.path.join(F.STATE, "git-errors.log")
+        self.assertEqual(os.stat(log).st_mode & 0o777, 0o600)
+        with open(log) as f:
+            text = f.read()
+        self.assertIn("remote: secret text", text)
+        self.assertNotIn("ghs_", text)
+
+
+class OwnerFolders(unittest.TestCase):
+    def test_each_owner_of_a_repo_name_gets_its_own_mirror_and_the_home_owner_keeps_its_folder(self):
+        import mirror as M
+        other, home = F.folder("special-place-administrator/app"), F.folder("special-place-ai-heaven/app")
+        self.assertNotEqual(other, home)
+        self.assertEqual(F.folder(F.OWNERS[0] + "/moldwright"), "rerun")
+        self.assertNotEqual(M.path(other), M.path(home))
+        self.assertEqual(F.repo_full(other), "special-place-administrator/app")
