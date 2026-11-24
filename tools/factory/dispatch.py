@@ -1271,7 +1271,7 @@ class Dispatcher:
         return None
 
     def replan(self, j):
-        if clocks.klass("BLOCKED", blocked=j.get("reason")) != "plan" or j.get("replans", 0) >= MAX_REPLANS or j.get("replan_run"):
+        if clocks.klass("BLOCKED", blocked=j.get("reason")) != "plan" or j.get("replans", 0) >= MAX_REPLANS or j.get("replan_run") or self.now() < (j.get("not_before") or 0):
             return
         if "closed_seen" in self.store.get_all(str(j["issue"])):
             return
@@ -1347,7 +1347,9 @@ class Dispatcher:
                 return self.end(j, "failed", str(e)[:200])
             if NO_ROUTE in str(e):
                 self.store.abandon(j["fire_id"], NO_ROUTE)
-                j.update(state=BACK[state], not_before=self.now() + 2 * self.cfg.get("poll_s", 30), retry_attempt=j.get("attempt", 1), sending=None)
+                j.update(not_before=self.now() + 2 * self.cfg.get("poll_s", 30), sending=None)
+                if state in BACK:
+                    j.update(state=BACK[state], retry_attempt=j.get("attempt", 1))
                 self.save(j, "send of '%s' held: %s" % (step, NO_ROUTE))
                 log(j["issue"], "%s not sent: no connection can run it now, it waits for the default picked under Providers" % step)
                 return

@@ -60,7 +60,7 @@ const { createServer } = await import('../server.js')
 const { agentConfigSchema } = await import('../../agents/types.js')
 const { writeAgentConfig } = await import('../../agents/config-write.js')
 const { agentDir, installPath } = await import('../../config/paths.js')
-const { createSession, getSession } = await import('../../db/repos/sessions.js')
+const { createSession, getSession, listSessions } = await import('../../db/repos/sessions.js')
 const { getRun } = await import('../../db/repos/runs.js')
 const { claimSession, releaseSession, sessionClaim, sessionClaimCount } = await import('../../runtime/run-control.js')
 const { createConnection } = await import('../../connections/store.js')
@@ -278,7 +278,9 @@ describe('POST /agents/:id/chat', () => {
         await seed('pinned', { name: 'pinned', provider: 'codex', connectionId: own.id, model: 'gpt-6-luna' })
 
         expect((await chat('pinned', { message: 'hi', connectionId: 'gone-default' })).status).toBe(503)
+        expect((await chat('pinned', { message: 'hi', connectionId: 'gone-default' })).status).toBe(503)
         expect(state.calls).toHaveLength(0)
+        expect(await listSessions('pinned')).toHaveLength(0)
 
         const back = await createConnection({ name: 'default', provider: 'codex', models: DEFAULT_CONNECTION_MODELS.codex, extraModels: [], keys: { CODEX_OAUTH_TOKEN: 't' } }, 'gone-default')
         recordCliModels(back.id, ['gpt-6-luna'], '0.166.0', false)
