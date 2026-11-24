@@ -118,6 +118,17 @@ class Replan(Base):
         older = {"error": "The coworker could not be reached: 503 {\"error\":\"No connection can run this coworker now: no model\"}"}
         self.assertEqual((named(engine_refusal("anything at all")), named(older), named({"error": "boom"}), named({"error": "x", "code": "other"})), (True, True, False, False))
 
+    def test_a_structured_code_decides_before_the_older_wording(self):
+        def named(payload):
+            with self.assertRaises(D.Error) as e:
+                hub_tool_error(payload)("send_message", {})
+            return ("invalid_goal" in str(e.exception), D.NO_ROUTE in str(e.exception))
+        self.assertEqual(named({"code": "other", "error": "No connection can run this coworker now"}), (False, False))
+        self.assertEqual(named({"code": D.NO_ROUTE, "error": "invalid_goal"}), (False, True))
+        self.assertEqual(named({"code": "invalid_goal", "error": "x"}), (True, False))
+        self.assertEqual(named({"error": "invalid_goal: lastLineForms is empty"}), (True, False))
+        self.assertEqual(named({"code": "", "error": "No connection can run this coworker now"}), (False, True))
+
     def test_a_re_plan_never_goes_to_a_planner_without_issue_access(self):
         self.tick()
         self.w.finish("b1", "BLOCKED: plan: a file outside its paths")

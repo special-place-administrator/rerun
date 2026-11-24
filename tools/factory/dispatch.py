@@ -463,7 +463,10 @@ def make_account(url, key, opener=urllib.request.urlopen, fetcher=None):
                 code = json.loads(out).get("code")
             except (ValueError, AttributeError):
                 code = None
-            named = " invalid_goal" if "invalid_goal" in out else " " + NO_ROUTE if code == NO_ROUTE or "No connection can run this coworker now" in out else ""
+            if isinstance(code, str) and code:
+                named = " " + code if code in ("invalid_goal", NO_ROUTE) else ""
+            else:
+                named = " invalid_goal" if "invalid_goal" in out else " " + NO_ROUTE if "No connection can run this coworker now" in out else ""
             raise Error("account %s failed: the tool reported an error%s" % (tool, named))
         try:
             return json.loads(out)
