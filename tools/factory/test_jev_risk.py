@@ -3,6 +3,7 @@ from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import factory as F
+import test_risk_claims
 
 KNOWN_BAD = json.load(open(os.path.join(HERE, "fixtures", "jev_known_bad.json"), encoding="utf-8"))
 ASKED = ("BRUCE", "CODD", "GRACE", "FRED")
@@ -111,17 +112,65 @@ class TestState(unittest.TestCase):
         small = [{"filename": "src/s%d.py" % i, "status": "modified", "additions": 2, "deletions": 1,
                   "patch": patch_file("+evidence_%d = must_reach_the_judge()" % i, "-old_%d = gone()" % i)} for i in range(3)]
         judge, need, note = ask(self.PR, [huge] + small, self.LOW)
-        state = judge.body()["state"]
-        self.assertLessEqual(len(json.dumps(state)), F.JEV_STATE_MAX)
+        entries = {e["file"]: e for e in judge.body()["state"]["change"]["diff_summary"]}
+        self.assertLessEqual(len(judge.sent[0].data), F.JEV_TOKENS_MAX * F.JEV_CHARS_PER_TOKEN)
         text = "\n".join(changed_lines(judge.body()))
         for i in range(3):
             self.assertIn("+evidence_%d = must_reach_the_judge()" % i, text)
             self.assertIn("-old_%d = gone()" % i, text)
-        entries = {e["filename"]: e for e in state["change"]["diff_summary"]}
-        self.assertTrue(entries["src/huge.py"]["truncated"])
-        self.assertGreater(len(entries["src/huge.py"]["lines"]), 10)
-        self.assertFalse(entries["src/s0.py"]["truncated"])
-        self.assertEqual((entries["src/huge.py"]["status"], entries["src/huge.py"]["additions"]), ("modified", 3000))
+        self.assertEqual(entries["src/huge.py M +3000/-0"]["cut"], 3000 - len(entries["src/huge.py M +3000/-0"]["lines"]))
+        self.assertGreater(len(entries["src/huge.py M +3000/-0"]["lines"]), 10)
+        self.assertNotIn("cut", entries["src/s0.py M +2/-1"])
+
+    def test_twenty_five_ordinary_files_each_send_their_lines(self):
+        paths = (["apps/ui/app/(dashboard)/settings/factory/components/ProjectRow%02d.tsx" % i for i in range(8)]
+                 + ["apps/engine/src/connections/refreshPlan%02d.ts" % i for i in range(7)]
+                 + ["tools/factory/step%02d.py" % i for i in range(7)]
+                 + ["tools/factory/test_step%02d.py" % i for i in range(3)])
+        files = [{"filename": p, "status": "modified", "additions": 5, "deletions": 2,
+                  "patch": patch_file(*["+    const row%d = useProjectRow(project, %d)" % (j, i) for j in range(5)]
+                                      + ["-    const row%d = useRow(project)" % j for j in range(2)])} for i, p in enumerate(paths)]
+        judge, need, note = ask(self.PR, files, self.LOW)
+        raw, change = judge.sent[0].data.decode(), judge.body()["state"]["change"]
+        self.assertNotIn("files", change)
+        for p in paths:
+            self.assertEqual(raw.count(json.dumps(p)[1:-1]), 1, p)
+        self.assertLessEqual(len(judge.sent[0].data), F.JEV_TOKENS_MAX * F.JEV_CHARS_PER_TOKEN)
+        entries = {e["file"].rsplit(" ", 2)[0]: e for e in change["diff_summary"]}
+        for p in paths[:22]:
+            self.assertGreaterEqual(len(entries[p]["lines"]), F.JEV_LINES_MIN, p)
+
+    def test_no_credential_leaves_in_the_title_a_name_or_a_line(self):
+        gh = "gh" + "p_" + "Q7xk2Lm9Rt4Vb8Nc1Hd6Js3Wy0Mg5Pz7Kq"
+        split = "gh" + "o_" + "Zr4Tq8Wn" * 4
+        secrets = {"aws": "AKIA" + "Q7XK2LM9RT4VB8NC", "slack": "xox" + "s-" + "1234567890-abcdefABCDEF",
+                   "dotted": "gh" + "s_" + "Q7xk2Lm9.Rt4Vb8Nc1-Hd6Js3", "encoded": "Hunter2" + "Hunter2", "userinfo": "Sup3r" + "S3cretPw"}
+        sha = "+pinned = '%s'" % ("abcdef0123456789" * 2 + "abcdef01")
+        lines = ["+q = 'user%3Dbob%26pass" + "word%3D" + secrets["encoded"] + "'", "+AWS_ID = '%s'" % secrets["aws"],
+                 "+hook = '%s'" % secrets["slack"], "+t = '%s'" % secrets["dotted"], "+tok = ('%s'" % split[:12], "+       '%s')" % split[12:],
+                 "+DATABASE_URL=postgres://app:" + secrets["userinfo"] + "@db.internal:5432/app", sha]
+        files = [{"filename": "src/app.py", "status": "modified", "additions": len(lines), "deletions": 0, "patch": patch_file(*lines)},
+                 {"filename": "config/%s.env.txt" % gh, "status": "added", "additions": 1, "deletions": 0, "patch": patch_file("+x = 1")}]
+        judge, need, note = ask({"title": "fix: rotate key " + gh, "body": "token " + gh}, files, self.LOW)
+        raw = judge.sent[0].data.decode()
+        for v in [gh, split[:12], split[12:]] + list(secrets.values()):
+            self.assertNotIn(v, raw)
+        self.assertIn("[name withheld] A +1/-0", [e["file"] for e in judge.body()["state"]["change"]["diff_summary"]])
+        self.assertIn(sha, changed_lines(judge.body()))
+
+
+class TestCallSite(unittest.TestCase):
+    FILES = [{"filename": "tools/factory/dispatch.py", "additions": 60, "deletions": 10},
+             {"filename": "tools/factory/plancheck.py", "additions": 10, "deletions": 5}]
+
+    def test_the_judge_is_asked_on_every_pr_unless_told_not_to(self):
+        for flags, calls in (((), 1), (("--no-jev",), 0)):
+            with self.subTest(flags):
+                jev = mock.Mock(return_value="Jev (diff summary, 1 input tokens): BRUCE no 0.10")
+                code, lines = test_risk_claims.risk(self.FILES, other=(), jev=jev, flags=flags)
+                self.assertEqual(code, 0, lines)
+                self.assertEqual(jev.call_count, calls, lines)
+                self.assertEqual("Jev (diff summary, 1 input tokens): BRUCE no 0.10" in lines, bool(calls), lines)
 
 
 class TestNoKey(unittest.TestCase):

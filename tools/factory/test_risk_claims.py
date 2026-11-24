@@ -9,13 +9,13 @@ H = "abcdef0123456789abcdef0123456789abcdef01"
 ROSTER = R.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "roster.json")).read())
 
 
-def risk(files, comments=(), other=("deploy/vps/dev-engine-status.sh",), gh=None):
+def risk(files, comments=(), other=("deploy/vps/dev-engine-status.sh",), gh=None, jev=None, flags=("--no-jev",)):
     def api(path, *a, **k):
         p = path.split("?")[0]
         if p.endswith("/pulls/5"):
             return {"title": "t", "number": 5, "head": {"sha": H, "ref": "feat/x"}, "body": ""}
         if p.endswith("/pulls/5/files"):
-            return [{"filename": f, "additions": 1, "deletions": 0} for f in files]
+            return [f if isinstance(f, dict) else {"filename": f, "additions": 1, "deletions": 0} for f in files]
         if p.endswith("/issues/5/comments"):
             return [{"created_at": "2026-11-12T10:0%d" % i, "body": b} for i, b in enumerate(comments)]
         raise AssertionError(path)
@@ -31,9 +31,9 @@ def risk(files, comments=(), other=("deploy/vps/dev-engine-status.sh",), gh=None
         raise AssertionError(path)
     out, code = io.StringIO(), 0
     with mock.patch.object(F, "api", api), mock.patch.object(G, "gh_json", gh or gh_json), mock.patch.object(F, "base_roster", lambda full: ROSTER), \
-            mock.patch.object(F, "jev_risk", mock.Mock(side_effect=AssertionError("no model"))), contextlib.redirect_stdout(out):
+            mock.patch.object(F, "jev_risk", jev or mock.Mock(side_effect=AssertionError("no model"))), contextlib.redirect_stdout(out):
         try:
-            F.cmd_risk(["rerun", "5", "--no-jev"])
+            F.cmd_risk(["rerun", "5", *flags])
         except SystemExit as e:
             code = e.code
     return code, out.getvalue().splitlines()
