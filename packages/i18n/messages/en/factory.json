@@ -7,7 +7,10 @@
         "orders.ask": "The foreman's question once a project is chosen; {repo} is a GitHub owner/name.",
         "providers.label": "Short caption next to the on/off switch of a connection: whether the factory may use it.",
         "floor.lastBeat": "Shown next to the factory status dot when the factory stopped reporting; {minutes} is the whole minutes since its last report.",
-        "floor.asOf": "Shown under a live count when the factory stopped reporting: the count is the one of its last report; {time} is that report's local time, HH:MM."
+        "floor.asOf": "Shown under a live count when the factory stopped reporting: the count is the one of its last report; {time} is that report's local time, HH:MM.",
+        "controls.holdLong": "Short text of the factory state pill while sending is held; {kind} is the hold reason as the factory reports it (for example sign-in renewal), {seconds} the seconds left.",
+        "controls.holdSentence": "Full sentence behind the state pill while sending is held; {time} is the local time the hold ends, HH:MM.",
+        "floor.moreMetrics": "Accessible name of the tile that gathers the figures hidden on a narrow screen."
     },
     "projects": {
         "trigger": "Factory project: {repo}. Open the projects",
@@ -73,7 +76,12 @@
         "pool": "Pool",
         "seats": "Seats",
         "usage": "{running} / {max} running",
-        "throttleSaved": "{label} set to {value}"
+        "throttleSaved": "{label} set to {value}",
+        "poolValue": "Pool {count}",
+        "moreControls": "More factory controls",
+        "holdShort": "{kind, select, paused {Paused} other {Held}}",
+        "holdLong": "{kind, select, paused {Paused · builds finishing {seconds} s} other {Held · {kind} {seconds} s}}",
+        "holdSentence": "{kind, select, paused {The factory is paused until {time}: running builds finish} other {Sending is held for {kind} until {time}: running builds finish}}"
     },
     "orders": {
         "trigger": "Work order",
@@ -120,6 +128,10 @@
     },
     "floor": {
         "lastBeat": "Last beat {minutes} min ago",
-        "asOf": "as of {time}"
+        "asOf": "as of {time}",
+        "noData": "No data yet: {metrics}",
+        "moreMetrics": "{count, plural, one {# more figure} other {# more figures}}",
+        "moreLabel": "More",
+        "moreChips": "{count, plural, one {# more filter} other {# more filters}}"
     }
 }

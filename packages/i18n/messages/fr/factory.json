@@ -63,7 +63,12 @@
         "pool": "Pool",
         "seats": "Places",
         "usage": "{running} / {max} en cours",
-        "throttleSaved": "{label} réglé sur {value}"
+        "throttleSaved": "{label} réglé sur {value}",
+        "poolValue": "Pool {count}",
+        "moreControls": "Autres commandes de l'usine",
+        "holdShort": "{kind, select, paused {En pause} other {Retenue}}",
+        "holdLong": "{kind, select, paused {En pause · builds en fin {seconds} s} other {Retenue · {kind} {seconds} s}}",
+        "holdSentence": "{kind, select, paused {L'usine est en pause jusqu'à {time} : les builds en cours se terminent} other {L'envoi est retenu pour {kind} jusqu'à {time} : les builds en cours se terminent}}"
     },
     "orders": {
         "trigger": "Ordre de travail",
@@ -110,6 +115,10 @@
     },
     "floor": {
         "lastBeat": "Dernier battement il y a {minutes} min",
-        "asOf": "à {time}"
+        "asOf": "à {time}",
+        "noData": "Pas encore de données : {metrics}",
+        "moreMetrics": "{count, plural, one {# chiffre de plus} other {# chiffres de plus}}",
+        "moreLabel": "Plus",
+        "moreChips": "{count, plural, one {# filtre de plus} other {# filtres de plus}}"
     }
 }

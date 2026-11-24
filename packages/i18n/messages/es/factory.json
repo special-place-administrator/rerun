@@ -63,7 +63,12 @@
         "pool": "Grupo",
         "seats": "Plazas",
         "usage": "{running} / {max} en marcha",
-        "throttleSaved": "{label}: {value}"
+        "throttleSaved": "{label}: {value}",
+        "poolValue": "Grupo {count}",
+        "moreControls": "Más controles de la fábrica",
+        "holdShort": "{kind, select, paused {En pausa} other {Retenida}}",
+        "holdLong": "{kind, select, paused {En pausa · builds terminando {seconds} s} other {Retenida · {kind} {seconds} s}}",
+        "holdSentence": "{kind, select, paused {La fábrica está en pausa hasta las {time}: los builds en curso terminan} other {El envío está retenido por {kind} hasta las {time}: los builds en curso terminan}}"
     },
     "orders": {
         "trigger": "Orden de trabajo",
@@ -110,6 +115,10 @@
     },
     "floor": {
         "lastBeat": "Último latido hace {minutes} min",
-        "asOf": "a las {time}"
+        "asOf": "a las {time}",
+        "noData": "Aún sin datos: {metrics}",
+        "moreMetrics": "{count, plural, one {# cifra más} other {# cifras más}}",
+        "moreLabel": "Más",
+        "moreChips": "{count, plural, one {# filtro más} other {# filtros más}}"
     }
 }

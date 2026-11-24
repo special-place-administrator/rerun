@@ -63,7 +63,12 @@
         "pool": "Pool",
         "seats": "Plätze",
         "usage": "{running} / {max} aktiv",
-        "throttleSaved": "{label} auf {value} gesetzt"
+        "throttleSaved": "{label} auf {value} gesetzt",
+        "poolValue": "Pool {count}",
+        "moreControls": "Weitere Fabriksteuerung",
+        "holdShort": "{kind, select, paused {Pausiert} other {Angehalten}}",
+        "holdLong": "{kind, select, paused {Pausiert · Builds laufen aus {seconds} s} other {Angehalten · {kind} {seconds} s}}",
+        "holdSentence": "{kind, select, paused {Die Fabrik ist bis {time} pausiert: laufende Builds werden fertig} other {Das Senden ist wegen {kind} bis {time} angehalten: laufende Builds werden fertig}}"
     },
     "orders": {
         "trigger": "Arbeitsauftrag",
@@ -110,6 +115,10 @@
     },
     "floor": {
         "lastBeat": "Letzter Takt vor {minutes} Min.",
-        "asOf": "Stand {time}"
+        "asOf": "Stand {time}",
+        "noData": "Noch keine Daten: {metrics}",
+        "moreMetrics": "{count, plural, one {# weitere Kennzahl} other {# weitere Kennzahlen}}",
+        "moreLabel": "Mehr",
+        "moreChips": "{count, plural, one {# weiterer Filter} other {# weitere Filter}}"
     }
 }
