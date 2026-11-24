@@ -1,4 +1,4 @@
-import argparse, datetime, fnmatch, hashlib, json, os, re, signal, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import argparse, datetime, fnmatch, hashlib, json, os, re, signal, subprocess, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
 
 import acceptance
 import affinity
@@ -417,7 +417,19 @@ def problem_brief(repo, key, p):
     ])
 
 
-def make_account(url, key, opener=urllib.request.urlopen):
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def make_account(url, key, opener=urllib.request.urlopen, fetcher=None):
+    hub = "%s://%s" % urllib.parse.urlsplit(url)[:2]
+    fetch = fetcher or urllib.request.build_opener(_NoRedirect).open
+
+    def archive(pid, timeout=120):
+        req = urllib.request.Request("%s/api/factory/projects/%d/archive" % (hub, int(pid)), headers={"Authorization": "Bearer " + key})
+        return fetch(req, timeout=timeout)
+
     def call(tool, args, timeout=30):
         body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": args}}).encode()
         req = urllib.request.Request(url, data=body, method="POST", headers={"Authorization": "Bearer " + key,
@@ -448,6 +460,7 @@ def make_account(url, key, opener=urllib.request.urlopen):
             return json.loads(out)
         except ValueError:
             raise Error("account %s failed: result is not JSON" % tool) from None
+    call.archive = archive
     return call
 
 

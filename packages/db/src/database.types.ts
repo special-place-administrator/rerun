@@ -1256,16 +1256,20 @@ export type Database = {
           active: boolean
           created_at: string
           created_by: string | null
+          dropped: Json
           error_code: string | null
           host_path: string | null
           id: number
           name: string
           progress_done: number | null
           progress_total: number | null
-          repo: string
+          repo: string | null
           source: string
           state: string
           updated_at: string
+          upload_bytes: number | null
+          upload_head: string | null
+          upload_sha256: string | null
           workspace_id: number
         }
         Insert: {
@@ -1274,16 +1278,20 @@ export type Database = {
           active?: boolean
           created_at?: string
           created_by?: string | null
+          dropped?: Json
           error_code?: string | null
           host_path?: string | null
           id?: never
           name: string
           progress_done?: number | null
           progress_total?: number | null
-          repo: string
+          repo?: string | null
           source?: string
           state?: string
           updated_at?: string
+          upload_bytes?: number | null
+          upload_head?: string | null
+          upload_sha256?: string | null
           workspace_id: number
         }
         Update: {
@@ -1292,16 +1300,20 @@ export type Database = {
           active?: boolean
           created_at?: string
           created_by?: string | null
+          dropped?: Json
           error_code?: string | null
           host_path?: string | null
           id?: never
           name?: string
           progress_done?: number | null
           progress_total?: number | null
-          repo?: string
+          repo?: string | null
           source?: string
           state?: string
           updated_at?: string
+          upload_bytes?: number | null
+          upload_head?: string | null
+          upload_sha256?: string | null
           workspace_id?: number
         }
         Relationships: [

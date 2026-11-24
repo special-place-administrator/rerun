@@ -139,3 +139,43 @@ describe('factory projects: states reported by the factory', () => {
         ])
     })
 })
+
+describe('factory projects: an upload identified by the factory', () => {
+    const writes: unknown[] = []
+    const removed: string[][] = []
+    const upload = (id: number, state: string) => ({ id, source: 'upload', repo: null, state, error_code: null, progress_done: null, progress_total: null })
+    const identified = (id: number, repo: string) => ({ id, state: 'cloning' as const, progress: null, error_code: null, identified_repo: repo, head: 'a'.repeat(40), dropped: [{ label: 'Env file', path: '.env' }] })
+
+    beforeEach(() => {
+        writes.length = 0
+        removed.length = 0
+        const done = { eq: () => done, then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(resolve) }
+        from.mockImplementation(() => ({ update: (payload: unknown) => { writes.push(payload); return done } }))
+        vi.mocked(createServiceRoleClient).mockReturnValue({ from, storage: { from: () => ({ remove: (paths: string[]) => { removed.push(paths); return Promise.resolve({ error: null }) } }) } } as never)
+        vi.mocked(selectMaybeSingle).mockResolvedValue({ data: null, error: null } as never)
+        putFactorySnapshot(601, { version: 1, madeAt: '2026-11-24T06:00:00Z', projects: { repos: [], ready: [], probes: [], owners: ['special-place-ai-heaven'] } } as never)
+    })
+
+    it('takes the repo only on unpacking to cloning, from a listed owner, and deletes the stored folder', async () => {
+        vi.mocked(selectMany).mockResolvedValue({ data: [upload(1, 'unpacking'), upload(2, 'queued'), upload(3, 'unpacking'), upload(4, 'unpacking')], error: null } as never)
+        await applyFactoryProjectItems(601, [
+            identified(1, 'special-place-ai-heaven/moldwright'),
+            identified(2, 'special-place-ai-heaven/moldwright'),
+            identified(3, 'someone-else/moldwright'),
+            identified(4, 'special-place-ai-heaven/..'),
+        ])
+        expect(writes).toEqual([
+            expect.objectContaining({ state: 'cloning', repo: 'special-place-ai-heaven/moldwright', upload_head: 'a'.repeat(40), dropped: [{ label: 'Env file', path: '.env' }] }),
+            expect.objectContaining({ state: 'failed', error_code: 'owner_not_allowed' }),
+            expect.objectContaining({ state: 'failed', error_code: 'no_github_remote' }),
+        ])
+        expect(removed).toEqual([['601/1.tar'], ['601/3.tar'], ['601/4.tar']])
+    })
+
+    it('fails an upload whose repo another project of the workspace already has', async () => {
+        vi.mocked(selectMany).mockResolvedValue({ data: [upload(5, 'unpacking')], error: null } as never)
+        vi.mocked(selectMaybeSingle).mockResolvedValue({ data: { id: 9, repo: 'special-place-ai-heaven/moldwright' }, error: null } as never)
+        await applyFactoryProjectItems(601, [identified(5, 'special-place-ai-heaven/moldwright')])
+        expect(writes).toEqual([expect.objectContaining({ state: 'failed', error_code: 'already_added' })])
+    })
+})

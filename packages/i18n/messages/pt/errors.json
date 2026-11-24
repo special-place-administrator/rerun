@@ -460,5 +460,6 @@
     "factoryProjectOwnerNotAllowed": "A factory só trabalha com repositórios de {owners}: use um repositório de um desses proprietários",
     "factoryProjectQuotaUnset": "Defina uma cota de projetos nas Configurações para adicionar projetos",
     "factoryProjectQuotaExceeded": "Este workspace atingiu o limite de {max} projetos: remova um ou aumente a cota nas Configurações",
-    "factoryProjectNotReady": "{name} ainda não está pronto: aguarde até a factory terminar de copiá-lo"
+    "factoryProjectNotReady": "{name} ainda não está pronto: aguarde até a factory terminar de copiá-lo",
+    "factoryProjectUploadRetry": "Envie a pasta novamente."
 }
