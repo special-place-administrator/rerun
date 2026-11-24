@@ -37,6 +37,11 @@ def changed_lines(body):
     return [line for entry in body["state"]["change"]["diff_summary"] for line in entry["lines"]]
 
 
+def entries_by_path(body):
+    change = body["state"]["change"]
+    return {change.get("root", "") + e["file"].rsplit(" ", 2)[0]: e for e in change["diff_summary"]}
+
+
 def band_of(need, who):
     if who not in need:
         return "no"
@@ -112,43 +117,38 @@ class TestState(unittest.TestCase):
         small = [{"filename": "src/s%d.py" % i, "status": "modified", "additions": 2, "deletions": 1,
                   "patch": patch_file("+evidence_%d = must_reach_the_judge()" % i, "-old_%d = gone()" % i)} for i in range(3)]
         judge, need, note = ask(self.PR, [huge] + small, self.LOW)
-        entries = {e["file"]: e for e in judge.body()["state"]["change"]["diff_summary"]}
+        entries = entries_by_path(judge.body())
         self.assertLessEqual(len(judge.sent[0].data), F.JEV_TOKENS_MAX * F.JEV_CHARS_PER_TOKEN)
         text = "\n".join(changed_lines(judge.body()))
         for i in range(3):
             self.assertIn("+evidence_%d = must_reach_the_judge()" % i, text)
             self.assertIn("-old_%d = gone()" % i, text)
-        self.assertEqual(entries["src/huge.py M +3000/-0"]["cut"], 3000 - len(entries["src/huge.py M +3000/-0"]["lines"]))
-        self.assertGreater(len(entries["src/huge.py M +3000/-0"]["lines"]), 10)
-        self.assertNotIn("cut", entries["src/s0.py M +2/-1"])
+        self.assertEqual(entries["src/huge.py"]["cut"], 3000 - len(entries["src/huge.py"]["lines"]))
+        self.assertGreater(len(entries["src/huge.py"]["lines"]), 10)
+        self.assertNotIn("cut", entries["src/s0.py"])
 
     def test_twenty_five_ordinary_files_each_send_their_lines(self):
-        paths = (["apps/ui/app/(dashboard)/settings/factory/components/ProjectRow%02d.tsx" % i for i in range(8)]
-                 + ["apps/engine/src/connections/refreshPlan%02d.ts" % i for i in range(7)]
-                 + ["tools/factory/step%02d.py" % i for i in range(7)]
-                 + ["tools/factory/test_step%02d.py" % i for i in range(3)])
-        files = [{"filename": p, "status": "modified", "additions": 5, "deletions": 2,
-                  "patch": patch_file(*["+row%d = use(%d)" % (j, i) for j in range(5)]
-                                      + ["-row%d = old()" % j for j in range(2)])} for i, p in enumerate(paths)]
-        judge, need, note = ask(self.PR, files, self.LOW)
-        raw, change = judge.sent[0].data.decode(), judge.body()["state"]["change"]
-        self.assertNotIn("files", change)
-        for p in paths:
-            self.assertEqual(raw.count(json.dumps(p)[1:-1]), 1, p)
+        paths = ["apps/ui/app/(dashboard)/settings/factory/components/ProjectRow%02d.tsx" % i for i in range(25)]
+        evidence = ["+export const allowAnyone = true // evidence %d" % i for i in range(25)]
+        files = [{"filename": p, "status": "modified", "additions": 6, "deletions": 1,
+                  "patch": patch_file(evidence[i], "-export const allowAnyone = false")} for i, p in enumerate(paths)]
+        judge, need, note = ask({"title": "ui: project rows", "body": ""}, files, self.LOW)
+        self.assertNotIn("files_omitted", judge.body()["state"]["change"])
         self.assertLessEqual(len(judge.sent[0].data), F.JEV_TOKENS_MAX * F.JEV_CHARS_PER_TOKEN)
-        entries = {e["file"].rsplit(" ", 2)[0]: e for e in change["diff_summary"]}
-        for p in paths[:22]:
-            self.assertGreaterEqual(len(entries[p]["lines"]), F.JEV_LINES_MIN, p)
+        entries, sent = entries_by_path(judge.body()), changed_lines(judge.body())
+        for i, p in enumerate(paths):
+            self.assertEqual(entries[p]["lines"], [evidence[i], "-export const allowAnyone = false"], p)
+            self.assertIn(evidence[i], sent)
 
         code = ["apps/engine/src/connections/refreshPlan%02d.ts" % i for i in range(17)]
         tests = ["tools/factory/test_step%02d.py" % i for i in range(8)]
         files = ([{"filename": p, "status": "modified", "additions": 6, "deletions": 0,
-                   "patch": patch_file(*[("+plan%d = refresh(%d) " % (j, i)).ljust(24, "x") for j in range(6)])} for i, p in enumerate(code)]
+                   "patch": patch_file(*[("+plan%d = refresh(%d) " % (j, i)).ljust(40, "x") for j in range(6)])} for i, p in enumerate(code)]
                  + [{"filename": p, "status": "modified", "additions": 6, "deletions": 0,
                      "patch": patch_file(*[("+    assert step%d(%d) == " % (j, i)).ljust(F.JEV_LINE_MAX, "y") for j in range(6)])} for i, p in enumerate(tests)])
         judge, need, note = ask(self.PR, files, self.LOW)
         self.assertLessEqual(len(judge.sent[0].data), F.JEV_TOKENS_MAX * F.JEV_CHARS_PER_TOKEN)
-        sent = {e["file"].rsplit(" ", 2)[0]: len(e["lines"]) for e in judge.body()["state"]["change"]["diff_summary"]}
+        sent = {p: len(e["lines"]) for p, e in entries_by_path(judge.body()).items()}
         short = [p for p in code if sent.get(p, 0) < F.JEV_LINES_MIN]
         if short:
             self.assertEqual([p for p in tests if sent.get(p, 0)], [], short)
