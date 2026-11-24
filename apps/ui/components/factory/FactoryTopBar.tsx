@@ -31,7 +31,7 @@ const MAIN_CHIPS: { key: MainChip; label: string }[] = [
 const FOLDING_CHIPS: MainChip[] = ['waiting', 'doneToday']
 
 const ROW = 'flex h-full w-full min-w-0 flex-nowrap items-center gap-3'
-const ZONE = 'flex shrink-0 items-center gap-2'
+const ZONE = 'flex shrink-0 items-center gap-2 self-stretch'
 const DIVIDED = 'border-l border-border/60 pl-3'
 const CHIP = 'flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-xs outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50'
 
@@ -113,7 +113,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
     if (!snapshot) {
         return (
             <div data-topbar className={ROW}>
-                {context && <div data-zone="context" className={cn(ZONE, 'min-w-0 shrink')}>{context}</div>}
+                {context && <div data-zone="context" className={ZONE}>{context}</div>}
                 <div data-zone="status" className={cn(ZONE, 'min-w-0 shrink', context && DIVIDED)}>
                     <span className="truncate text-xs text-muted-foreground">{SAMPLE_TEXT}</span>
                 </div>
@@ -131,9 +131,9 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
 
     return (
         <div ref={setRoot} data-topbar className={ROW}>
-            <div data-zone="context" className={cn(ZONE, 'min-w-0 shrink')}>
+            <div data-zone="context" className={ZONE}>
                 {context}
-                <div className="min-w-0 max-w-50 @max-[760px]:max-w-30">
+                <div className="min-w-0 max-w-50 @max-[760px]:max-w-30 [&>[data-project-picker]>button]:max-w-full">
                     <FactoryProjectPicker snapshot={snapshot} />
                 </div>
                 {controls.view === null && controls.loadError === null ? <FactoryWorkOrdersSkeleton /> : <FactoryWorkOrders snapshot={snapshot} controls={controls} />}
