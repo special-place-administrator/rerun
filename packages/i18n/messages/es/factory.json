@@ -69,8 +69,8 @@
         "holdShort": "{kind, select, paused {En pausa} other {Retenida}}",
         "holdLong": "{kind, select, paused {En pausa · builds terminando {seconds} s} other {Retenida · {kind} {seconds} s}}",
         "holdSentence": "{kind, select, paused {La fábrica está en pausa hasta las {time}: los builds en curso terminan} other {El envío está retenido por {kind} hasta las {time}: los builds en curso terminan}}",
-        "idleShort": "Nada que hacer",
-        "idleLong": "Nada que hacer · {reason}",
+        "idleShort": "Sin trabajo",
+        "idleLong": "Sin trabajo · {reason}",
         "idleSentence": "En marcha, nada que hacer: {reason}",
         "wait": "{wait, select, project {ningún proyecto elegido} order {ninguna orden de trabajo} done {la orden de trabajo ha terminado} other {{text}}}"
     },

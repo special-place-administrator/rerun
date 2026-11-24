@@ -87,8 +87,8 @@
         "holdShort": "{kind, select, paused {Paused} other {Held}}",
         "holdLong": "{kind, select, paused {Paused · builds finishing {seconds} s} other {Held · {kind} {seconds} s}}",
         "holdSentence": "{kind, select, paused {The factory is paused until {time}: running builds finish} other {Sending is held for {kind} until {time}: running builds finish}}",
-        "idleShort": "Nothing to work on",
-        "idleLong": "Nothing to work on · {reason}",
+        "idleShort": "No work",
+        "idleLong": "No work · {reason}",
         "idleSentence": "Running, nothing to work on: {reason}",
         "wait": "{wait, select, project {no project chosen} order {no work order} done {the work order is done} other {{text}}}"
     },

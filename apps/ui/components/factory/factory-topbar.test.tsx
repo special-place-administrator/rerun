@@ -165,7 +165,7 @@ describe('FactoryTopBar', () => {
         })
         const pill = q('[data-topbar] [role="status"][data-state-pill]')!
         expect(pill.textContent).toContain('Running, nothing to work on: no project chosen')
-        expect(pill.textContent).toContain('Nothing to work on · no project chosen')
+        expect(pill.textContent).toContain('No work · no project chosen')
         const projects = q('[data-project-picker] > button')!
         expect(projects.getAttribute('aria-expanded')).toBe('false')
         await click(q('[data-pill-action="project"]'))
