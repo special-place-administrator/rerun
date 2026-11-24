@@ -270,4 +270,22 @@ describe('POST /agents/:id/chat', () => {
             await clearBoxDefault()
         }
     })
+
+    it('refuses a send pinned to a missing connection without running another, and runs once on it when it is back', async () => {
+        state.usable = false
+        const own = await createConnection({ name: 'own', provider: 'codex', models: DEFAULT_CONNECTION_MODELS.codex, extraModels: [], keys: { CODEX_OAUTH_TOKEN: 't' } })
+        recordCliModels(own.id, ['gpt-6-luna'], '0.166.0', false)
+        await seed('pinned', { name: 'pinned', provider: 'codex', connectionId: own.id, model: 'gpt-6-luna' })
+
+        expect((await chat('pinned', { message: 'hi', connectionId: 'gone-default' })).status).toBe(503)
+        expect(state.calls).toHaveLength(0)
+
+        const back = await createConnection({ name: 'default', provider: 'codex', models: DEFAULT_CONNECTION_MODELS.codex, extraModels: [], keys: { CODEX_OAUTH_TOKEN: 't' } }, 'gone-default')
+        recordCliModels(back.id, ['gpt-6-luna'], '0.166.0', false)
+        const ran = await chat('pinned', { message: 'hi', connectionId: 'gone-default' })
+        expect(ran.status).toBe(200)
+        await ran.text()
+        expect(state.calls).toHaveLength(1)
+        expect((await resolveRunModel(state.calls[0].agent as never, state.calls[0].override as never)).connection?.id).toBe('gone-default')
+    })
 })

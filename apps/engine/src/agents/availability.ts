@@ -90,9 +90,9 @@ async function compatibleModel(connection: LoadedConnection): Promise<string | n
 
 export async function resolveRunModel(agent: LoadedAgent, override?: ModelOverride): Promise<RunModel> {
     if (!override?.connectionId && !override?.provider && !override?.model) return agent.resolved
-    const connection = override.connectionId || override.provider
-        ? await resolveConnection(override.connectionId ?? agent.config.connectionId, override.provider ?? agent.config.provider)
-        : agent.resolved.connection
+    const connection = override.connectionId
+        ? await findConnection(override.connectionId)
+        : override.provider ? await resolveConnection(agent.config.connectionId, override.provider) : agent.resolved.connection
     const provider = connection?.config.provider ?? override.provider ?? agent.resolved.provider
     if (override.model) {
         const asked = allowedModel(provider, override.model)
