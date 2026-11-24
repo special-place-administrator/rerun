@@ -17,7 +17,8 @@ const { getConnection } = await import('../connections/registry.js')
 const { clearAgentCache } = await import('./registry.js')
 const { clearBoxDefault, readBoxDefault, writeBoxDefault } = await import('../connections/default.js')
 const { forgetCliModels, recordCliModels, recordRefusedModel } = await import('../connections/cli-models.js')
-const { boxDefaultModel, defaultModelOf, isUsable, repairBoxDefault, resolveAutomationModel, resolveConfiguredModel } = await import('./availability.js')
+const { boxDefaultModel, defaultModelOf, isUsable, repairBoxDefault, resolveAutomationModel, resolveConfiguredModel, resolveRunModel } = await import('./availability.js')
+const { updateConnectionKeys } = await import('../connections/store.js')
 
 let seq = 0
 
@@ -253,11 +254,76 @@ describe('a ChatGPT plan that leaves models out', () => {
         expect(await readBoxDefault()).toEqual({ connectionId: codex.id, model: 'gpt-6.1-sol' })
     })
 
-    it('falls an automation back off a refused model, but keeps a pin as asked', async () => {
+    it('runs a pin on a refused model, and its automations, on the Providers default without rewriting the pin', async () => {
         const codex = await chatgpt()
         await writeBoxDefault({ connectionId: codex.id, model: 'gpt-6-luna' })
         const pinned = await makeAgent(codex.id, 'codex', 'gpt-6-sol')
-        expect(pinned.resolved).toMatchObject({ provider: 'codex', model: 'gpt-6-sol' })
+        expect(pinned.resolved).toMatchObject({ provider: 'codex', model: 'gpt-6-luna' })
+        expect(pinned.config.model).toBe('gpt-6-sol')
         expect(await resolveAutomationModel(pinned, { connectionId: codex.id, model: 'gpt-6-sol' })).toEqual({ connectionId: codex.id, provider: 'codex', model: 'gpt-6-luna' })
+    })
+})
+
+describe('a pin that cannot run follows the default picked under Providers', () => {
+    async function withDefault() {
+        await ensureMoldwrightConnection()
+        const claude = await connect('claude', { CLAUDE_CODE_OAUTH_TOKEN: 't' })
+        await writeBoxDefault({ connectionId: claude.id, model: 'claude-opus-5-5' })
+        return claude
+    }
+
+    it('keeps a healthy pin on its own connection', async () => {
+        await withDefault()
+        const anthropic = await connect('anthropic', { ANTHROPIC_API_KEY: 'k' })
+        expect((await makeAgent(anthropic.id, 'anthropic', 'claude-opus-4-8')).resolved).toMatchObject({ connection: { id: anthropic.id }, model: 'claude-opus-4-8' })
+    })
+
+    it('moves a pin whose connection lost its credential onto the default, keeping the saved pin', async () => {
+        const claude = await withDefault()
+        const pulled = await connect('anthropic', {})
+        const agent = await makeAgent(pulled.id, 'anthropic', 'claude-opus-4-8')
+        expect(agent.resolved).toMatchObject({ connection: { id: claude.id }, provider: 'claude', model: 'claude-opus-5-5' })
+        expect(agent.config).toMatchObject({ connectionId: pulled.id, model: 'claude-opus-4-8' })
+    })
+
+    it('moves a pin on a deleted connection to its provider first, else onto the default', async () => {
+        const claude = await withDefault()
+        expect((await makeAgent('95h6rpo13p1hztskqfxsx', 'claude', 'claude-sonnet-5-5')).resolved).toMatchObject({ connection: { id: claude.id }, model: 'claude-sonnet-5-5' })
+        expect((await makeAgent('95h6rpo13p1hztskqfxsx', 'anthropic', 'claude-opus-4-8')).resolved).toMatchObject({ connection: { id: claude.id }, model: 'claude-opus-5-5' })
+    })
+
+    it('moves a pin whose model the connection no longer offers onto the default', async () => {
+        const claude = await withDefault()
+        const narrowed = await connect('anthropic', { ANTHROPIC_API_KEY: 'k' }, ['claude-sonnet-4-6'])
+        expect((await makeAgent(narrowed.id, 'anthropic', 'claude-opus-4-8')).resolved).toMatchObject({ connection: { id: claude.id }, model: 'claude-opus-5-5' })
+    })
+
+    it('keeps the pin, never another provider, when the default cannot run either', async () => {
+        await ensureMoldwrightConnection()
+        const deadDefault = await connect('claude', {})
+        await writeBoxDefault({ connectionId: deadDefault.id, model: 'claude-opus-5-5' })
+        const pulled = await connect('anthropic', {})
+        expect((await makeAgent(pulled.id, 'anthropic', 'claude-opus-4-8')).resolved).toMatchObject({ connection: { id: pulled.id }, model: 'claude-opus-4-8' })
+    })
+
+    it('returns to the pin once its connection is usable again', async () => {
+        const claude = await withDefault()
+        const pulled = await connect('anthropic', {})
+        expect((await makeAgent(pulled.id, 'anthropic', 'claude-opus-4-8')).resolved.connection?.id).toBe(claude.id)
+        await updateConnectionKeys(pulled.id, { set: { ANTHROPIC_API_KEY: 'k' }, remove: [] })
+        expect((await makeAgent(pulled.id, 'anthropic', 'claude-opus-4-8')).resolved).toMatchObject({ connection: { id: pulled.id }, model: 'claude-opus-4-8' })
+    })
+
+    it('launches a model-only override on the connection the agent resolved to, not the dead pin', async () => {
+        const claude = await withDefault()
+        const agent = await makeAgent((await connect('anthropic', {})).id, 'anthropic', 'claude-opus-4-8')
+        expect(await resolveRunModel(agent, { model: 'claude-sonnet-5-5' })).toMatchObject({ connection: { id: claude.id }, provider: 'claude', model: 'claude-sonnet-5-5' })
+    })
+
+    it('gives a connection-only override the stored default model that connection serves', async () => {
+        const claude = await withDefault()
+        const anthropic = await connect('anthropic', { ANTHROPIC_API_KEY: 'k' })
+        const agent = await makeAgent(anthropic.id, 'anthropic', 'claude-opus-4-8')
+        expect(await resolveRunModel(agent, { connectionId: claude.id })).toMatchObject({ connection: { id: claude.id }, provider: 'claude', model: 'claude-opus-5-5' })
     })
 })

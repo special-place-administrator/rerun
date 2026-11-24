@@ -98,6 +98,15 @@ describe('dispatchAccountTool', () => {
             expect(vi.mocked(engineChat).mock.calls[0][2]).toMatchObject({ callableAgentIds: undefined })
         })
 
+        it('runs on the connection the dispatcher names, and refuses a malformed one before reaching the engine', async () => {
+            await expect(dispatchAccountTool(member, 'send_message', { agentId: 'agent-own', message: 'hi', connectionId: 'claude-default' })).rejects.toThrow(/could not be reached/)
+            expect(vi.mocked(engineChat).mock.calls[0][2]).toMatchObject({ connectionId: 'claude-default' })
+
+            vi.mocked(engineChat).mockClear()
+            await expect(dispatchAccountTool(member, 'send_message', { agentId: 'agent-own', message: 'hi', connectionId: 'a b' })).rejects.toThrow(/invalid_run_model: connectionId/)
+            expect(engineChat).not.toHaveBeenCalled()
+        })
+
         describe('once the engine took the message', () => {
             const done = { id: 'run-1', status: 'done', sessionId: 's-1', output: 'ok', costMicros: null } as never
             const send = async (waitSeconds: number) => {

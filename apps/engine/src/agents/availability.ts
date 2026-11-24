@@ -45,7 +45,7 @@ function pick(connection: LoadedConnection, model: string): RunModel {
     return { connection, provider: connection.config.provider, model: allowedModel(connection.config.provider, model) }
 }
 
-export async function boxDefaultModel(): Promise<RunModel> {
+async function storedDefaultModel(): Promise<RunModel | null> {
     const configured = await readBoxDefault()
     const direct = await findConnection(configured?.connectionId)
     if (configured && isUsable(direct, configured.model)) return pick(direct!, configured.model)
@@ -53,6 +53,12 @@ export async function boxDefaultModel(): Promise<RunModel> {
         const model = defaultModelOf(direct)
         if (isUsable(direct, model)) return pick(direct, model)
     }
+    return null
+}
+
+export async function boxDefaultModel(): Promise<RunModel> {
+    const stored = await storedDefaultModel()
+    if (stored) return stored
 
     const all = await listConnections()
     const rerun = all.find(c => c.id === RERUN_CONNECTION_ID)
@@ -68,14 +74,31 @@ export async function resolveConfiguredModel(config: Pick<AgentConfig, 'connecti
     if (!config.model) return boxDefaultModel()
     const connection = await resolveConnection(config.connectionId, config.provider)
     const provider = connection?.config.provider ?? config.provider ?? 'rerun'
-    return { connection, provider, model: allowedModel(provider, config.model) }
+    const pinned = { connection, provider, model: allowedModel(provider, config.model) }
+    if (isUsable(connection, pinned.model)) return pinned
+    const fallback = await storedDefaultModel()
+    if (!fallback) return pinned
+    logger.warn({ pinned: `${config.connectionId ?? 'none'}:${config.model}`, using: `${fallback.connection?.id}:${fallback.model}` }, 'pinned connection unavailable, following the box default')
+    return fallback
+}
+
+async function compatibleModel(connection: LoadedConnection): Promise<string | null> {
+    const stored = await readBoxDefault()
+    if (stored?.connectionId === connection.id && isUsable(connection, stored.model)) return stored.model
+    const model = defaultModelOf(connection)
+    return isUsable(connection, model) ? model : null
 }
 
 export async function resolveRunModel(agent: LoadedAgent, override?: ModelOverride): Promise<RunModel> {
     if (!override?.connectionId && !override?.provider && !override?.model) return agent.resolved
-    const connection = await resolveConnection(override.connectionId ?? agent.config.connectionId, override.provider ?? agent.config.provider)
+    const connection = override.connectionId || override.provider
+        ? await resolveConnection(override.connectionId ?? agent.config.connectionId, override.provider ?? agent.config.provider)
+        : agent.resolved.connection
     const provider = connection?.config.provider ?? override.provider ?? agent.resolved.provider
-    return { connection, provider, model: allowedModel(provider, override.model ?? agent.resolved.model) }
+    if (override.model) return { connection, provider, model: allowedModel(provider, override.model) }
+    const kept = agent.resolved.model
+    const model = connection && !isUsable(connection, allowedModel(provider, kept)) ? (await compatibleModel(connection)) ?? kept : kept
+    return { connection, provider, model: allowedModel(provider, model) }
 }
 
 export async function resolveAutomationModel(agent: LoadedAgent, requested?: ModelOverride): Promise<ModelOverride> {

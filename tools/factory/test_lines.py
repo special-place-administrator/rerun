@@ -369,12 +369,15 @@ class Controls(Pair):
         self.seed(control=False)
         return super().new()
 
-    def run_on(self, conns, off=()):
+    def run_on(self, conns, off=(), default="c1", down=(), unlisted=False):
         inner = self.w.account
 
         def account(tool, args, timeout=30):
             if tool == "list_ai_connections":
-                return {"connections": [{"id": c, "provider": "claude", "isDefault": c == "c1", "signIn": None, "planLimits": None} for c in sorted(set(conns.values()))]}
+                if unlisted:
+                    raise D.Error("account list_ai_connections failed: TimeoutError")
+                return {"connections": [{"id": c, "provider": "claude", "isDefault": c == default, "connected": c not in down, "signIn": None, "planLimits": None}
+                                        for c in sorted(set(conns.values()) | {default})]}
             if tool == "get_agent":
                 return dict(inner(tool, args), runsOn={"connectionId": conns.get(args["agentId"], "c1")})
             return inner(tool, args)
@@ -485,6 +488,7 @@ class Controls(Pair):
         self.control("RUNNING")
         self.tick(4)
         self.assertEqual([a for a, _, _ in self.w.sends], ["b2"])
+        self.assertNotIn("connectionId", self.w.send_args[-1])
         self.assertEqual(self.w.reports[-1]["providers"]["off"], ["c1"])
 
     def test_with_every_connection_off_jobs_wait_for_an_enabled_provider(self):
@@ -495,6 +499,42 @@ class Controls(Pair):
         self.assertEqual(self.w.sends, [])
         self.assertEqual(self.state(), "queued")
         self.assertEqual(self.d.lines["o/r"].store.get_job("5")["wait_reason"], "no enabled provider")
+
+    def failing_over(self, **kw):
+        self.run_on({"b1": "95h6", "b2": "95h6", "r1": "95h6", "r2": "95h6"}, off=kw.pop("off", ["95h6"]), default="opus", **kw)
+        self.d = self.new()
+        self.control("RUNNING")
+        self.tick(4)
+
+    def test_a_coworker_whose_connection_is_off_runs_on_the_default_picked_under_providers(self):
+        self.failing_over()
+        self.assertEqual((self.state(), len(self.w.sends)), ("building", 1))
+        self.assertEqual(self.w.send_args[-1]["connectionId"], "opus")
+        self.assertIn(self.w.send_args[-1]["agentId"], ("b1", "b2"))
+        self.assertTrue(any("on default opus, its own connection is off" in line for line in self.lines_said("on default")))
+
+    def test_with_the_default_off_too_the_work_waits_and_nothing_is_sent(self):
+        self.failing_over(off=["95h6", "opus"])
+        self.assertEqual((self.w.sends, self.state()), ([], "queued"))
+        self.assertEqual(self.d.lines["o/r"].store.get_job("5")["wait_reason"], "no enabled provider")
+
+    def test_a_default_that_is_not_connected_is_never_used(self):
+        self.failing_over(down=["opus"])
+        self.assertEqual((self.w.sends, self.state()), ([], "queued"))
+        self.assertEqual(self.d.lines["o/r"].store.get_job("5")["wait_reason"], "no enabled provider")
+
+    def test_an_unreadable_connection_list_is_no_failover(self):
+        self.failing_over(unlisted=True)
+        self.assertEqual(len(self.w.sends), 1)
+        self.assertNotIn("connectionId", self.w.send_args[-1])
+
+    def test_once_the_default_is_on_again_the_waiting_work_is_sent_once(self):
+        self.failing_over(off=["95h6", "opus"])
+        self.answer["providers"] = {"off": ["95h6"], "by": "rob", "at": D.iso(self.w.clock)}
+        self.tick(4)
+        self.assertEqual((self.state(), len(self.w.sends), self.w.send_args[-1]["connectionId"]), ("building", 1, "opus"))
+        self.tick(4)
+        self.assertEqual(len(self.w.sends), 1)
 
 
 class WorkOrders(Pair):

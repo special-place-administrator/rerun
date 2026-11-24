@@ -587,7 +587,7 @@ class Dispatcher:
         self.renewal_unreadable = False
         self.connections = None
         self.plan_week_full = False
-        self.runs_on, self.runs_on_at = {}, None
+        self.runs_on, self.runs_on_at, self.failover = {}, None, {}
         self.run_state, self.off_connections, self.work, self.order_views = "RUNNING", frozenset(), None, {}
         self.pace = 1.0
         self.draining = False
@@ -710,9 +710,20 @@ class Dispatcher:
             elif holds.until(self.store, kind) > now:
                 holds.clear(self.store, kind)
         listed = (self.connections or {}).get("connections") if isinstance(self.connections, dict) else None
-        default = next((c.get("id") for c in listed or [] if isinstance(c, dict) and c.get("isDefault") is True), None)
-        self.cfg["off_agents"] = sorted(c["id"] for t in pools.types(self.cfg).values() for c in t["coworkers"]
-                                        if self.runs_on.get(c["id"], default) in self.off_connections)
+        picked = next((c for c in listed or [] if isinstance(c, dict) and c.get("isDefault") is True), None)
+        default = picked.get("id") if picked else None
+        usable = isinstance(default, str) and default not in self.off_connections and picked.get("connected") is not False
+        fallback = {"id": default, "provider": picked.get("provider") or "claude"} if usable else None
+        off, self.failover = [], {}
+        for t in pools.types(self.cfg).values():
+            for c in t["coworkers"]:
+                if self.runs_on.get(c["id"], default) not in self.off_connections:
+                    continue
+                if fallback:
+                    self.failover[c["id"]] = fallback
+                else:
+                    off.append(c["id"])
+        self.cfg["off_agents"] = sorted(off)
         if self.run_state == "STOPPED":
             self.stop_running()
         elif self.run_state == "DRAINING":
@@ -1288,9 +1299,11 @@ class Dispatcher:
         if note:
             message = "%s\n\n%s" % (handover.line(note), message)
         j["intent_at"] = iso(self.now())
+        failover = self.failover.get(agent)
+        on_claude = (failover["provider"] if failover else pools.provider_of(self.cfg, agent)) == "claude"
         j["fire_id"] = self.store.intent(str(j["issue"]), "", step, coworker=self.names.get(agent, agent), at=j["intent_at"],
-                                         model=(j.get("run_model") or {}).get("model") if pools.provider_of(self.cfg, agent) == "claude" else None,
-                                         thinking=(j.get("run_model") or {}).get("thinkingLevel") if pools.provider_of(self.cfg, agent) == "claude" else None)
+                                         model=(j.get("run_model") or {}).get("model") if on_claude else None,
+                                         thinking=(j.get("run_model") or {}).get("thinkingLevel") if on_claude else None)
         self.save(j, step)
         self.store.set(str(j["issue"]), "seen", "")
         args = {"agentId": agent, "message": message, "waitSeconds": WAIT_S}
@@ -1298,7 +1311,9 @@ class Dispatcher:
             args["copyIndex"] = copy
         if state in GOALS:
             args["goal"] = {"lastLineForms": GOALS[state], "turnLimit": 3}
-        if j.get("run_model") and pools.provider_of(self.cfg, agent) == "claude":
+        if failover:
+            args["connectionId"] = failover["id"]
+        if j.get("run_model") and on_claude:
             args["model"] = j["run_model"]["model"]
             args["thinkingLevel"] = j["run_model"]["thinkingLevel"]
         try:
@@ -1315,7 +1330,8 @@ class Dispatcher:
         j.pop("handover", None)
         self.save(j, "sent " + step)
         log(j["issue"], "%s -> %s (run %s)%s" % (step, self.names.get(agent, agent[:8]), r["runId"],
-                                                  " " + args["model"] + "/" + args["thinkingLevel"] if "model" in args else ""))
+                                                  " " + args["model"] + "/" + args["thinkingLevel"] if "model" in args else "")
+            + (" on default %s, its own connection is off" % failover["id"] if failover else ""))
 
     def message(self, j):
         if j["state"] == "building":
@@ -1453,7 +1469,7 @@ class Dispatcher:
         return {"tokens_in": row[0], "tokens_out": row[1], "cache_read": row[2]} if row else {}
 
     def limit_until(self, j, error, now):
-        own = self.runs_on.get(j.get("agent"))
+        own = (self.failover.get(j.get("agent")) or {}).get("id") or self.runs_on.get(j.get("agent"))
         at = renewal.limited_until(self.connections, now, [own], with_default=False) if own else \
             renewal.limited_until(self.connections, now)
         at = at or renewal.resets_in_text(error, now)
