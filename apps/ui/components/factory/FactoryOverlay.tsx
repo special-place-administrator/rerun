@@ -2,7 +2,7 @@
 
 import { type AxisPoint, type Tile, type TileLink } from '@moldwright/ui/iso-grid'
 
-import { along, atDistance, centreOf, inScanner, lineUp, podPath, settles, workSpot, toWorld, type P } from './factory-rest'
+import { atDistance, inScanner, podSpots, toWorld } from './factory-rest'
 import { Gate, GATE_CSS } from './FactoryGate'
 import { HOLD_CSS, HoldBarrier } from './FactoryHold'
 import { FeatureTank, RejectTank, TANK_CSS } from './FactoryTank'
@@ -12,13 +12,6 @@ import { type CabinetView, type PlanView, type PodView } from './factory-scene'
 
 export function FactoryOverlay({ tiles, routes, pods, cabinets, plans = [], rejects, held, holdLeftMs = 0, links = [], selectedIssue = null, onSelectJob, onOpenBucket }: { tiles: Tile[]; routes: Map<string, AxisPoint[]>; pods: PodView[]; cabinets: CabinetView[]; plans?: PlanView[]; rejects: number; held: boolean; holdLeftMs?: number; links?: TileLink[]; selectedIssue?: number | null; onSelectJob?: (issue: number) => void; onOpenBucket?: (bucket: Bucket) => void }) {
     const byId = new Map(tiles.map(t => [t.id, t]))
-    const lineIndex = new Map<string, number>()
-    const belts = new Map<string, PodView[]>()
-    for (const p of pods) if (p.state === 'queued' || p.state === 'held') {
-        const key = `${p.path[0]}>${p.path[1]}`
-        belts.set(key, [...(belts.get(key) ?? []), p])
-    }
-    for (const group of belts.values()) group.sort((a, b) => (a.since ?? 0) - (b.since ?? 0) || a.issue - b.issue).forEach((p, i) => lineIndex.set(p.id, i))
     return (
         <div className="fab-layer pointer-events-none absolute left-0 top-0" style={{ zIndex: 90_000 }} data-held={held || undefined}>
             <style>{FAB_CSS + SPHERE_CSS + GATE_CSS + TANK_CSS + HOLD_CSS}</style>
@@ -40,15 +33,9 @@ export function FactoryOverlay({ tiles, routes, pods, cabinets, plans = [], reje
                 const angle = (Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * 180) / Math.PI
                 return <HoldBarrier key={key} at={atDistance(pts, 48)} angle={angle} leftMs={holdLeftMs} />
             })}
-            {pods.map(p => {
-                const pts = podPath(p.path, byId, routes)
-                if (pts.length < 2) return null
-                const holder = settles(p) ? byId.get(p.path[p.path.length - 1]) : undefined
-                const at = lineIndex.has(p.id) ? lineUp(pts, lineIndex.get(p.id)!) : holder ? along([...pts, workSpot(holder, inScanner(p))], p.travel) : along(pts, p.travel)
-                return inScanner(p)
-                    ? <Gate key={p.id} pod={p} at={at}><Sphere pod={p} at={{ x: 0, y: 0 }} selected={selectedIssue === p.issue} onSelectJob={onSelectJob} /></Gate>
-                    : <Sphere key={p.id} pod={p} at={at} selected={selectedIssue === p.issue} onSelectJob={onSelectJob} />
-            })}
+            {podSpots(pods, byId, routes).map(({ pod: p, at }) => inScanner(p)
+                ? <Gate key={p.id} pod={p} at={at}><Sphere pod={p} at={{ x: 0, y: 0 }} selected={selectedIssue === p.issue} onSelectJob={onSelectJob} /></Gate>
+                : <Sphere key={p.id} pod={p} at={at} selected={selectedIssue === p.issue} onSelectJob={onSelectJob} />)}
         </div>
     )
 }
