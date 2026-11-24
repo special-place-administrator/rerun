@@ -12,7 +12,10 @@
         "controls.holdSentence": "Full sentence behind the state pill while sending is held; {time} is the local time the hold ends, HH:MM.",
         "floor.moreMetrics": "Accessible name of the tile that gathers the figures hidden on a narrow screen.",
         "floor.center": "Button that moves the factory map so the bots are in the middle of the visible floor; the zoom stays.",
-        "floor.centerHint": "Tooltip of the center button. Key 0 does the same when the map has focus."
+        "floor.centerHint": "Tooltip of the center button. Key 0 does the same when the map has focus.",
+        "controls.idleSentence": "Full sentence behind the state pill when the factory runs but has nothing it may work on; {reason} is controls.wait.",
+        "controls.wait": "Why the factory has nothing to work on, as the factory reports it; other {text} is the factory's own English text, shown as is.",
+        "floor.waitingOutside": "After the Waiting count: how many waiting jobs are not in the work order, so they will not start."
     },
     "projects": {
         "trigger": "Factory project: {repo}. Open the projects",
@@ -83,7 +86,11 @@
         "moreControls": "More factory controls",
         "holdShort": "{kind, select, paused {Paused} other {Held}}",
         "holdLong": "{kind, select, paused {Paused · builds finishing {seconds} s} other {Held · {kind} {seconds} s}}",
-        "holdSentence": "{kind, select, paused {The factory is paused until {time}: running builds finish} other {Sending is held for {kind} until {time}: running builds finish}}"
+        "holdSentence": "{kind, select, paused {The factory is paused until {time}: running builds finish} other {Sending is held for {kind} until {time}: running builds finish}}",
+        "idleShort": "Nothing to work on",
+        "idleLong": "Nothing to work on · {reason}",
+        "idleSentence": "Running, nothing to work on: {reason}",
+        "wait": "{wait, select, project {no project chosen} order {no work order} done {the work order is done} other {{text}}}"
     },
     "orders": {
         "trigger": "Work order",
@@ -119,7 +126,9 @@
         "replaceBody": "The current order is cancelled and the factory starts this one.",
         "replaceConfirm": "Replace",
         "loadFailed": "The work orders did not load",
-        "retryLoad": "Try again"
+        "retryLoad": "Try again",
+        "needsProject": "Pick a project first",
+        "needsProjectWhy": "The work comes from the active project: choose one in Projects, then choose the work."
     },
     "providers": {
         "label": "Factory",
@@ -138,6 +147,7 @@
         "map": "Factory map",
         "zoom": "Zoom",
         "center": "Center",
-        "centerHint": "Center on the bots (key 0). Wheel or pinch to zoom, drag to move."
+        "centerHint": "Center on the bots (key 0). Wheel or pinch to zoom, drag to move.",
+        "waitingOutside": "· {count} not in order"
     }
 }

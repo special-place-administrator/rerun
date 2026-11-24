@@ -68,7 +68,11 @@
         "moreControls": "Mais controles da fábrica",
         "holdShort": "{kind, select, paused {Em pausa} other {Retida}}",
         "holdLong": "{kind, select, paused {Em pausa · builds terminando {seconds} s} other {Retida · {kind} {seconds} s}}",
-        "holdSentence": "{kind, select, paused {A fábrica está em pausa até {time}: os builds em andamento terminam} other {O envio está retido por {kind} até {time}: os builds em andamento terminam}}"
+        "holdSentence": "{kind, select, paused {A fábrica está em pausa até {time}: os builds em andamento terminam} other {O envio está retido por {kind} até {time}: os builds em andamento terminam}}",
+        "idleShort": "Nada para fazer",
+        "idleLong": "Nada para fazer · {reason}",
+        "idleSentence": "Em execução, nada para fazer: {reason}",
+        "wait": "{wait, select, project {nenhum projeto escolhido} order {nenhuma ordem de trabalho} done {a ordem de trabalho terminou} other {{text}}}"
     },
     "orders": {
         "trigger": "Ordem de trabalho",
@@ -104,7 +108,9 @@
         "replaceBody": "A ordem atual é cancelada e a fábrica começa esta.",
         "replaceConfirm": "Substituir",
         "loadFailed": "As ordens de trabalho não carregaram",
-        "retryLoad": "Tentar de novo"
+        "retryLoad": "Tentar de novo",
+        "needsProject": "Escolha primeiro um projeto",
+        "needsProjectWhy": "O trabalho vem do projeto ativo: escolha um em Projetos e depois escolha o trabalho."
     },
     "providers": {
         "label": "Fábrica",
@@ -123,6 +129,7 @@
         "map": "Mapa da fábrica",
         "zoom": "Zoom",
         "center": "Centralizar",
-        "centerHint": "Centralizar nos bots (tecla 0). Roda ou pinça para dar zoom, arraste para mover."
+        "centerHint": "Centralizar nos bots (tecla 0). Roda ou pinça para dar zoom, arraste para mover.",
+        "waitingOutside": "· {count} fora da ordem"
     }
 }

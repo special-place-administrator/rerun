@@ -68,7 +68,11 @@
         "moreControls": "Autres commandes de l'usine",
         "holdShort": "{kind, select, paused {En pause} other {Retenue}}",
         "holdLong": "{kind, select, paused {En pause · builds en fin {seconds} s} other {Retenue · {kind} {seconds} s}}",
-        "holdSentence": "{kind, select, paused {L'usine est en pause jusqu'à {time} : les builds en cours se terminent} other {L'envoi est retenu pour {kind} jusqu'à {time} : les builds en cours se terminent}}"
+        "holdSentence": "{kind, select, paused {L'usine est en pause jusqu'à {time} : les builds en cours se terminent} other {L'envoi est retenu pour {kind} jusqu'à {time} : les builds en cours se terminent}}",
+        "idleShort": "Rien à faire",
+        "idleLong": "Rien à faire · {reason}",
+        "idleSentence": "En marche, rien à faire : {reason}",
+        "wait": "{wait, select, project {aucun projet choisi} order {aucun ordre de travail} done {l’ordre de travail est terminé} other {{text}}}"
     },
     "orders": {
         "trigger": "Ordre de travail",
@@ -104,7 +108,9 @@
         "replaceBody": "L'ordre actuel est annulé et l'usine commence celui-ci.",
         "replaceConfirm": "Remplacer",
         "loadFailed": "Les ordres de travail n'ont pas chargé",
-        "retryLoad": "Réessayer"
+        "retryLoad": "Réessayer",
+        "needsProject": "Choisissez d’abord un projet",
+        "needsProjectWhy": "Le travail vient du projet actif : choisissez-en un dans Projets, puis choisissez le travail."
     },
     "providers": {
         "label": "Usine",
@@ -123,6 +129,7 @@
         "map": "Plan de l’usine",
         "zoom": "Zoom",
         "center": "Centrer",
-        "centerHint": "Centrer sur les bots (touche 0). Molette ou pincement pour zoomer, glisser pour déplacer."
+        "centerHint": "Centrer sur les bots (touche 0). Molette ou pincement pour zoomer, glisser pour déplacer.",
+        "waitingOutside": "· {count} hors de l’ordre"
     }
 }
