@@ -98,15 +98,14 @@ describe('resolveAutomationModel', () => {
         expect(await resolveAutomationModel(agent, undefined)).toEqual({ connectionId: RERUN_CONNECTION_ID, provider: 'rerun', model: RERUN_MODEL })
     })
 
-    it('falls back to any connected connection when the box has no Rerun one', async () => {
-        const anthropic = await connect('anthropic', { ANTHROPIC_API_KEY: 'k' })
+    it('treats Rerun as the default when none was saved, as Providers shows, and never runs another connection', async () => {
+        await connect('anthropic', { ANTHROPIC_API_KEY: 'k' })
         const claude = await connect('claude', {})
         const agent = await makeAgent(claude.id, 'claude', 'opus')
-        expect(await resolveAutomationModel(agent, undefined)).toEqual({
-            connectionId: anthropic.id,
-            provider: 'anthropic',
-            model: DEFAULT_CONNECTION_MODELS.anthropic[0],
-        })
+        expect(await resolveAutomationModel(agent, undefined)).toEqual({ connectionId: claude.id, provider: 'claude', model: 'opus' })
+        const unpinned = (await boxDefaultAgent()).resolved
+        expect(unpinned).toMatchObject({ provider: 'rerun', model: RERUN_MODEL })
+        expect(isUsable(unpinned.connection, unpinned.model)).toBe(false)
     })
 
     it('rejects a model the connection was curated to exclude', async () => {
@@ -180,7 +179,6 @@ describe('resolveConfiguredModel', () => {
     })
 
     it('returns a pin as asked even when its credential was pulled, rather than swapping it', async () => {
-        await ensureMoldwrightConnection()
         const claude = await connect('claude', {})
         expect(await resolveConfiguredModel((await makeAgent(claude.id, 'claude', 'opus')).config)).toMatchObject({ connection: claude, provider: 'claude', model: 'opus' })
     })

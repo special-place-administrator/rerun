@@ -52,6 +52,15 @@ describe('dispatchAccountTool, what a coworker runs on', () => {
         })
     })
 
+    it('marks Rerun as the default when none was saved, as Providers shows', async () => {
+        vi.mocked(listConnections).mockResolvedValue({ connections: [connection('rerun', 'Moldwright', 'rerun', ['rerun-auto']), CONNECTIONS[1]], default: null })
+
+        const answer = (await dispatchAccountTool(workspaceActor(WORKSPACE_ID), 'list_ai_connections', {})) as { default: unknown; connections: { id: string; isDefault: boolean }[] }
+
+        expect(answer.default).toBeNull()
+        expect(answer.connections.map(c => [c.id, c.isDefault])).toEqual([['rerun', true], ['claude-clem', false]])
+    })
+
     it('carries the plan windows and the sign-in time left of a connection, and nothing more', async () => {
         const window = { kind: 'weekly' as const, label: null, usedPercent: 62, resetsAt: '2026-11-17T10:00:00.000Z' }
         vi.mocked(listConnections).mockResolvedValue({

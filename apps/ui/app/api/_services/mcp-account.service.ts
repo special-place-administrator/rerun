@@ -50,6 +50,7 @@ import type { BoxConnection, EngineAgentConfigPatch, EngineMcpServer, EngineAgen
 import { MAX_DUPLICATES_PER_CALL, MAX_MEMORIES_PER_CALL, MAX_MEMORY_CHARS, MAX_UPLOAD_MB } from '@/lib/mcp/account-tools'
 import { asBooleanRecord, asNumber, asString, asStringArray, clamp, requireConfirmation, requireString } from '@/lib/mcp/args'
 import { connectionModels, readModelPin, type ModelPin } from '@/lib/mcp/model-pin'
+import { effectiveDefault } from '@/lib/engine/ai-sources'
 import { projectRun } from '@/lib/mcp/run-projection'
 import { assertModelEntitled } from '@/app/api/_services/engine-plan.service'
 import { truncateField } from '@/lib/mcp/truncate'
@@ -582,7 +583,7 @@ export async function dispatchAccountTool(actor: Actor, name: string, args: Reco
                     provider: connection.provider,
                     models: connectionModels(connection),
                     connected: connection.connected,
-                    isDefault: workspaceDefault?.connectionId === connection.id,
+                    isDefault: effectiveDefault(workspaceDefault ?? null).connectionId === connection.id,
                     planLimits: connection.planLimits ? { windows: connection.planLimits.windows, readAt: connection.planLimits.capturedAt } : null,
                     signIn: connection.signIn ? { minutesLeft: connection.signIn.minutesLeft, renewalDue: connection.signIn.renewalDue } : null,
                 })),

@@ -66,6 +66,8 @@ const { claimSession, releaseSession, sessionClaim, sessionClaimCount } = await 
 const { createConnection } = await import('../../connections/store.js')
 const { clearBoxDefault, writeBoxDefault } = await import('../../connections/default.js')
 const { DEFAULT_CONNECTION_MODELS } = await import('@moldwright/contracts')
+const { recordCliModels } = await import('../../connections/cli-models.js')
+const { resolveRunModel } = await import('../../agents/availability.js')
 
 const id = 'chatagent'
 const app = createServer()
@@ -247,6 +249,23 @@ describe('POST /agents/:id/chat', () => {
             expect(ran.status).toBe(200)
             await ran.text()
             expect(state.calls).toEqual([expect.objectContaining({ sessionId: session.id, message: 'hi again' })])
+        } finally {
+            await clearBoxDefault()
+        }
+    })
+
+    it('runs a Claude model asked of a coworker on the model the non-Claude default serves, unless the caller named the connection', async () => {
+        state.usable = false
+        const codex = await createConnection({ name: 'codex', provider: 'codex', models: DEFAULT_CONNECTION_MODELS.codex, extraModels: [], keys: { CODEX_OAUTH_TOKEN: 't' } })
+        recordCliModels(codex.id, ['gpt-6-luna'], '0.166.0', false)
+        await writeBoxDefault({ connectionId: codex.id, model: 'gpt-6-luna' })
+        try {
+            const ran = await chat(id, { message: 'hi', model: 'claude-opus-5-5' })
+            expect(ran.status).toBe(200)
+            await ran.text()
+            const [launched] = state.calls
+            expect(await resolveRunModel(launched.agent as never, launched.override as never)).toMatchObject({ provider: 'codex', model: 'gpt-6-luna' })
+            expect((await chat(id, { message: 'hi', connectionId: codex.id, model: 'claude-opus-5-5' })).status).toBe(503)
         } finally {
             await clearBoxDefault()
         }
