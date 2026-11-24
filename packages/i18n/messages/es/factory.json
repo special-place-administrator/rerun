@@ -127,7 +127,7 @@
         "moreMetrics": "{count, plural, one {# cifra más} other {# cifras más}}",
         "moreLabel": "Más",
         "moreChips": "{count, plural, one {# filtro más} other {# filtros más}}",
-        "activityChip": "Actividad",
+        "activityName": "Actividad, {problems, plural, =0 {ningún problema} one {# problema} other {# problemas}}",
         "activity": "Actividad: {running}/{pool} en marcha, {problems, plural, =0 {ningún problema} one {# problema} other {# problemas}}",
         "map": "Mapa de la fábrica",
         "zoom": "Zoom",
