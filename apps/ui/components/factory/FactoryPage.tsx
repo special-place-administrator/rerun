@@ -18,14 +18,13 @@ import { WorkspaceSwitcher } from '@/components/layout/WorkspaceSwitcher'
 import { BAR_TIERS } from '@/components/factory/factory-bar-tiers'
 import { Button } from '@/components/ui/button'
 import { TooltipLabeled } from '@/components/ui/tooltip'
-import { SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
+import { FACTORY_OVERLAY_BELOW, SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
 import { cn } from '@/lib/utils'
 import { useBoardStore } from '@/stores/board.store'
 import { useSession } from '@/supabase/session/SessionProvider'
 
 const POLL_MS = 30_000
 const LOADER_PANEL_PX = 380
-const BREAKPOINT_PX = 768
 
 type Answer = Awaited<ReturnType<typeof readFactorySnapshotAction>>
 
@@ -100,10 +99,10 @@ export function FactoryPage() {
     }, [coworkers, openCoworker])
 
     const boss = agents.find(a => [a.handle, a.name].some(n => n?.toLowerCase() === 'boss'))
-    const rightInset = viewport < BREAKPOINT_PX ? 0 : loaderOpen ? LOADER_PANEL_PX : selectedAgentId ? loadSidePanelWidth(viewport) + SIDE_PANEL_GAP : 0
+    const rightInset = viewport < FACTORY_OVERLAY_BELOW ? 0 : loaderOpen ? LOADER_PANEL_PX : selectedAgentId ? loadSidePanelWidth(viewport, true) + SIDE_PANEL_GAP : 0
 
     return (
-        <div className="relative h-full overflow-hidden">
+        <div data-factory className="relative h-full overflow-hidden">
             <FactoryWorld
                 {...(snapshot ? { scene, selectedIssue: selected, onSelectJob: onSelect, onOpenBucket, onOpenCoworker: openByName } : {})}
                 {...(workspace ? { workspace: String(workspace.id) } : {})}

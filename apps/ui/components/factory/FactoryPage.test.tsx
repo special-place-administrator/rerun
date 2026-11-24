@@ -33,7 +33,7 @@ vi.mock('@/stores/board.store', () => ({
 }))
 vi.mock('@/supabase/session/SessionProvider', () => ({ useSession: () => ({ workspace: mocks.workspace }) }))
 
-import { SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
+import { FACTORY_OVERLAY_BELOW, SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
 import { FactoryPage } from './FactoryPage'
 
 const NOW = Date.parse('2026-11-14T12:00:00Z')
@@ -97,14 +97,17 @@ describe('factory page', () => {
         expect(host.querySelector('[data-topbar]')).not.toBeNull()
     })
 
-    it("the coworker panel's width becomes rightInset while a coworker is selected, 0 when none", async () => {
+    it("the coworker panel's width becomes rightInset while a coworker is selected, 0 when none or when the chat overlays the board", async () => {
         window.innerWidth = 1400
         await mount()
         expect(mocks.world.current!.rightInset).toBe(0)
         mocks.board.selectedAgentId = 'c1'
         await remount()
-        expect(mocks.world.current!.rightInset).toBe(loadSidePanelWidth(1400) + SIDE_PANEL_GAP)
-        window.innerWidth = 600
+        expect(mocks.world.current!.rightInset).toBe(loadSidePanelWidth(1400, true) + SIDE_PANEL_GAP)
+        window.innerWidth = FACTORY_OVERLAY_BELOW
+        await act(async () => { window.dispatchEvent(new Event('resize')) })
+        expect(mocks.world.current!.rightInset).toBe(loadSidePanelWidth(FACTORY_OVERLAY_BELOW, true) + SIDE_PANEL_GAP)
+        window.innerWidth = FACTORY_OVERLAY_BELOW - 1
         await act(async () => { window.dispatchEvent(new Event('resize')) })
         expect(mocks.world.current!.rightInset).toBe(0)
         window.innerWidth = 1024
