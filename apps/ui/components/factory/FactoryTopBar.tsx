@@ -146,7 +146,8 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                 <FactoryStatePill snapshot={snapshot} controls={controls} now={now} />
                 {MAIN_CHIPS.map(c => (
                     <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)} onPress={press}
-                        asOf={c.key === 'running' ? asOf : undefined} {...(FOLDING_CHIPS.includes(c.key) ? { className: '@max-[1050px]:hidden' } : {})} />
+                        asOf={c.key === 'running' ? asOf : undefined} {...(FOLDING_CHIPS.includes(c.key) ? { className: '@max-[1050px]:hidden' } : {})}
+                        {...(c.key === 'problems' && counts.problems > 0 ? { color: 'var(--destructive)' } : {})} />
                 ))}
                 <Popover open={moreOpen} onOpenChange={setMoreOpen}>
                     <PopoverTrigger asChild>
