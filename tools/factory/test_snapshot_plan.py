@@ -79,12 +79,12 @@ class Beat(unittest.TestCase):
         self.beat()
         self.assertEqual(self.reports[-1]["plan"], {"weekUsedPercent": 41, "weekResetsAt": "2099-01-01T00:00:00Z", "signInMinutes": 120})
 
-    def test_a_beat_whose_connections_cannot_be_read_hands_no_plan_and_goes_on(self):
+    def test_a_beat_whose_connections_cannot_be_read_hands_no_plan_and_launches_nothing(self):
         self.make([base.issue(5)])
         self.w.broken = True
         self.beat()
         self.assertNotIn("plan", self.reports[-1])
-        self.assertEqual(self.state(5), "building")
+        self.assertEqual(self.state(5), "queued")
 
 
 if __name__ == "__main__":

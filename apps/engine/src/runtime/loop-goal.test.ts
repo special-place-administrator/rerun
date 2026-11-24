@@ -45,6 +45,7 @@ vi.mock('../agents/availability.js', async importOriginal => {
     const actual = await importOriginal<typeof import('../agents/availability.js')>()
     return {
         ...actual,
+        isUsable: () => true,
         resolveRunModel: async (agent: { resolved: Record<string, unknown> }) => ({ ...agent.resolved, provider: state.provider }),
     }
 })

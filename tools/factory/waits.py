@@ -24,7 +24,7 @@ def reason(job, now, hold=None, held=(), no_provider=False, work=None):
         kind = hold.get("kind")
         return kind if kind in ("plan limit", "sign-in renewal", "paused", "draining", "stopped") else "hold"
     if no_provider:
-        return "no enabled provider"
+        return no_provider if isinstance(no_provider, str) else "no enabled provider"
     if held:
         return "coworker held: " + ", ".join(held)
     return "no free worker of its type"

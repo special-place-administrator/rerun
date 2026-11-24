@@ -466,6 +466,7 @@ const AGENT_TOOL_DEFS = [
                 message: { type: 'string' },
                 sessionId: { type: 'string', description: 'Continue this conversation. Omit to start a new one.' },
                 waitSeconds: { type: 'number', description: 'How long to wait for the answer. Default 120, max 600.' },
+                connectionId: { type: 'string', minLength: 1, maxLength: 64, description: 'AI connection for this run only, such as the default picked under Providers when the coworker\'s own connection is switched off. Omit to use the coworker\'s own.' },
                 model: { type: 'string', minLength: 1, maxLength: 100, description: 'Model for this run only, inside the coworker\'s own provider.' },
                 thinkingLevel: { type: 'string', enum: ['low', 'medium', 'high'] },
                 copyIndex: { type: 'integer', minimum: 1, maximum: 64, description: 'Copy number of this run among parallel runs of the same coworker; the run sees it as RERUN_COPY.' },

@@ -50,6 +50,7 @@ import type { BoxConnection, EngineAgentConfigPatch, EngineMcpServer, EngineAgen
 import { MAX_DUPLICATES_PER_CALL, MAX_MEMORIES_PER_CALL, MAX_MEMORY_CHARS, MAX_UPLOAD_MB } from '@/lib/mcp/account-tools'
 import { asBooleanRecord, asNumber, asString, asStringArray, clamp, requireConfirmation, requireString } from '@/lib/mcp/args'
 import { connectionModels, readModelPin, type ModelPin } from '@/lib/mcp/model-pin'
+import { effectiveDefault } from '@/lib/engine/ai-sources'
 import { projectRun } from '@/lib/mcp/run-projection'
 import { assertModelEntitled } from '@/app/api/_services/engine-plan.service'
 import { truncateField } from '@/lib/mcp/truncate'
@@ -582,7 +583,7 @@ export async function dispatchAccountTool(actor: Actor, name: string, args: Reco
                     provider: connection.provider,
                     models: connectionModels(connection),
                     connected: connection.connected,
-                    isDefault: workspaceDefault?.connectionId === connection.id,
+                    isDefault: effectiveDefault(workspaceDefault ?? null).connectionId === connection.id,
                     planLimits: connection.planLimits ? { windows: connection.planLimits.windows, readAt: connection.planLimits.capturedAt } : null,
                     signIn: connection.signIn ? { minutesLeft: connection.signIn.minutesLeft, renewalDue: connection.signIn.renewalDue } : null,
                 })),
@@ -889,6 +890,13 @@ export async function dispatchAccountTool(actor: Actor, name: string, args: Reco
                 }
                 model = args.model
             }
+            let connectionId: string | undefined
+            if (args.connectionId !== undefined) {
+                if (typeof args.connectionId !== 'string' || !/^[A-Za-z0-9_.:-]{1,64}$/.test(args.connectionId)) {
+                    throw new Error('invalid_run_model: connectionId must be 1 to 64 letters, digits, dots, colons, underscores or hyphens')
+                }
+                connectionId = args.connectionId
+            }
             let thinkingLevel: string | undefined
             if (args.thinkingLevel !== undefined) {
                 if (args.thinkingLevel !== 'low' && args.thinkingLevel !== 'medium' && args.thinkingLevel !== 'high') throw new Error('invalid_run_model: thinkingLevel must be low, medium or high')
@@ -907,7 +915,7 @@ export async function dispatchAccountTool(actor: Actor, name: string, args: Reco
                 throw new Error('invalid_copy_index: copyIndex must be a whole number from 1 to 64')
             }
 
-            const res = await engineChat(conn, engineAgentId, { message: requireString(args.message, 'message'), sessionId: asString(args.sessionId), source: 'api', callableAgentIds, ...(goal ? { goal } : {}), ...(model ? { model } : {}), ...(thinkingLevel ? { thinkingLevel } : {}), ...(contextSize ? { contextSize } : {}), ...(copyIndex !== undefined ? { copyIndex } : {}) })
+            const res = await engineChat(conn, engineAgentId, { message: requireString(args.message, 'message'), sessionId: asString(args.sessionId), source: 'api', callableAgentIds, ...(goal ? { goal } : {}), ...(connectionId ? { connectionId } : {}), ...(model ? { model } : {}), ...(thinkingLevel ? { thinkingLevel } : {}), ...(contextSize ? { contextSize } : {}), ...(copyIndex !== undefined ? { copyIndex } : {}) })
             if (!res.ok) {
                 const body = await res.text().catch(() => '')
                 if (res.status === 400 && body.includes('invalid_goal')) throw new Error(`invalid_goal: the engine refused the goal. ${body}`.trim())

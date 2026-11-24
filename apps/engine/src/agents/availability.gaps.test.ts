@@ -90,12 +90,13 @@ describe('automationModel', () => {
     })
 
     it('names a missing connection "none" in the warning', async () => {
-        const anthropic = await connect('anthropic', { ANTHROPIC_API_KEY: 'k' })
+        await connect('anthropic', { ANTHROPIC_API_KEY: 'k' })
+        await ensureMoldwrightConnection()
         const agent: LoadedAgent = { ...(await makeAgent(null, null, null)), resolved: { connection: null, provider: 'rerun', model: RERUN_MODEL } }
 
         const using = await automationModel(agent, { slug: 'hook', connectionId: null, model: null }, 'trigger')
 
-        expect(using.connectionId).toBe(anthropic.id)
-        expect(warn).toHaveBeenCalledWith(expect.objectContaining({ source: 'trigger', requested: `none:${RERUN_MODEL}`, using: `${anthropic.id}:${using.model}` }), 'connection unavailable, falling back')
+        expect(using.connectionId).toBe(RERUN_CONNECTION_ID)
+        expect(warn).toHaveBeenCalledWith(expect.objectContaining({ source: 'trigger', requested: `none:${RERUN_MODEL}`, using: `${RERUN_CONNECTION_ID}:${RERUN_MODEL}` }), 'connection unavailable, falling back')
     })
 })

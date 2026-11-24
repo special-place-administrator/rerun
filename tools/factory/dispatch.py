@@ -73,6 +73,10 @@ CHECKOUT_ROW, CHECKOUT_HOLD_S = 3, 60 * 60
 MERGE_TRIES = 5
 STALE_RUN_S, STALE_RUNS_A_BEAT = 2 * 3600, 15
 RUNS_ON_TTL_S = 10 * 60
+ROUTE_UNREADABLE = "connection list unreadable: re-checks next tick"
+ROUTE_UNKNOWN = "coworker connection unknown: re-checks next tick"
+NO_PROVIDER = "no enabled provider"
+NO_ROUTE = "no_usable_connection"
 DRAIN_SEND_S = 300
 ORDER_VIEW_S = 300
 DRAIN_MAX_S = 3 * 3600
@@ -455,7 +459,8 @@ def make_account(url, key, opener=urllib.request.urlopen, fetcher=None):
         res = msg.get("result") or {}
         out = "".join(p.get("text", "") for p in res.get("content") or [] if p.get("type") == "text")
         if res.get("isError"):
-            raise Error("account %s failed: the tool reported an error%s" % (tool, " invalid_goal" if "invalid_goal" in out else ""))
+            named = " invalid_goal" if "invalid_goal" in out else " " + NO_ROUTE if "No connection can run this coworker now" in out else ""
+            raise Error("account %s failed: the tool reported an error%s" % (tool, named))
         try:
             return json.loads(out)
         except ValueError:
@@ -587,7 +592,8 @@ class Dispatcher:
         self.renewal_unreadable = False
         self.connections = None
         self.plan_week_full = False
-        self.runs_on, self.runs_on_at = {}, None
+        self.runs_on, self.runs_on_at, self.failover = {}, None, {}
+        self.runs_on_unknown, self.off_why = set(), {}
         self.run_state, self.off_connections, self.work, self.order_views = "RUNNING", frozenset(), None, {}
         self.pace = 1.0
         self.draining = False
@@ -696,7 +702,10 @@ class Dispatcher:
         worker = j.get("worker", "coder") if j["state"] == "queued" else None
         kinds = [t for w, t in pools.types(self.cfg).items() if worker is None or w == worker]
         coworkers = [c["id"] for t in kinds for c in t["coworkers"]]
-        return bool(coworkers) and set(coworkers) <= set(self.cfg.get("off_agents") or ())
+        if not coworkers or not set(coworkers) <= set(self.cfg.get("off_agents") or ()):
+            return None
+        whys = {self.off_why.get(c, NO_PROVIDER) for c in coworkers}
+        return next((w for w in (ROUTE_UNREADABLE, ROUTE_UNKNOWN) if w in whys), NO_PROVIDER)
 
     def control_hold(self):
         now = self.now()
@@ -710,9 +719,31 @@ class Dispatcher:
             elif holds.until(self.store, kind) > now:
                 holds.clear(self.store, kind)
         listed = (self.connections or {}).get("connections") if isinstance(self.connections, dict) else None
-        default = next((c.get("id") for c in listed or [] if isinstance(c, dict) and c.get("isDefault") is True), None)
-        self.cfg["off_agents"] = sorted(c["id"] for t in pools.types(self.cfg).values() for c in t["coworkers"]
-                                        if self.runs_on.get(c["id"], default) in self.off_connections)
+        known = {c.get("id"): c for c in listed or [] if isinstance(c, dict) and isinstance(c.get("id"), str)}
+
+        def runnable(conn):
+            return conn in known and conn not in self.off_connections and known[conn].get("connected") is not False
+
+        picked = next((c for c in known.values() if c.get("isDefault") is True), None)
+        default = picked.get("id") if picked else None
+        fallback = {"id": default, "provider": picked.get("provider") or "claude"} if runnable(default) else None
+        off, self.failover, self.off_why = [], {}, {}
+        for t in pools.types(self.cfg).values():
+            for c in t["coworkers"]:
+                own = self.runs_on.get(c["id"])
+                if listed is None:
+                    self.off_why[c["id"]] = ROUTE_UNREADABLE
+                elif c["id"] in self.runs_on_unknown:
+                    self.off_why[c["id"]] = ROUTE_UNKNOWN
+                elif runnable(own) or (own is None and fallback):
+                    continue
+                elif fallback:
+                    self.failover[c["id"]] = fallback
+                    continue
+                else:
+                    self.off_why[c["id"]] = NO_PROVIDER
+                off.append(c["id"])
+        self.cfg["off_agents"] = sorted(off)
         if self.run_state == "STOPPED":
             self.stop_running()
         elif self.run_state == "DRAINING":
@@ -1240,7 +1271,7 @@ class Dispatcher:
         return None
 
     def replan(self, j):
-        if clocks.klass("BLOCKED", blocked=j.get("reason")) != "plan" or j.get("replans", 0) >= MAX_REPLANS or j.get("replan_run"):
+        if clocks.klass("BLOCKED", blocked=j.get("reason")) != "plan" or j.get("replans", 0) >= MAX_REPLANS or j.get("replan_run") or self.now() < (j.get("not_before") or 0):
             return
         if "closed_seen" in self.store.get_all(str(j["issue"])):
             return
@@ -1275,6 +1306,9 @@ class Dispatcher:
             j["run_model"] = run_model
 
     def send(self, j, agent, step, message, state, copy=1):
+        if agent in (self.cfg.get("off_agents") or ()):
+            log(j["issue"], "%s not sent: %s" % (step, self.off_why.get(agent, NO_PROVIDER)))
+            return
         note = j.get("handover")
         if state == "building" and self.store.get_all("-").get("room_probe") == "1":
             holds.arm(self.store, self.store.get_all("-").get("room_kind") or "load", self.now() + ROOM_PROBE_S)
@@ -1288,9 +1322,11 @@ class Dispatcher:
         if note:
             message = "%s\n\n%s" % (handover.line(note), message)
         j["intent_at"] = iso(self.now())
+        failover = self.failover.get(agent)
+        on_claude = (failover["provider"] if failover else pools.provider_of(self.cfg, agent)) == "claude"
         j["fire_id"] = self.store.intent(str(j["issue"]), "", step, coworker=self.names.get(agent, agent), at=j["intent_at"],
-                                         model=(j.get("run_model") or {}).get("model") if pools.provider_of(self.cfg, agent) == "claude" else None,
-                                         thinking=(j.get("run_model") or {}).get("thinkingLevel") if pools.provider_of(self.cfg, agent) == "claude" else None)
+                                         model=(j.get("run_model") or {}).get("model") if on_claude else None,
+                                         thinking=(j.get("run_model") or {}).get("thinkingLevel") if on_claude else None)
         self.save(j, step)
         self.store.set(str(j["issue"]), "seen", "")
         args = {"agentId": agent, "message": message, "waitSeconds": WAIT_S}
@@ -1298,7 +1334,9 @@ class Dispatcher:
             args["copyIndex"] = copy
         if state in GOALS:
             args["goal"] = {"lastLineForms": GOALS[state], "turnLimit": 3}
-        if j.get("run_model") and pools.provider_of(self.cfg, agent) == "claude":
+        if failover:
+            args["connectionId"] = failover["id"]
+        if j.get("run_model") and on_claude:
             args["model"] = j["run_model"]["model"]
             args["thinkingLevel"] = j["run_model"]["thinkingLevel"]
         try:
@@ -1307,6 +1345,14 @@ class Dispatcher:
             if "invalid_goal" in str(e):
                 self.store.abandon(j["fire_id"], str(e)[:200])
                 return self.end(j, "failed", str(e)[:200])
+            if NO_ROUTE in str(e):
+                self.store.abandon(j["fire_id"], NO_ROUTE)
+                j.update(not_before=self.now() + 2 * self.cfg.get("poll_s", 30), sending=None)
+                if state in BACK:
+                    j.update(state=BACK[state], retry_attempt=j.get("attempt", 1))
+                self.save(j, "send of '%s' held: %s" % (step, NO_ROUTE))
+                log(j["issue"], "%s not sent: no connection can run it now, it waits for the default picked under Providers" % step)
+                return
             self.save(j, "send of '%s' raised" % step)
             log(j["issue"], "send of '%s' raised: %s" % (step, e))
             return
@@ -1315,7 +1361,8 @@ class Dispatcher:
         j.pop("handover", None)
         self.save(j, "sent " + step)
         log(j["issue"], "%s -> %s (run %s)%s" % (step, self.names.get(agent, agent[:8]), r["runId"],
-                                                  " " + args["model"] + "/" + args["thinkingLevel"] if "model" in args else ""))
+                                                  " " + args["model"] + "/" + args["thinkingLevel"] if "model" in args else "")
+            + (" on default %s, its own connection is off" % failover["id"] if failover else ""))
 
     def message(self, j):
         if j["state"] == "building":
@@ -1453,7 +1500,7 @@ class Dispatcher:
         return {"tokens_in": row[0], "tokens_out": row[1], "cache_read": row[2]} if row else {}
 
     def limit_until(self, j, error, now):
-        own = self.runs_on.get(j.get("agent"))
+        own = (self.failover.get(j.get("agent")) or {}).get("id") or self.runs_on.get(j.get("agent"))
         at = renewal.limited_until(self.connections, now, [own], with_default=False) if own else \
             renewal.limited_until(self.connections, now)
         at = at or renewal.resets_in_text(error, now)
@@ -1473,7 +1520,7 @@ class Dispatcher:
         if j.get("attempt", 1) >= 2:
             self.end(j, "failed", why + (" (second time)" if how == "ended" else ""))
             return None
-        if self.cfg.get("held") or holds.blocks_all(self.store, self.now()) or (
+        if self.cfg.get("held") or j["agent"] in (self.cfg.get("off_agents") or ()) or holds.blocks_all(self.store, self.now()) or (
                 holds.blocks_subscription(self.store, self.now()) and pools.provider_of(self.cfg, j["agent"]) == "claude"):
             j.update(state=BACK[j["state"]], retry_attempt=2, sending=None)
             self.save(j, "failed attempt, held: %s" % why[:160])
@@ -2198,17 +2245,18 @@ class Dispatcher:
         now = self.now()
         if self.runs_on_at is not None and now - self.runs_on_at < RUNS_ON_TTL_S:
             return set(self.runs_on.values())
-        found = {}
+        found, unknown = {}, set()
         for t in pools.types(self.cfg).values():
             for c in t.get("coworkers", []):
                 try:
                     runs_on = (self.account("get_agent", {"agentId": c["id"]}) or {}).get("runsOn")
                 except (Error, KeyError, TypeError, ValueError):
+                    unknown.add(c["id"])
                     continue
                 conn = runs_on.get("connectionId") if isinstance(runs_on, dict) else None
                 if isinstance(conn, str) and conn:
                     found[c["id"]] = conn
-        self.runs_on, self.runs_on_at = found, now
+        self.runs_on, self.runs_on_unknown, self.runs_on_at = found, unknown, None if unknown else now
         return set(found.values())
 
     def renewal_hold(self):

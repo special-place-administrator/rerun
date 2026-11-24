@@ -1,6 +1,9 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
+import { vi } from 'vitest'
+
+vi.mock('../../agents/availability.js', async importOriginal => ({ ...(await importOriginal<typeof import('../../agents/availability.js')>()), isUsable: () => true }))
 
 process.env.RERUN_DATA_DIR = mkdtempSync(resolve(tmpdir(), 'rerun-session-lock-'))
 process.env.RERUN_INSECURE_NO_AUTH = '1'

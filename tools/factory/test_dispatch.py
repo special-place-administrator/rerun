@@ -94,6 +94,8 @@ class World:
         if tool == "list_runs":
             return [] if self.hide_runs else [{"runId": r, "status": "running", "startedAt": iso(self.sent_at[r])}
                                               for r, a in reversed(self.order) if a == args["agentId"]]
+        if tool == "list_ai_connections":
+            return {"connections": [{"id": "c1", "provider": "claude", "isDefault": True, "connected": True}]}
         if tool == "get_agent":
             return {"id": args["agentId"], "soul": self.souls.get(args["agentId"])}
         if tool == "update_agent":
@@ -976,9 +978,10 @@ class Secrets(Base):
         def opener(req, timeout):
             seen.append(dict(req.header_items()))
             args = json.loads(req.data)["params"]["arguments"]
-            if args.get("agentId") == "b2":
+            send = json.loads(req.data)["params"]["name"] == "send_message"
+            if send and args.get("agentId") == "b2":
                 raise ValueError("Invalid header value %r" % self.KEY)
-            if args.get("agentId") == "b1":
+            if send and args.get("agentId") == "b1":
                 raise urllib.error.HTTPError(req.full_url, 500, "echo " + self.KEY, {}, io.BytesIO(self.KEY.encode()))
             fake = self.w.account(json.loads(req.data)["params"]["name"], args)
             body = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(fake)}]}}

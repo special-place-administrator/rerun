@@ -11,7 +11,7 @@ import { saveHandover, wantsHandover } from '../agents/handover.js'
 import { CLI_PROVIDERS, resolveModel, type GoalOption, type ModelOverride } from '../agents/providers.js'
 import { offersQuickReplies, quickRepliesCall, type QuickRepliesCapture } from '../agents/quick-replies-stream.js'
 import { codexThreadToResume, forgetCodexThread, rememberCodexThread } from '../agents/codex-threads.js'
-import { repairBoxDefault, resolveRunModel } from '../agents/availability.js'
+import { isUsable, repairBoxDefault, resolveRunModel } from '../agents/availability.js'
 import { claudeTokenOf, claudeTokenOutlived } from '../connections/claude-token.js'
 import { ensureCliAuth } from '../connections/cli-auth.js'
 import { syncCodexAuth } from '../connections/codex-auth.js'
@@ -33,6 +33,7 @@ import { isSharedConversation, signText } from './message-authors.js'
 import { bumpRunStep, cancelRun, failRun, finishRun, recordGoalVerdict, recordRunCompaction, setRunCompactAt, setRunContext, setRunHandover, setRunGoal, setRunLineage, startRun, updateRunLive } from '../db/repos/runs.js'
 import { insertRunStep, insertToolCall, updateToolCall } from '../db/repos/telemetry.js'
 import { touchSession } from '../db/repos/sessions.js'
+import { noUsableConnection } from '../lib/errors.js'
 import { logger } from '../lib/logger.js'
 import { newId, nowIso } from '../lib/ids.js'
 import { buildTools } from '../tools/registry.js'
@@ -436,6 +437,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
     try {
         const memoriesP = recallMemories(baseAgent, userText)
         const resolved = await resolveRunModel(baseAgent, override)
+        if (!isUsable(resolved.connection, resolved.model)) throw noUsableConnection(resolved.connection?.id, resolved.model)
         agent = resolved === baseAgent.resolved ? baseAgent : { ...baseAgent, resolved }
         ;({ connection, provider, model } = resolved)
         const t0 = Date.now()

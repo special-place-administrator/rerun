@@ -11,7 +11,13 @@ const state = vi.hoisted(() => ({
     calls: [] as { agent: { id: string; brief?: unknown; config?: { thinkingLevel?: string | null } }; sessionId: string; message: string; override: unknown; runId: string; trigger?: { userLanguage?: string; callableAgentIds?: string[] } }[],
     runAgentError: null as Error | null,
     startRunError: null as Error | null,
+    usable: true,
 }))
+
+vi.mock('../../agents/availability.js', async importOriginal => {
+    const actual = await importOriginal<typeof import('../../agents/availability.js')>()
+    return { ...actual, isUsable: (...args: Parameters<typeof actual.isUsable>) => state.usable || actual.isUsable(...args) }
+})
 
 vi.mock('../../runtime/loop.js', async importOriginal => ({
     ...(await importOriginal<typeof import('../../runtime/loop.js')>()),
@@ -54,9 +60,14 @@ const { createServer } = await import('../server.js')
 const { agentConfigSchema } = await import('../../agents/types.js')
 const { writeAgentConfig } = await import('../../agents/config-write.js')
 const { agentDir, installPath } = await import('../../config/paths.js')
-const { createSession, getSession } = await import('../../db/repos/sessions.js')
+const { createSession, getSession, listSessions } = await import('../../db/repos/sessions.js')
 const { getRun } = await import('../../db/repos/runs.js')
-const { claimSession, releaseSession, sessionClaimCount } = await import('../../runtime/run-control.js')
+const { claimSession, releaseSession, sessionClaim, sessionClaimCount } = await import('../../runtime/run-control.js')
+const { createConnection } = await import('../../connections/store.js')
+const { clearBoxDefault, writeBoxDefault } = await import('../../connections/default.js')
+const { DEFAULT_CONNECTION_MODELS } = await import('@moldwright/contracts')
+const { recordCliModels } = await import('../../connections/cli-models.js')
+const { resolveRunModel } = await import('../../agents/availability.js')
 
 const id = 'chatagent'
 const app = createServer()
@@ -82,6 +93,7 @@ beforeEach(() => {
     state.calls.length = 0
     state.runAgentError = null
     state.startRunError = null
+    state.usable = true
 })
 
 describe('POST /agents/:id/chat', () => {
@@ -218,5 +230,64 @@ describe('POST /agents/:id/chat', () => {
 
         expect(res.status).toBe(400)
         expect(state.calls).toHaveLength(0)
+    })
+
+    it('refuses a coworker no connection can run, starts nothing, and runs it once the default picked under Providers is connected', async () => {
+        state.usable = false
+        const session = await createSession(id, undefined, undefined, 'dashboard')
+
+        const refused = await chat(id, { sessionId: session.id, message: 'hi' })
+        expect(refused.status).toBe(503)
+        expect(((await refused.json()) as { error: string }).error).toMatch(/^No connection can run this coworker now/)
+        expect(state.calls).toHaveLength(0)
+        expect(sessionClaim(session.id)).toBeNull()
+
+        const anthropic = await createConnection({ name: 'anthropic', provider: 'anthropic', models: DEFAULT_CONNECTION_MODELS.anthropic, extraModels: [], keys: { ANTHROPIC_API_KEY: 'k' } })
+        await writeBoxDefault({ connectionId: anthropic.id, model: 'claude-opus-5-5' })
+        try {
+            const ran = await chat(id, { sessionId: session.id, message: 'hi again' })
+            expect(ran.status).toBe(200)
+            await ran.text()
+            expect(state.calls).toEqual([expect.objectContaining({ sessionId: session.id, message: 'hi again' })])
+        } finally {
+            await clearBoxDefault()
+        }
+    })
+
+    it('runs a Claude model asked of a coworker on the model the non-Claude default serves, unless the caller named the connection', async () => {
+        state.usable = false
+        const codex = await createConnection({ name: 'codex', provider: 'codex', models: DEFAULT_CONNECTION_MODELS.codex, extraModels: [], keys: { CODEX_OAUTH_TOKEN: 't' } })
+        recordCliModels(codex.id, ['gpt-6-luna'], '0.166.0', false)
+        await writeBoxDefault({ connectionId: codex.id, model: 'gpt-6-luna' })
+        try {
+            const ran = await chat(id, { message: 'hi', model: 'claude-opus-5-5' })
+            expect(ran.status).toBe(200)
+            await ran.text()
+            const [launched] = state.calls
+            expect(await resolveRunModel(launched.agent as never, launched.override as never)).toMatchObject({ provider: 'codex', model: 'gpt-6-luna' })
+            expect((await chat(id, { message: 'hi', connectionId: codex.id, model: 'claude-opus-5-5' })).status).toBe(503)
+        } finally {
+            await clearBoxDefault()
+        }
+    })
+
+    it('refuses a send pinned to a missing connection without running another, and runs once on it when it is back', async () => {
+        state.usable = false
+        const own = await createConnection({ name: 'own', provider: 'codex', models: DEFAULT_CONNECTION_MODELS.codex, extraModels: [], keys: { CODEX_OAUTH_TOKEN: 't' } })
+        recordCliModels(own.id, ['gpt-6-luna'], '0.166.0', false)
+        await seed('pinned', { name: 'pinned', provider: 'codex', connectionId: own.id, model: 'gpt-6-luna' })
+
+        expect((await chat('pinned', { message: 'hi', connectionId: 'gone-default' })).status).toBe(503)
+        expect((await chat('pinned', { message: 'hi', connectionId: 'gone-default' })).status).toBe(503)
+        expect(state.calls).toHaveLength(0)
+        expect(await listSessions('pinned')).toHaveLength(0)
+
+        const back = await createConnection({ name: 'default', provider: 'codex', models: DEFAULT_CONNECTION_MODELS.codex, extraModels: [], keys: { CODEX_OAUTH_TOKEN: 't' } }, 'gone-default')
+        recordCliModels(back.id, ['gpt-6-luna'], '0.166.0', false)
+        const ran = await chat('pinned', { message: 'hi', connectionId: 'gone-default' })
+        expect(ran.status).toBe(200)
+        await ran.text()
+        expect(state.calls).toHaveLength(1)
+        expect((await resolveRunModel(state.calls[0].agent as never, state.calls[0].override as never)).connection?.id).toBe('gone-default')
     })
 })

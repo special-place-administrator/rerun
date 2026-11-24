@@ -21,5 +21,7 @@ export const setupPending = () => new HttpError(409, 'This coworker is still bei
 
 export const coworkerBusy = () => new HttpError(409, 'Another run of this coworker is live and it drives a screen; the scheduled run waits for it to end.', 'coworker_busy')
 
+export const noUsableConnection = (connectionId: string | null | undefined, model: string) => new HttpError(503, `No connection can run this coworker now: ${connectionId ?? 'no connection'} cannot run ${model}, and the default picked under Providers cannot either. It runs once one of them is connected again.`, 'no_usable_connection')
+
 export const subscriptionLimited = () => new HttpError(429, "This coworker's subscription has hit its usage limit; scheduled runs are paused until it resets.", 'subscription_limited')
 

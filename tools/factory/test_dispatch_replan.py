@@ -72,6 +72,34 @@ class Replan(Base):
         self.assertEqual(self.data()["replans"], 1)
         self.assertEqual(len(self.planner_sends()), 2)
 
+    def test_a_re_plan_the_engine_refuses_four_times_waits_with_clean_beats_and_goes_once_when_it_can_run(self):
+        original, refused, beats = self.w.account, [], []
+
+        def refuse(tool, args, **kw):
+            if tool == "send_message" and args["agentId"] in ("p1", "p2") and len(refused) < 4:
+                refused.append(args["agentId"])
+                raise D.Error("account send_message failed: the tool reported an error " + D.NO_ROUTE)
+            return original(tool, args, **kw)
+
+        self.w.account = refuse
+        with unittest.mock.patch.object(D.Dispatcher, "beat_end", lambda d, clean: beats.append(clean)):
+            self.tick()
+            self.w.finish("b1", "BLOCKED: plan: a file outside its paths")
+            self.tick()
+            self.tick()
+            self.assertEqual(len(refused), 1)
+            for _ in range(20):
+                if len(refused) >= 4:
+                    break
+                self.w.clock += 300
+                self.tick()
+            self.assertEqual((len(refused), self.state(), self.planner_sends(), self.data().get("replans"), self.data().get("sending")), (4, "returned", [], None, None))
+            self.w.clock += 300
+            self.tick(3)
+        self.assertEqual((len(self.planner_sends("p1")), self.data()["replans"], self.state()), (1, 1, "returned"))
+        self.assertNotIn(False, beats)
+        self.assertFalse(self.d.store.retries("5", "transient"))
+
     def test_a_re_plan_never_goes_to_a_planner_without_issue_access(self):
         self.tick()
         self.w.finish("b1", "BLOCKED: plan: a file outside its paths")
