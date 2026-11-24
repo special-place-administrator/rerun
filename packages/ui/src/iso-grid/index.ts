@@ -60,6 +60,7 @@ export type {
     ResizePatch,
     ContainerCellRect,
     IsoCamera,
+    IsoZoomRange,
     FrameInset,
     IsoFocusRequest,
     IsoGridProps,

@@ -24,6 +24,7 @@ const DEFAULT_MASK = 'radial-gradient(ellipse 70% 70% at 50% 50%, black 60%, tra
 const DEFAULT_DRAW_COLOR = '#3b82f6'
 
 const DRAG_THRESHOLD_PX = 4
+const WHEEL_ZOOM_RATE = 0.0015
 
 const CENTER_ISO = isoPosition(GRID_SIZE / 2, GRID_SIZE / 2)
 const WORLD_OFFSET = { left: -CENTER_ISO.left, top: -CENTER_ISO.top }
@@ -180,6 +181,7 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
         className,
         paused = false,
         scrollGestures = true,
+        zoomRange,
         locked = false,
         showViewControls = false,
         viewControlsPlacement = 'bottom-right',
@@ -209,6 +211,9 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
     const interactive = !!(onTileSelect || onContainerSelect || onTileMove || onConfirmPlacement || onCreateContainerRequest || onContainerAdd || onContainerContextMenu || onTileContextMenu || onResizeContainerLocal || onContainerMove)
 
     const gestures = scrollGestures && !locked
+    const zoomGestures = gestures && zoomRange !== undefined
+    const zoomMin = zoomRange?.min
+    const zoomMax = zoomRange?.max
 
     const reducedMotion = usePrefersReducedMotion()
 
@@ -240,6 +245,10 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
     const overAddHandleRef = useRef(false)
     const [isPanning, setIsPanning] = useState(false)
     const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 })
+    const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+    const pressRef = useRef<{ id: number; x: number; y: number } | null>(null)
+    const pinchRef = useRef<{ dist: number; mid: { x: number; y: number } } | null>(null)
+    const draggedRef = useRef(false)
 
     const [dragState, setDragState] = useState<{ tileId: string; startPos: { col: number; row: number }; span: number; containerId: string | null } | null>(null)
     const [dragGhostCell, setDragGhostCell] = useState<{ col: number; row: number } | null>(null)
@@ -491,13 +500,38 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
         animate()
     }, [animate])
 
+    const zoomAbout = useCallback((clientX: number, clientY: number, factor: number) => {
+        const container = containerRef.current
+        if (!container || zoomMin === undefined || zoomMax === undefined) return
+        const rect = container.getBoundingClientRect()
+        const scale = container.offsetWidth > 0 ? rect.width / container.offsetWidth : 1
+        const mx = (clientX - rect.left - rect.width * anchorFracRef.current.x) / scale
+        const my = (clientY - rect.top - rect.height * anchorFracRef.current.y) / scale
+        const from = zoomRef.current
+        const to = Math.min(zoomMax, Math.max(zoomMin, from * factor))
+        if (to === from) return
+        zoomRef.current = to
+        setZoom(to)
+        setPan(p => clampPan({ x: p.x + mx / to - mx / from, y: p.y + my / to - my / from }, to))
+    }, [zoomMin, zoomMax, clampPan])
+
+    const panByClient = useCallback((dx: number, dy: number) => {
+        const container = containerRef.current
+        if (!container) return
+        const scale = container.offsetWidth > 0 ? container.getBoundingClientRect().width / container.offsetWidth : 1
+        const z = zoomRef.current
+        setPan(p => clampPan({ x: p.x + dx / (z * scale), y: p.y + dy / (z * scale) }, z))
+    }, [clampPan])
+
     useEffect(() => {
         const container = containerRef.current
         if (!container || !gestures) return
         const handleWheel = (e: WheelEvent) => {
             e.preventDefault()
             beginGesture()
-            if (e.ctrlKey || e.metaKey) {
+            if (zoomGestures) {
+                zoomAbout(e.clientX, e.clientY, Math.exp(-e.deltaY * WHEEL_ZOOM_RATE))
+            } else if (e.ctrlKey || e.metaKey) {
                 setZoom(z => Math.min(3, Math.max(0.3, z - e.deltaY * 0.001)))
             } else {
                 const z = zoomRef.current
@@ -506,7 +540,7 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
         }
         container.addEventListener('wheel', handleWheel, { passive: false })
         return () => container.removeEventListener('wheel', handleWheel)
-    }, [gestures, clampPan, beginGesture])
+    }, [gestures, zoomGestures, zoomAbout, clampPan, beginGesture])
 
     useEffect(() => {
         if (restorePendingRef.current) {
@@ -525,7 +559,7 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
 
         const previous = requestedCameraRef.current
         requestedCameraRef.current = camera
-        if (previous && previous.zoom === camera.zoom && previous.pan.x === camera.pan.x && previous.pan.y === camera.pan.y) return
+        if (previous && previous.zoom === camera.zoom && previous.pan.x === camera.pan.x && previous.pan.y === camera.pan.y && previous.nonce === camera.nonce) return
 
         const nextPan = clampPan(camera.pan, camera.zoom)
         if (previous) animate(cameraTransitionMs)
@@ -533,7 +567,7 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
         setZoom(camera.zoom)
         setPan(nextPan)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [camera?.zoom, camera?.pan.x, camera?.pan.y, cameraTransitionMs, clampPan, animate])
+    }, [camera?.zoom, camera?.pan.x, camera?.pan.y, camera?.nonce, cameraTransitionMs, clampPan, animate])
 
     useEffect(() => {
         const pushed = pushedCameraRef.current
@@ -631,8 +665,63 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
         panStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y }
     }, [pan, beginGesture, locked])
 
+    const beginDragPan = (e: React.PointerEvent, from: { x: number; y: number }) => {
+        pressRef.current = null
+        draggedRef.current = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+        beginGesture()
+        setIsPanning(true)
+        panStart.current = { x: from.x, y: from.y, panX: pan.x, panY: pan.y }
+    }
+
+    const pinchOf = () => {
+        const [a, b] = [...pointersRef.current.values()]
+        return { dist: Math.hypot(b.x - a.x, b.y - a.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } }
+    }
+
+    const handlePointerDownCapture = (e: React.PointerEvent) => {
+        draggedRef.current = false
+        pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+        if (pointersRef.current.size === 2) {
+            e.stopPropagation()
+            pendingDragRef.current = null
+            pressRef.current = null
+            draggedRef.current = true
+            setIsPanning(false)
+            beginGesture()
+            pinchRef.current = pinchOf()
+            return
+        }
+        if (e.button === 0) pressRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY }
+    }
+
+    const handlePointerMoveCapture = (e: React.PointerEvent) => {
+        if (!pointersRef.current.has(e.pointerId)) return
+        pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+        const before = pinchRef.current
+        if (!before || pointersRef.current.size < 2) return
+        e.stopPropagation()
+        const now = pinchOf()
+        panByClient(now.mid.x - before.mid.x, now.mid.y - before.mid.y)
+        if (before.dist > 0) zoomAbout(now.mid.x, now.mid.y, now.dist / before.dist)
+        pinchRef.current = now
+    }
+
+    const handlePointerEndCapture = (e: React.PointerEvent) => {
+        pointersRef.current.delete(e.pointerId)
+        if (pointersRef.current.size < 2) pinchRef.current = null
+        if (pressRef.current?.id === e.pointerId) pressRef.current = null
+    }
+
+    const handleClickCapture = (e: React.MouseEvent) => {
+        if (!draggedRef.current) return
+        draggedRef.current = false
+        e.stopPropagation()
+        e.preventDefault()
+    }
+
     const handlePointerDown = (e: React.PointerEvent) => {
-        if (e.pointerType === 'touch') return
+        if (e.pointerType === 'touch' && !zoomGestures) return
 
         setHoverCell(null)
 
@@ -721,16 +810,21 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
 
         onTileSelect?.(null)
         onContainerSelect?.(null)
-        startPan(e)
+        if (!zoomGestures) startPan(e)
     }
 
     const handlePointerMove = (e: React.PointerEvent) => {
-        if (e.pointerType === 'touch') return
+        if (e.pointerType === 'touch' && !zoomGestures) return
 
         const pending = pendingDragRef.current
         if (pending) {
             if (Math.hypot(e.clientX - pending.origin.x, e.clientY - pending.origin.y) < DRAG_THRESHOLD_PX) return
             pendingDragRef.current = null
+            if (zoomGestures && e.pointerType === 'touch') {
+                beginDragPan(e, pending.origin)
+                return
+            }
+            pressRef.current = null
             const { tileId, startPos, span, containerId } = pending
             if (pending.refused) {
                 onTileMoveRefused?.(tileId)
@@ -751,6 +845,12 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
             setHoverHandle(null)
             setHoverContainerId(null)
             setBoxDrag({ containerId: pendingBox.containerId, grab: pendingBox.grab, delta: { col: 0, row: 0 } })
+            return
+        }
+
+        const press = pressRef.current
+        if (press?.id === e.pointerId && !isPanning && !dragState && !boxDrag && !resizeState && !drawStart && Math.hypot(e.clientX - press.x, e.clientY - press.y) >= DRAG_THRESHOLD_PX) {
+            beginDragPan(e, press)
             return
         }
 
@@ -969,7 +1069,7 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
         [placementActive, onConfirmPlacement, resolvePlacementAtClientPoint, getGridCoordsFromClient, getTileFromClient, getWorldCoords, onTileSelect, onContainerSelect, clampPan, beginGesture]
     )
 
-    useTouchGestures(containerRef, touchCallbacks, gestures)
+    useTouchGestures(containerRef, touchCallbacks, gestures && !zoomGestures)
 
     const draggingBox = !!boxDrag
     useEffect(() => {
@@ -1072,6 +1172,7 @@ export const IsoGrid = memo(function IsoGrid(props: IsoGridProps) {
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            {...(zoomGestures ? { onPointerDownCapture: handlePointerDownCapture, onPointerMoveCapture: handlePointerMoveCapture, onPointerUpCapture: handlePointerEndCapture, onPointerCancelCapture: handlePointerEndCapture, onClickCapture: handleClickCapture } : {})}
             onPointerLeave={() => {
                 onPointerWorldMove?.(null)
                 setHoverHandle(null)
