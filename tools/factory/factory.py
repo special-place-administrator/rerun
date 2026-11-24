@@ -1060,6 +1060,9 @@ def jev_body(state):
     return json.dumps({"model": "jev-latest", "state": state, "questions": JEV_QUESTIONS}, separators=(",", ":")).encode()
 
 
+JEV_CLIPPED = "…"
+
+
 def jev_root(names):
     common = []
     for parts in zip(*[n.split("/")[:-1] for n in names if n != JEV_NAME_WITHHELD]):
@@ -1067,6 +1070,15 @@ def jev_root(names):
             break
         common.append(parts[0])
     return "".join(p + "/" for p in common)
+
+
+def jev_clip(line, share):
+    if len(json.dumps(line)) + 1 <= share:
+        return line
+    keep = max(1, min(len(line), share - len(json.dumps(JEV_CLIPPED))))
+    while keep > 1 and len(json.dumps(line[:keep] + JEV_CLIPPED)) + 1 > share:
+        keep -= 1
+    return line[:keep] + JEV_CLIPPED
 
 
 def jev_state(pr, files):
@@ -1077,42 +1089,53 @@ def jev_state(pr, files):
     if root:
         change["root"] = root
     change.update(diff_summary=[], files_omitted=len(files))
-    kept, todo, taken = change["diff_summary"], [], []
     room = int(JEV_TOKENS_MAX * JEV_CHARS_PER_TOKEN) - len(jev_body({"change": change}))
+    todo = [jev_lines(f.get("patch")) for f in order]
+    kept = {}
 
-    def take(i):
+    def admit(i):
         nonlocal room
-        cost = len(json.dumps(todo[i][taken[i]])) + 1 if taken[i] < len(todo[i]) else room + 1
-        if cost > room:
+        f, name = order[i], names[i]
+        label = name if name == JEV_NAME_WITHHELD else name[len(root):]
+        entry = {"file": "%s %s +%d/-%d" % (label, JEV_STATUS.get(f.get("status"), "?"), f.get("additions", 0), f.get("deletions", 0)), "lines": []}
+        cost = len(json.dumps(dict(entry, cut=len(todo[i])), separators=(",", ":"))) + 1
+        if cost <= room:
+            kept[i], room = entry, room - cost
+
+    def take(i, share=None):
+        nonlocal room
+        sent = kept[i]["lines"]
+        if len(sent) >= len(todo[i]):
             return False
-        kept[i]["lines"].append(todo[i][taken[i]])
-        room, taken[i] = room - cost, taken[i] + 1
+        line = todo[i][len(sent)] if share is None else jev_clip(todo[i][len(sent)], share)
+        cost = len(json.dumps(line)) + 1
+        if cost > (room if share is None else min(room, share)):
+            return False
+        sent.append(line)
+        room -= cost
         return True
 
-    def admit(group):
-        nonlocal room
-        for f, name in group:
-            lines = jev_lines(f.get("patch"))
-            label = name if name == JEV_NAME_WITHHELD else name[len(root):]
-            entry = {"file": "%s %s +%d/-%d" % (label, JEV_STATUS.get(f.get("status"), "?"), f.get("additions", 0), f.get("deletions", 0)), "lines": []}
-            cost = len(json.dumps(dict(entry, cut=len(lines)), separators=(",", ":"))) + 1
-            if cost + sum(len(json.dumps(line)) + 1 for line in lines[:JEV_LINES_MIN]) > room:
-                return
-            kept.append(entry)
-            todo.append(lines)
-            taken.append(0)
-            room -= cost
-            for _ in lines[:JEV_LINES_MIN]:
-                take(len(kept) - 1)
-    rows = list(zip(order, names))
+    def rounds(group, most):
+        while any([take(i) for i in group if i in kept and len(kept[i]["lines"]) < most]):
+            pass
+
     split = sum(not re.search(cutshape.TESTF, f["filename"]) for f in order)
-    admit(rows[:split])
-    admit(rows[split:])
-    while any([take(i) for i in range(len(kept))]):
-        pass
-    for entry, n, lines in zip(kept, taken, todo):
-        if n < len(lines):
-            entry["cut"] = len(lines) - n
+    code, tests = range(split), range(split, len(order))
+    for i in code:
+        admit(i)
+    lined = [i for i in code if i in kept and todo[i]]
+    share = room // max(len(lined), 1)
+    for i in lined:
+        take(i, share)
+    rounds(code, JEV_LINES_MIN)
+    for i in tests:
+        admit(i)
+    rounds(tests, JEV_LINES_MIN)
+    rounds(range(len(order)), max(map(len, todo), default=0))
+    for i, entry in sorted(kept.items()):
+        change["diff_summary"].append(entry)
+        if len(entry["lines"]) < len(todo[i]):
+            entry["cut"] = len(todo[i]) - len(entry["lines"])
     change["files_omitted"] = len(files) - len(kept)
     if not change["files_omitted"]:
         del change["files_omitted"]
