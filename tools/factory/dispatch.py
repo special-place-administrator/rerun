@@ -935,17 +935,25 @@ class Dispatcher:
         pool = self.cfg.get("pool")
         rooms = {t: (v["max_jobs"] if v["max_jobs"] is not None and not pool else pools.seats(self.cfg, t)) - len([j for j in open_jobs if j.get("worker", "coder") == t])
                  for t, v in pools.types(self.cfg).items()}
-        if all(r <= 0 for r in rooms.values()):
+        waiters = {j["issue"]: j for j in self.jobs() if j["state"] == "waiting"}
+        if all(r <= 0 for r in rooms.values()) and not waiters:
             return
-        issues = json.loads(self.gh(["issue", "list", "-R", self.repo, "--label", self.label, "--state", "open",
-                                     "--json", "number,title,labels,body,author", "--limit", "100"]))
-        if self.work is not None:
-            issues = self.order_issues(issues)
+        found = json.loads(self.gh(["issue", "list", "-R", self.repo, "--label", self.label, "--state", "open",
+                                    "--json", "number,title,labels,body,author", "--limit", "100"]))
+        issues = self.order_issues(found) if self.work is not None else found
+        listed, taken = {i["number"]: i for i in found}, {i["number"] for i in issues}
+        extra = [listed.get(n) or {"number": n, "title": j.get("title") or "", "body": j.get("body") or ""} for n, j in waiters.items() if n not in taken]
+        extra = [i for i in extra if i["number"] in listed or not cutshape.check([i]).get(i["number"])]
+        unlisted = {i["number"] for i in extra if i["number"] not in listed}
+        refresh_only = unlisted - set((self.work or {}).get("order") or ())
+        issues = issues + extra
         paused = {i["number"] for i in issues if PAUSED in {x.get("name") for x in i.get("labels") or [] if isinstance(x, dict)}}
         issues = [i for i in issues if i["number"] not in paused and (authors.trusted_author(i) or "author" not in i)]
         for i in issues:
             old = self.store.get_job(str(i["number"]))
             if old and old["state"] != "waiting" and not (old["state"] in END and old.get("relabelled")):
+                continue
+            if all(r <= 0 for r in rooms.values()) and not (old and old["state"] == "waiting"):
                 continue
             if not sifter.sift(i.get("body"))[1]:
                 continue
@@ -963,7 +971,7 @@ class Dispatcher:
         shape = cutshape.check(issues)
         self.refused = {n: e for n, e in shape.items() if e}
         self.unreadable = len(self.refused)
-        labelled = {i["number"] for i in issues} | paused
+        labelled = ({i["number"] for i in issues} - refresh_only) | paused
         tree = None
         if any(plancheck.needs(i) and not self.plan_settled(i) for i in issues):
             tree = plancheck.tree(self.gh, self.repo)
@@ -972,11 +980,12 @@ class Dispatcher:
             open_numbers = {o["number"] for o in json.loads(self.gh(
                 ["issue", "list", "-R", self.repo, "--state", "open", "--json", "number", "--limit", "1000"]))}
         for i in sorted(issues, key=lambda i: i["number"]):
-            if all(r <= 0 for r in rooms.values()):
-                break
             try:
                 old = self.store.get_job(str(i["number"]))
-                if old and old["state"] != "waiting" and not (old["state"] in END and old.get("relabelled")):
+                waiting = bool(old) and old["state"] == "waiting"
+                if not waiting and all(r <= 0 for r in rooms.values()):
+                    continue
+                if old and not waiting and not (old["state"] in END and old.get("relabelled")):
                     continue
                 if old and old["state"] == "waiting" and old.get("recheck") and not self.recheck_settled(old):
                     continue
@@ -1008,7 +1017,7 @@ class Dispatcher:
                         self.store.set(str(i["number"]), "worker_queue", t)
                         log(i["number"], "not started: worker type %s has no queue yet" % t)
                     continue
-                if rooms.get(parsed["worker"], 0) <= 0:
+                if rooms.get(parsed["worker"], 0) <= 0 and not waiting:
                     continue
                 deps = parsed["deps"]
                 if deps:
@@ -1036,12 +1045,20 @@ class Dispatcher:
                             self.save(data, line)
                             log(i["number"], line)
                         digest =hashlib.sha256(json.dumps(dead).encode()).hexdigest()[:16] if dead else ""
+                        ended = [d for d in unmet if got[d] in states.PROBLEM and not self.re_plannable(d, got[d])]
+                        if ended:
+                            said = self.store.get_all(str(i["number"])).get("dead_deps", "") == digest
+                            self.store.set(str(i["number"]), "dead_deps", digest)
+                            self.end(self.store.get_job(str(i["number"])), "blocked", "dependency #%d ended %s" % (ended[0], got[ended[0]]),
+                                     commented=said, relabelled=False)
+                            continue
                         if self.store.get_all(str(i["number"])).get("dead_deps", "") != digest:
                             if dead:
                                 self.gh(["issue", "comment", str(i["number"]), "-R", self.repo, "--body", dead_comment(dead)])
                             self.store.set(str(i["number"]), "dead_deps", digest)
                         continue
-                if self.plan_check(i, tree) is None:
+                free = rooms.get(parsed["worker"], 0) > 0 and i["number"] not in refresh_only
+                if free and self.plan_check(i, tree) is None:
                     continue
                 held = self.cfg.get("one_file_one_job") and self.file_holder(i["number"], parsed["paths"])
                 if held:
@@ -1058,6 +1075,15 @@ class Dispatcher:
                             data["rechecks"] = old["rechecks"]
                         self.save(data, line)
                         log(i["number"], line)
+                    continue
+                if free and i["number"] in unlisted:
+                    seen = self.order_view(i["number"]) or {}
+                    free = seen.get("state") == "OPEN" and PAUSED not in {x.get("name") if isinstance(x, dict) else x for x in seen.get("labels") or []}
+                if not free:
+                    if old.get("waiting") or old.get("file_wait") or old.get("wait_line"):
+                        kept = {k: v for k, v in old.items() if k not in ("file_wait", "wait_line", "dead", "waits_on_returned")}
+                        self.save(dict(kept, waiting=[]), "wait cleared")
+                        log(i["number"], "wait cleared: nothing it waited on is left")
                     continue
                 if self.cfg.get("auto_plan_marker", True):
                     v = json.loads(self.gh(["issue", "view", str(i["number"]), "-R", self.repo, "--json", "body,comments"]))
@@ -1153,6 +1179,9 @@ class Dispatcher:
                         state, why = "merged", "merged outside the delegator"
                     elif pr == "CLOSED":
                         state, why = "blocked", "pull request #%s closed without merge" % j["pr"]
+                if state is None and j["issue"] not in labelled and (number := self.merged_closer(j)):
+                    j["pr"] = number
+                    state, why = "merged", "merged outside the delegator (#%s)" % number
                 if state is None and j["issue"] not in labelled and not self.store.get_all(str(j["issue"])).get("order_consent"):
                     state, why = "returned", "issue closed or the %s label removed" % self.label
                 if state is None:
