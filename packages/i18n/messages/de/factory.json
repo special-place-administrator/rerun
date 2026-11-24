@@ -47,6 +47,7 @@
     "controls": {
         "groupLabel": "Fabrik starten und stoppen",
         "start": "Starten",
+        "startBlocked": "{need, select, project {Starten: zuerst ein Projekt wählen} order {Starten: zuerst die Arbeit wählen} done {Starten: der Arbeitsauftrag ist erledigt, neue Arbeit wählen} other {Starten}}",
         "pause": "Pausieren",
         "stop": "Stoppen",
         "hardStop": "Sofort stoppen",
@@ -69,7 +70,7 @@
         "holdShort": "{kind, select, paused {Pausiert} other {Angehalten}}",
         "holdLong": "{kind, select, paused {Pausiert · Builds laufen aus {seconds} s} other {Angehalten · {kind} {seconds} s}}",
         "holdSentence": "{kind, select, paused {Die Fabrik ist bis {time} pausiert: laufende Builds werden fertig} other {Das Senden ist wegen {kind} bis {time} angehalten: laufende Builds werden fertig}}",
-        "idleShort": "Keine Arbeit",
+        "idleShort": "{wait, select, project {Kein Projekt} order {Kein Auftrag} done {Alles erledigt} other {Keine Arbeit}}",
         "idleLong": "Keine Arbeit · {reason}",
         "idleSentence": "Läuft, nichts zu tun: {reason}",
         "wait": "{wait, select, project {kein Projekt gewählt} order {kein Arbeitsauftrag} done {der Arbeitsauftrag ist erledigt} other {{text}}}"

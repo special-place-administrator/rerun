@@ -47,6 +47,7 @@
     "controls": {
         "groupLabel": "Iniciar e parar a fábrica",
         "start": "Iniciar",
+        "startBlocked": "{need, select, project {Iniciar: escolha primeiro um projeto} order {Iniciar: escolha primeiro o trabalho} done {Iniciar: a ordem de trabalho terminou, escolha trabalho novo} other {Iniciar}}",
         "pause": "Pausar",
         "stop": "Parar",
         "hardStop": "Parada imediata",
@@ -69,7 +70,7 @@
         "holdShort": "{kind, select, paused {Em pausa} other {Retida}}",
         "holdLong": "{kind, select, paused {Em pausa · builds terminando {seconds} s} other {Retida · {kind} {seconds} s}}",
         "holdSentence": "{kind, select, paused {A fábrica está em pausa até {time}: os builds em andamento terminam} other {O envio está retido por {kind} até {time}: os builds em andamento terminam}}",
-        "idleShort": "Sem trabalho",
+        "idleShort": "{wait, select, project {Sem projeto} order {Sem ordem} done {Tudo feito} other {Sem trabalho}}",
         "idleLong": "Sem trabalho · {reason}",
         "idleSentence": "Em execução, nada para fazer: {reason}",
         "wait": "{wait, select, project {nenhum projeto escolhido} order {nenhuma ordem de trabalho} done {a ordem de trabalho terminou} other {{text}}}"

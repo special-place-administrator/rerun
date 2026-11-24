@@ -47,6 +47,7 @@
     "controls": {
         "groupLabel": "Démarrer et arrêter l'usine",
         "start": "Démarrer",
+        "startBlocked": "{need, select, project {Démarrer : choisissez d’abord un projet} order {Démarrer : choisissez d’abord le travail} done {Démarrer : l’ordre de travail est terminé, choisissez un nouveau travail} other {Démarrer}}",
         "pause": "Pause",
         "stop": "Arrêter",
         "hardStop": "Arrêt immédiat",
@@ -69,7 +70,7 @@
         "holdShort": "{kind, select, paused {En pause} other {Retenue}}",
         "holdLong": "{kind, select, paused {En pause · builds en fin {seconds} s} other {Retenue · {kind} {seconds} s}}",
         "holdSentence": "{kind, select, paused {L'usine est en pause jusqu'à {time} : les builds en cours se terminent} other {L'envoi est retenu pour {kind} jusqu'à {time} : les builds en cours se terminent}}",
-        "idleShort": "Sans travail",
+        "idleShort": "{wait, select, project {Sans projet} order {Sans ordre} done {Tout est fait} other {Sans travail}}",
         "idleLong": "Sans travail · {reason}",
         "idleSentence": "En marche, rien à faire : {reason}",
         "wait": "{wait, select, project {aucun projet choisi} order {aucun ordre de travail} done {l’ordre de travail est terminé} other {{text}}}"
