@@ -49,7 +49,7 @@ async function recordEvent(client: Pick<Transaction, 'execute'>, kind: string, a
 
 async function refusePost(sender: BusSender, error: HttpError): Promise<never> {
     logger.info({ sender: sender.address, code: error.code }, 'bus post refused')
-    await recordEvent(raw(), 'refuse', sender.address, { detail: `${error.code}: ${error.message}` }).catch(() => {})
+    await inTransaction(tx => recordEvent(tx, 'refuse', sender.address, { detail: `${error.code}: ${error.message}` })).catch(() => {})
     throw error
 }
 
@@ -195,8 +195,14 @@ async function post(sender: BusSender, input: unknown, limits: BusLimits): Promi
         }
 
         if (actionable) {
+            const perTarget = new Map<string, number>()
             for (const recipient of recipients) {
-                if ((await openRequests(tx, sender.address, recipient)) >= limits.openActionablePerPair) throw refuse(429, 'bus_pair_cap', `refused: ${limits.openActionablePerPair} requests to ${recipient} are still open, wait for an answer`)
+                const address = parseAddress(recipient)
+                const target = address?.kind === 'agent' ? agentAddress(address.id) : recipient
+                perTarget.set(target, (perTarget.get(target) ?? 0) + 1)
+            }
+            for (const [target, count] of perTarget) {
+                if ((await openRequests(tx, sender.address, target)) + count > limits.openActionablePerPair) throw refuse(429, 'bus_pair_cap', `refused: ${limits.openActionablePerPair} requests to ${target} are still open, wait for an answer`)
             }
         }
 
