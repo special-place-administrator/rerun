@@ -87,7 +87,6 @@ export function mcpCallTool(): ToolSet {
     return {
         [MCP_CALL_TOOL]: tool({
             description: `Run a tool of your connected MCP servers. Give its exact name as ${MCP_SEARCH_TOOL} returned it, and its arguments as the input schema ${MCP_SEARCH_TOOL} returned for it describes them.`,
-            // The model is sent this JSON schema, not zod's: the AI SDK would close `arguments` (`additionalProperties: false`), leaving `{}` as its only valid value.
             inputSchema: jsonSchema<{ tool: string; arguments?: Record<string, unknown> }>(
                 {
                     type: 'object',

@@ -138,7 +138,6 @@ describe('mcp_call', () => {
         expect(error).toContain(MCP_SEARCH_TOOL)
     })
 
-    // RER-224: a closed `arguments` leaves `{}` as its only valid value, and a model that keeps to the schema sends just that.
     it('lets the model put any argument in the call', async () => {
         const schema = (await asSchema(mcpCallTool()[MCP_CALL_TOOL].inputSchema).jsonSchema) as { required: string[]; properties: { arguments: { type: string; additionalProperties: unknown } } }
         expect(schema.properties.arguments).toMatchObject({ type: 'object', additionalProperties: true })
