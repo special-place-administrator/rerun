@@ -71,6 +71,7 @@ const UPLOAD_NAME_MAX = 100
 const UPLOAD_NAME_DEFAULT = 'Uploaded folder'
 const MB = 1024 * 1024
 const UPLOAD_STALE_MS = 30 * 60_000
+const UPLOAD_HEARTBEAT_MS = 2 * 60_000
 const uploadPath = (workspaceId: number, id: number) => `${workspaceId}/${id}.tar`
 
 export async function isFactoryOwner(workspaceId: number, userId: string): Promise<boolean> {
@@ -235,7 +236,17 @@ export async function uploadProject(workspaceId: number, userId: string, upload:
     if (error || !data) return { code: 'unknown' }
     const id = (data as unknown as FactoryProject).id
     const body = measured(upload.body, Math.min(length, max))
-    const stored = await uploadPrivateFile(supabase, UPLOAD_BUCKET, uploadPath(workspaceId, id), body.stream, 'application/x-tar').then(() => true, () => false)
+    let beatBytes = 0
+    const heartbeat = setInterval(() => {
+        if (body.seen.bytes === beatBytes) return
+        beatBytes = body.seen.bytes
+        void supabase.from('factory_projects').update<ProjectUpdate>({ updated_at: new Date().toISOString() })
+            .eq('id', id).eq('workspace_id', workspaceId).eq('state', 'uploading')
+            .then(() => undefined, () => undefined)
+    }, UPLOAD_HEARTBEAT_MS)
+    const stored = await uploadPrivateFile(supabase, UPLOAD_BUCKET, uploadPath(workspaceId, id), body.stream, 'application/x-tar')
+        .then(() => true, () => false)
+        .finally(() => clearInterval(heartbeat))
     const refusal: UploadRefusal | null = body.seen.over ? 'upload_too_large' : !stored || body.seen.bytes !== length ? 'unknown' : null
     if (!refusal) {
         const queued = await supabase.from('factory_projects')
@@ -246,7 +257,7 @@ export async function uploadProject(workspaceId: number, userId: string, upload:
         if (!queued.error && queued.data) return { project: queued.data as unknown as FactoryProject }
     }
     await dropUploadObject(workspaceId, id)
-    await supabase.from('factory_projects').update<ProjectUpdate>(failedChange(refusal === 'upload_too_large' ? 'upload_too_large' : 'unknown')).eq('id', id).eq('workspace_id', workspaceId)
+    await supabase.from('factory_projects').update<ProjectUpdate>(failedChange(refusal === 'upload_too_large' ? 'upload_too_large' : 'unknown')).eq('id', id).eq('workspace_id', workspaceId).eq('state', 'uploading')
     return { code: refusal ?? 'unknown' }
 }
 
