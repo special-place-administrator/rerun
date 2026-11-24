@@ -21,6 +21,11 @@ const workStyle = (name: string, id: string) => {
     return { ...agentTileStyle('idle', name), glow: `color-mix(in srgb, ${look.color} 60%, transparent)`, buddy: { ...look, mood: 'working' as const, ownColor: true } }
 }
 
+export function liveHold(snapshot: FactorySnapshot, now: number): FactorySnapshot['holds'][number] | undefined {
+    const live = snapshot.holds.filter(h => Date.parse(h.until) > now)
+    return live.reduce<(typeof live)[number] | undefined>((a, h) => (!a || Date.parse(h.until) > Date.parse(a.until) ? h : a), undefined)
+}
+
 export function sceneFromSnapshot(snapshot: FactorySnapshot, now: number): SnapshotFrame {
     const base = factoryScene(0, now)
     const tileOf = (id: string) => base.tiles.find(t => t.id === id)!
@@ -29,9 +34,8 @@ export function sceneFromSnapshot(snapshot: FactorySnapshot, now: number): Snaps
 
     const copyColor: Record<string, string> = { code: STATUS_COLOR.build, LARRY: STATUS_COLOR.build, LINUS: STATUS_COLOR.review, BRUCE: STATUS_COLOR.review, search: '#f472b6' }
 
-    const live = snapshot.holds.filter(h => Date.parse(h.until) > now)
-    const held = live.length > 0
-    const last = live.reduce<(typeof live)[number] | undefined>((a, h) => (!a || Date.parse(h.until) > Date.parse(a.until) ? h : a), undefined)
+    const last = liveHold(snapshot, now)
+    const held = last !== undefined
     const holdLeftMs = last ? Date.parse(last.until) - now : 0
     const madeAt = Date.parse(snapshot.madeAt)
     const lastBeatMs = now - madeAt

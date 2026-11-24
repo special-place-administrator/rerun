@@ -75,7 +75,7 @@ function workspaceSummary(workspace: SessionWorkspace, t: WorkspaceMenuTranslato
     return isLifetimePlan(workspace) ? t('summary.lifetime', { limits }) : limits
 }
 
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({ inline = false }: { inline?: boolean }) {
     const t = useTranslations('layout.workspaceMenu')
     const errorText = useErrorText()
     const { user, workspace, workspaces, session, isAnonymous, signOut } = useSession()
@@ -120,7 +120,7 @@ export function WorkspaceSwitcher() {
 
     if (isAnonymous) {
         return (
-            <div className={cn('absolute top-4 left-4 z-40', guided && 'max-md:hidden')}>
+            <div className={cn(!inline && 'absolute top-4 left-4 z-40', guided && 'max-md:hidden')}>
                 <SignInPillButton />
             </div>
         )
@@ -361,7 +361,7 @@ export function WorkspaceSwitcher() {
     const sections = [headerSection, workspaceItemsSection, workspacesSection, rolesSection, footerSection].filter(Boolean)
 
     return (
-        <div className="absolute top-4 left-4 z-40 flex max-w-[calc(100%-2*var(--chrome-edge)-var(--chrome-size)-var(--chrome-gap))] items-center gap-2">
+        <div className={cn('flex items-center gap-2', inline ? 'min-w-0' : 'absolute top-4 left-4 z-40 max-w-[calc(100%-2*var(--chrome-edge)-var(--chrome-size)-var(--chrome-gap))]')}>
             <DropdownMenu
                 onOpenChange={open => {
                     if (!open) return
@@ -371,7 +371,7 @@ export function WorkspaceSwitcher() {
             >
                 <div className="relative min-w-0">
                     <DropdownMenuTrigger asChild>
-                        <WorkspacePill className="max-w-full shrink" name={workspace.name || t('defaultName')} iconUrl={workspace.icon_url || activeIcon} fallbackIconUrl={activeIcon} stripes={workspace.is_sandbox} />
+                        <WorkspacePill className={cn('max-w-full shrink', inline && 'max-w-40')} name={workspace.name || t('defaultName')} iconUrl={workspace.icon_url || activeIcon} fallbackIconUrl={activeIcon} stripes={workspace.is_sandbox} />
                     </DropdownMenuTrigger>
                     {brainProposals > 0 && <span className="pointer-events-none absolute top-0.5 right-0.5 size-2 rounded-full bg-red-500 ring-2 ring-card" />}
                 </div>

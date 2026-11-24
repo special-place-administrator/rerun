@@ -1,5 +1,6 @@
 'use client'
 
+import { MessageCircle } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -14,6 +15,7 @@ import { LOADER_TILE } from '@/components/factory/factory-state'
 import { sceneFromSnapshot } from '@/components/factory/from-snapshot'
 import { useFactoryControls } from '@/components/factory/use-factory-controls'
 import { WorkspaceSwitcher } from '@/components/layout/WorkspaceSwitcher'
+import { Button } from '@/components/ui/button'
 import { SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
 import { useBoardStore } from '@/stores/board.store'
 import { useSession } from '@/supabase/session/SessionProvider'
@@ -105,16 +107,20 @@ export function FactoryPage() {
                 snapshot={snapshot ?? null}
                 rightInset={rightInset}
                 theme={resolvedTheme === 'light' ? 'light' : 'dark'}
-                topBar={<FactoryTopBar snapshot={snapshot ?? null} controls={controls} selected={selected} onSelect={setSelected} names={names} onOpenCoworker={openCoworker} bucket={bucket} onBucket={setBucket} />}
+                topBar={
+                    <FactoryTopBar snapshot={snapshot ?? null} controls={controls} selected={selected} onSelect={setSelected} names={names} onOpenCoworker={openCoworker} bucket={bucket} onBucket={setBucket}
+                        rightInset={rightInset}
+                        context={<WorkspaceSwitcher inline />}
+                        action={
+                            <Button type="button" variant="secondary" size="sm" disabled={!boss} aria-label="Talk to Boss" title={boss ? 'Open the chat with Boss' : 'No coworker named boss in this workspace'}
+                                onClick={() => { if (!boss) return; setLoaderOpen(false); useBoardStore.getState().focusAgentOnBoard(boss.id, 'chat') }}>
+                                <MessageCircle aria-hidden className="hidden @max-[1200px]:block" />
+                                <span className="@max-[1200px]:hidden">Talk to Boss</span>
+                            </Button>
+                        }
+                    />
+                }
             />
-            <WorkspaceSwitcher />
-            <div className="absolute left-4 top-16 z-30">
-                <button type="button" disabled={!boss} title={boss ? 'Open the chat with Boss' : 'No coworker named boss in this workspace'}
-                    onClick={() => { if (!boss) return; setLoaderOpen(false); useBoardStore.getState().focusAgentOnBoard(boss.id, 'chat') }}
-                    className="rounded-lg border border-border/60 bg-background/75 px-3 py-1.5 text-sm backdrop-blur-xl enabled:hover:bg-accent disabled:opacity-50">
-                    Talk to Boss
-                </button>
-            </div>
             {loaderOpen && (
                 <aside data-loader-panel style={{ width: LOADER_PANEL_PX }} className="absolute inset-y-0 right-0 z-20 flex flex-col border-l border-border/60 bg-background/95 backdrop-blur-xl">
                     <div className="flex items-center justify-between border-b border-border/60 p-2">

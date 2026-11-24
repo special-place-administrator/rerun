@@ -44,7 +44,7 @@ const job = (issue: number, over: Record<string, unknown> = {}) => ({
 })
 const snapshotWith = (jobs: unknown[], coworkers: unknown[] = [{ name: 'code', id: 'c1', runs: 1, out: 0 }]) => ({
     snapshot: {
-        repo: 'o/r', jobs, pools: [{ name: 'build', coworkers }],
+        repo: 'o/r', jobs, pools: [{ name: 'build', coworkers }], holds: [],
         endedToday: { merged: 0, rejected: 0, blocked: 0, failed: 0, returned: 0 },
     },
     receivedAt: NOW, ageMs: 0,
@@ -167,15 +167,13 @@ describe('factory page', () => {
         expect(host.querySelector('[data-control-center]')).not.toBeNull()
     })
 
-    it('puts Talk to Boss below the corner menu, and it still opens the chat of boss', async () => {
+    it('puts Talk to Boss and the corner menu in the top bar, and it still opens the chat of boss', async () => {
         mocks.board.agents = [{ id: 'b1', name: 'x', handle: 'Boss' }]
         await mount()
         const btn = byText('button', 'Talk to Boss') as HTMLButtonElement
-        const cls = btn.parentElement!.classList
-        expect(cls.contains('left-4')).toBe(true)
-        expect(cls.contains('top-16')).toBe(true)
-        expect(cls.contains('z-30')).toBe(true)
-        expect(cls.contains('top-4')).toBe(false)
+        expect(btn.closest('[data-topbar]')).not.toBeNull()
+        expect(btn.getAttribute('aria-label')).toBe('Talk to Boss')
+        expect(host.querySelector('[data-workspace-switcher]')?.closest('[data-topbar]')).not.toBeNull()
         await click(btn)
         expect(mocks.board.focusAgentOnBoard).toHaveBeenCalledWith('b1', 'chat')
     })
