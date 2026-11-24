@@ -1083,10 +1083,12 @@ def jev_state(pr, files):
         kept[i]["lines"].append(todo[i][taken[i]])
         room, taken[i] = room - cost, taken[i] + 1
         return True
-    for _ in range(JEV_LINES_MIN):
-        for i in range(len(kept)):
-            if taken[i] < JEV_LINES_MIN:
-                take(i)
+    split = sum(not re.search(cutshape.TESTF, f["filename"]) for f in order[:len(kept)])
+    for group in (range(split), range(split, len(kept))):
+        for _ in range(JEV_LINES_MIN):
+            for i in group:
+                if taken[i] < JEV_LINES_MIN:
+                    take(i)
     while any([take(i) for i in range(len(kept))]):
         pass
     for entry, n, lines in zip(kept, taken, todo):
