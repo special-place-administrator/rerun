@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { TooltipLabeled } from '@/components/ui/tooltip'
 import { useErrorText } from '@/hooks/useErrorText'
 import { groupOf } from './factory-state'
 import { thrown, type FactoryControlsState } from './use-factory-controls'
@@ -37,8 +38,21 @@ export function FactoryWorkOrders({ snapshot, controls }: { snapshot: FactorySna
     const [confirm, setConfirm] = useState<Confirm>(null)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
-    const repo = view?.activeRepo
-    if (!repo) return null
+    if (!view) return null
+    const repo = view.activeRepo
+    if (!repo) {
+        return (
+            <div data-work-orders className="flex min-w-0 flex-col items-center gap-1">
+                <TooltipLabeled label={t('needsProjectWhy')}>
+                    <button type="button" aria-disabled="true" data-needs-project
+                        className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/60 px-3 py-1 text-xs text-muted-foreground outline-none aria-disabled:cursor-not-allowed focus-visible:ring-3 focus-visible:ring-ring/50">
+                        {t('needsProject')}
+                        <span className="sr-only">{t('needsProjectWhy')}</span>
+                    </button>
+                </TooltipLabeled>
+            </div>
+        )
+    }
     const orders = view.orders.filter(o => o.repo === repo)
     const active = orders.find(o => o.status === 'active') ?? null
     const reported = snapshot.work_order?.id ? snapshot.work_order : null
