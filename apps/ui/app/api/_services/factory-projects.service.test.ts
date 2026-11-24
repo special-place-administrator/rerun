@@ -81,6 +81,7 @@ describe('factory projects: added by GitHub link', () => {
             data: table === 'workspace_members' ? { role: 'admin' } : table === 'factory_controls' ? { project_limits: LIMITS } : null, error: null,
         })) as never)
         vi.mocked(selectCount).mockResolvedValue({ data: 0, error: null } as never)
+        vi.mocked(selectMany).mockResolvedValue({ data: [], error: null } as never)
         from.mockImplementation(() => ({ insert: (payload: Record<string, unknown>) => {
             inserts.push(payload)
             return { select: () => ({ single: () => Promise.resolve({ data: { id: 1, ...payload }, error: null }) }) }
@@ -92,7 +93,40 @@ describe('factory projects: added by GitHub link', () => {
         const added = await addGithubProject(501, OWNER, 'https://github.com/Special-Place-AI-Heaven/x')
         expect(added.existed).toBe(false)
         expect(inserts).toEqual([expect.objectContaining({ repo: 'special-place-ai-heaven/x', name: 'x' })])
-        expect(vi.mocked(selectMaybeSingle).mock.calls.find(c => c[1] === 'factory_projects')?.[3]).toEqual({ workspace_id: 501, repo: 'special-place-ai-heaven/x' })
+        expect(vi.mocked(selectMany).mock.calls.find(c => c[1] === 'factory_projects' && 'repo' in c[3])?.[3]).toEqual({ workspace_id: 501, repo: { ilike: 'special-place-ai-heaven/x' } })
+    })
+
+    it('returns the existing row for the same repo in another case, and inserts nothing', async () => {
+        putFactorySnapshot(502, { version: 1, madeAt: '2026-11-24T06:00:00Z', projects: { repos: [], ready: [], probes: [], owners: ['acme'] } } as never)
+        const existing = { id: 9, name: 'my_app', source: 'github', repo: 'acme/my_app', state: 'ready' }
+        vi.mocked(selectMany).mockImplementation(((_c: unknown, table: string, _s: unknown, filters: { repo?: { ilike?: string } }) => Promise.resolve({
+            data: table === 'factory_projects' && filters.repo?.ilike === 'acme/My\\_App' ? [existing] : [], error: null,
+        })) as never)
+        expect(await addGithubProject(502, OWNER, 'https://github.com/acme/My_App')).toEqual({ project: existing, existed: true })
+        expect(inserts).toEqual([])
+    })
+})
+
+describe('factory projects: uploads cut off mid-way', () => {
+    it('fails an upload still uploading after 30 minutes and removes its object, and leaves a recent one alone', async () => {
+        const stale = { id: 21, updated_at: new Date(Date.now() - 31 * 60_000).toISOString() }
+        const recent = { id: 22, updated_at: new Date(Date.now() - 60_000).toISOString() }
+        const writes: { payload: unknown; eqs: unknown[][] }[] = []
+        const removed: string[][] = []
+        vi.mocked(selectMaybeSingle).mockResolvedValue({ data: null, error: null } as never)
+        vi.mocked(selectMany).mockImplementation(((_c: unknown, _t: string, _s: unknown, filters: { state?: unknown; updated_at?: { lt: string } }) => Promise.resolve({
+            data: filters.state === 'uploading' ? [stale, recent].filter(r => filters.updated_at && r.updated_at < filters.updated_at.lt) : [], error: null,
+        })) as never)
+        from.mockImplementation(() => ({ update: (payload: unknown) => {
+            const write = { payload, eqs: [] as unknown[][] }
+            writes.push(write)
+            const query = { eq: (...args: unknown[]) => { write.eqs.push(args); return query }, select: () => Promise.resolve({ data: [{ id: 21 }], error: null }) }
+            return query
+        } }))
+        vi.mocked(createServiceRoleClient).mockReturnValue({ from, storage: { from: () => ({ remove: (paths: string[]) => { removed.push(paths); return Promise.resolve({ error: null }) } }) } } as never)
+        await factoryReportAnswer(701)
+        expect(writes).toEqual([{ payload: expect.objectContaining({ state: 'failed', error_code: 'timed_out' }), eqs: [['id', 21], ['workspace_id', 701], ['state', 'uploading'], ['updated_at', stale.updated_at]] }])
+        expect(removed).toEqual([['701/21.tar']])
     })
 })
 
