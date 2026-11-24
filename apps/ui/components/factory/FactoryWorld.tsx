@@ -53,7 +53,7 @@ function LiveOverlay({ start, tiles, routes, scene, selectedIssue, onSelectJob, 
     return <FactoryOverlay tiles={tiles} routes={routes} pods={frame.pods} cabinets={frame.cabinets} plans={frame.plans ?? []} rejects={frame.rejects} held={frame.held} holdLeftMs={frame.holdLeftMs} links={frame.links} selectedIssue={selectedIssue} {...(onSelectJob ? { onSelectJob } : {})} {...(onOpenBucket ? { onOpenBucket } : {})} />
 }
 
-export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace = 'sample', selectedIssue = null, onSelectJob, onOpenBucket, onOpenCoworker, rightInset = 0, snapshot = null, topBar, cameraScope = `factory:${workspace}` }: { theme?: 'light' | 'dark'; scene?: SceneFn; workspace?: string; cameraScope?: string; selectedIssue?: number | null; onSelectJob?: (issue: number) => void; onOpenBucket?: (bucket: Bucket) => void; onOpenCoworker?: (name: string) => void; rightInset?: number; snapshot?: FactorySnapshot | null; topBar?: ReactNode }) {
+export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace = 'sample', selectedIssue = null, onSelectJob, onOpenBucket, onOpenCoworker, rightInset = 0, snapshot = null, topBar, cameraScope = `factory:${workspace}` }: { theme?: 'light' | 'dark'; scene?: SceneFn; workspace?: string; cameraScope?: string | null; selectedIssue?: number | null; onSelectJob?: (issue: number) => void; onOpenBucket?: (bucket: Bucket) => void; onOpenCoworker?: (name: string) => void; rightInset?: number; snapshot?: FactorySnapshot | null; topBar?: ReactNode }) {
     const t = useTranslations('factory.floor')
     const locale = useLocale()
     const [clock, setClock] = useState(() => ({ start: Date.now(), now: Date.now() }))
@@ -118,7 +118,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     const onCameraChange = useCallback((c: IsoCamera) => {
         view.current = c
         setZoom(c.zoom)
-        if (!camera) return
+        if (!camera || cameraScope === null) return
         writeCamera(cameraScope, { zoom: c.zoom, pan: c.pan })
         setUserCamera(true)
     }, [camera, cameraScope])
@@ -132,7 +132,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     }
     const move = (next: IsoCamera) => {
         show(next)
-        writeCamera(cameraScope, { zoom: next.zoom, pan: next.pan })
+        if (cameraScope !== null) writeCamera(cameraScope, { zoom: next.zoom, pan: next.pan })
         setUserCamera(true)
     }
     const showFit = () => { if (fitZoom !== null) show({ zoom: fitZoom, pan: centred(fitZoom) }) }
@@ -146,7 +146,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     }
     const resetLayout = () => {
         saveLayout(storageKey, null)
-        clearCamera(cameraScope)
+        if (cameraScope !== null) clearCamera(cameraScope)
         setUserCamera(false)
         showFit()
     }
@@ -157,7 +157,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
             show(stored)
             setUserCamera(true)
         }
-    } else if (camera === null && floor) showFit()
+    } else if (camera === null && floor && cameraScope !== null) showFit()
     const onMapKey = (e: KeyboardEvent<HTMLDivElement>) => {
         if (e.target !== e.currentTarget) return
         const z = view.current?.zoom ?? zoom
