@@ -316,10 +316,15 @@ def plan_check(full, issue):
 
 
 def ensure_clone(full):
+    import mirror
     p = os.path.join(REPOS, folder(full))
     if not os.path.isdir(os.path.join(p, ".git")):
-        run([GIT, "clone", "--quiet", "https://github.com/%s.git" % full, p], timeout=600)
-    run([GIT, "fetch", "--quiet", "--prune", "origin"], cwd=p, timeout=300)
+        r = mirror.git(["clone", "--quiet", mirror.url(full), p], timeout=600, net=True)
+        if r.returncode:
+            die("shared checkout of %s could not be cloned: %s" % (full, mirror.failure(r, "shared clone " + full)), 1)
+    r = mirror.git(["fetch", "--quiet", "--prune", "origin"], cwd=p, timeout=300, net=True)
+    if r.returncode:
+        die("shared checkout of %s could not be fetched: %s" % (full, mirror.failure(r, "shared fetch " + full)), 1)
     follow_base(p)
     return p
 
@@ -1084,7 +1089,7 @@ def cmd_job_open(a):
         die("the work order lacks: %s. Template: job-open --template" % ", ".join(miss))
     r = run([GH, "issue", "create", "-R", full, "--title", a[a.index("--title") + 1], "--body-file", a[a.index("--body-file") + 1]])
     url = r.stdout.strip().splitlines()[-1]
-    print("JOB %s\nStart every dispatch for it with: JOB %s#%s" % (url, short(full), url.rsplit("/", 1)[-1]))
+    print("JOB %s\nStart every dispatch for it with: JOB %s#%s" % (url, short(full) if full.split("/")[0] == OWNERS[0] else full, url.rsplit("/", 1)[-1]))
 
 
 def cmd_release_pr(a):

@@ -30,6 +30,8 @@ def path(repo):
 
 
 def network():
+    if not GITHUB.startswith(("https://", "file://")):
+        F.die("FACTORY_GITHUB_URL must start with https://, or file:// for a local setup. Nothing done.")
     return GITHUB.split("://", 1)[0]
 
 
