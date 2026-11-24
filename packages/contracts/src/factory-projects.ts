@@ -4,7 +4,7 @@ export const FACTORY_PROJECT_SOURCES = ['github', 'upload'] as const
 export const FACTORY_PROJECT_STATES = ['queued', 'uploading', 'cloning', 'unpacking', 'checking', 'ready', 'failed'] as const
 export const FACTORY_PROJECT_ERROR_CODES = [
     'invalid_link', 'owner_not_allowed', 'not_reachable', 'quota_unset', 'quota_exceeded', 'upload_too_large', 'too_many_files',
-    'unsafe_entry', 'checksum_mismatch', 'no_github_remote', 'disk_low', 'timed_out', 'unknown',
+    'unsafe_entry', 'checksum_mismatch', 'no_github_remote', 'disk_low', 'timed_out', 'already_added', 'unknown',
 ] as const
 
 export const factoryProjectSourceSchema = z.enum(FACTORY_PROJECT_SOURCES)
@@ -51,11 +51,20 @@ export type FactoryProjectLimits = z.infer<typeof factoryProjectLimitsSchema>
 
 const amount = z.number().int().min(0)
 
+const DROPPED_MAX = 50
+
+export const factoryProjectDroppedSchema = z.array(z.object({ label: z.string().max(40), path: z.string().max(300) })).max(DROPPED_MAX)
+
+export type FactoryProjectDropped = z.infer<typeof factoryProjectDroppedSchema>
+
 export const factoryProjectItemSchema = z.object({
     id: z.number().int().positive(),
     state: factoryProjectStateSchema,
     progress: z.object({ done: amount, total: amount, unit: z.enum(['bytes', 'pct']) }).nullable(),
     error_code: factoryProjectErrorCodeSchema.nullable(),
+    identified_repo: z.string().max(201).optional(),
+    head: z.string().regex(/^([0-9a-f]{40}|[0-9a-f]{64})$/).nullable().optional(),
+    dropped: factoryProjectDroppedSchema.optional(),
 })
 
 export type FactoryProjectItem = z.infer<typeof factoryProjectItemSchema>

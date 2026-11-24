@@ -2,7 +2,7 @@ import { sleep } from '@moldwright/contracts'
 import type { Database } from '@/app/api/database.types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export async function uploadPrivateFile(supabase: SupabaseClient<Database>, bucket: string, path: string, body: Blob | ArrayBuffer | Uint8Array, contentType: string): Promise<string> {
+export async function uploadPrivateFile(supabase: SupabaseClient<Database>, bucket: string, path: string, body: Blob | ArrayBuffer | Uint8Array | ReadableStream<Uint8Array>, contentType: string): Promise<string> {
     await supabase.storage.createBucket(bucket, { public: false }).catch(() => {})
 
     const { error } = await supabase.storage.from(bucket).upload(path, body, { contentType, upsert: true })

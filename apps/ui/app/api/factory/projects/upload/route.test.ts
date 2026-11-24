@@ -85,9 +85,8 @@ describe('POST /api/factory/projects/upload', () => {
         const writes = db.writes('factory_projects')
         expect(writes[0].payload).toMatchObject({ workspace_id: WORKSPACE_ID, source: 'upload', state: 'uploading', repo: null, name: 'My app' })
         expect(writes[1].payload).toMatchObject({ state: 'queued', upload_bytes: BODY.byteLength, upload_sha256: createHash('sha256').update(BODY).digest('hex') })
-        const { project } = await response.json()
-        expect(project).toMatchObject({ id: 41, state: 'queued' })
-        expect(project).not.toHaveProperty('upload_sha256')
+        expect(writes[1].filters.find(c => c.method === 'select')?.args[0]).not.toMatch(/upload_sha256|upload_bytes|host_path/)
+        expect((await response.json()).project).toMatchObject({ id: 41, state: 'queued' })
     })
 
     it('refuses a declared size over the upload limit before any row, and a body longer than declared', async () => {

@@ -1,7 +1,11 @@
 import contextlib
+import hashlib
+import io
 import json
 import os
+import tarfile
 import tempfile
+import types
 import unittest
 import unittest.mock
 
@@ -11,6 +15,16 @@ from test_lines import Pair
 
 LIMITS = {"max_count": 10, "max_project_mb": 500, "max_total_mb": 2000, "upload_max_mb": 200,
           "upload_max_files": 20000, "upload_max_depth": 32, "upload_max_file_mb": 50}
+
+
+def tar_of(files):
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w", format=tarfile.PAX_FORMAT) as tf:
+        for name, data in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    return out.getvalue()
 
 
 class ProjectDir(unittest.TestCase):
@@ -142,6 +156,38 @@ class LearnProjects(Pair):
         self.cfg["project_owners"] = ["acme", "stranger"]
         self.learn([{"id": 5, "repo": "stranger/app", "source": "github"}])
         self.assertEqual(self.items()[5]["state"], "cloning")
+
+    def upload_item(self, pid, data, state="queued", sha=None):
+        return {"id": pid, "source": "upload", "state": state, "sha256": sha or hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+
+    def fetched(self, data):
+        self.d.account = types.SimpleNamespace(archive=lambda pid: io.BytesIO(data))
+
+    def wait_unpack(self):
+        if self.d.unpacking:
+            self.d.unpacking[1].join(10)
+
+    def test_an_upload_is_fetched_checked_unpacked_then_cloned_from_its_identified_repo(self):
+        data = tar_of({".git/config": b'[remote "origin"]\n\turl = git@github.com:acme/app.git\n', ".env": b"K=1\n", "app.py": b"print(1)\n"})
+        self.fetched(data)
+        self.learn([self.upload_item(5, data)])
+        self.assertEqual(self.items()[5], {"id": 5, "state": "queued", "progress": None, "error_code": None})
+        self.wait_unpack()
+        self.learn([self.upload_item(5, data, state="unpacking")])
+        self.assertEqual(self.items()[5], {"id": 5, "state": "cloning", "progress": None, "error_code": None, "identified_repo": "acme/app",
+                                           "head": None, "dropped": [{"label": "Env file", "path": ".env"}]})
+        self.assertEqual(self.popen.call_args[0][0][-2:], ["refresh", "acme/app"])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.dir.name, "projects", "11", "5"))), ["clone.log", "src"])
+
+    def test_an_upload_that_does_not_match_its_checksum_or_was_left_unpacking_fails_and_is_not_cloned(self):
+        data = tar_of({".git/config": b'[remote "origin"]\n\turl = https://github.com/acme/app\n'})
+        self.fetched(data)
+        self.learn([self.upload_item(5, data, sha="0" * 64), self.upload_item(6, data, state="unpacking")])
+        self.wait_unpack()
+        self.learn([self.upload_item(5, data, state="unpacking", sha="0" * 64), self.upload_item(6, data, state="unpacking")])
+        self.assertEqual({i: (x["state"], x["error_code"]) for i, x in self.items().items()}, {5: ("failed", "checksum_mismatch"), 6: ("failed", "unknown")})
+        self.popen.assert_not_called()
+        self.assertEqual(os.listdir(os.path.join(self.dir.name, "projects", "11", "5")), [])
 
     def test_a_folder_whose_id_the_hub_no_longer_has_is_removed(self):
         for n in ("4", "5"):

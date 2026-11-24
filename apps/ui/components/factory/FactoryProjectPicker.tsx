@@ -19,6 +19,7 @@ import { groupOf } from './factory-state'
 import { thrown } from './use-factory-controls'
 
 const POLL_MS = 5_000
+const shownName = (project: FactoryProject) => project.repo ?? project.name
 type Confirm = { kind: 'select' | 'remove'; project: FactoryProject } | null
 
 export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }) {
@@ -76,7 +77,7 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
             if (!res.ok) { report(errorText(res)); break }
             const o = res.outcome
             if (o.state === 'checking') { await sleep(POLL_MS); continue }
-            if (o.state === 'added') { report(t('added', { repo: o.project.repo })); setPath(''); setAdding(false); void load(false) }
+            if (o.state === 'added') { report(t('added', { repo: shownName(o.project) })); setPath(''); setAdding(false); void load(false) }
             else report(o.state === 'refused' ? t(`probe.${o.code}`) : t('timedOut'))
             break
         }
@@ -85,15 +86,15 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
 
     const select = async (project: FactoryProject) => {
         setBusy(true)
-        report(t('checkingReady', { repo: project.repo }))
+        report(t('checkingReady', { repo: shownName(project) }))
         for (;;) {
             const res = await selectFactoryProjectAction(project.id).catch(thrown)
             if (!alive.current) return
             if (!res.ok) { report(errorText(res)); break }
             const o = res.outcome
             if (o.state === 'checking') { await sleep(POLL_MS); continue }
-            if (o.state === 'selected') { report(t('selected', { repo: project.repo })); void load(false) }
-            else if (o.state === 'refused') report(t('notReady', { repo: project.repo }), o.lines)
+            if (o.state === 'selected') { report(t('selected', { repo: shownName(project) })); void load(false) }
+            else if (o.state === 'refused') report(t('notReady', { repo: shownName(project) }), o.lines)
             else report(t('timedOut'))
             break
         }
@@ -104,7 +105,7 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
         setBusy(true)
         const res = await removeFactoryProjectAction(project.id).catch(thrown)
         setBusy(false)
-        report(res.ok ? t('removed', { repo: project.repo }) : errorText(res))
+        report(res.ok ? t('removed', { repo: shownName(project) }) : errorText(res))
         if (res.ok) void load(false)
     }
 
@@ -162,11 +163,11 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
                                         <CommandEmpty>{t('empty')}</CommandEmpty>
                                         <CommandGroup heading={t('heading')}>
                                             {projects.map(p => (
-                                                <CommandItem key={p.id} value={p.repo} disabled={!isOwner || busy}
+                                                <CommandItem key={p.id} value={shownName(p)} disabled={!isOwner || busy}
                                                     onSelect={() => { if (!p.active) ask({ kind: 'select', project: p }) }}>
-                                                    <ProjectMark repo={p.repo} />
+                                                    <ProjectMark repo={shownName(p)} />
                                                     <span className="flex min-w-0 flex-1 flex-col">
-                                                        <span className="truncate">{p.repo}</span>
+                                                        <span className="truncate">{shownName(p)}</span>
                                                     </span>
                                                     {p.active && <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{t('active')}</span>}
                                                 </CommandItem>
@@ -182,7 +183,7 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
                                             <button type="button" disabled={busy} onClick={() => ask({ kind: 'remove', project: p })}
                                                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent disabled:opacity-50">
                                                 <Trash2 className="size-3.5 shrink-0" aria-hidden />
-                                                <span className="truncate">{t('remove', { repo: p.repo })}</span>
+                                                <span className="truncate">{t('remove', { repo: shownName(p) })}</span>
                                             </button>
                                         </li>
                                     ))}
@@ -209,7 +210,7 @@ export function FactoryProjectPicker({ snapshot }: { snapshot: FactorySnapshot }
             <ConfirmDialog
                 open={confirm !== null}
                 onOpenChange={closeConfirm}
-                title={confirm?.kind === 'remove' ? t('confirmRemoveTitle', { repo: confirm.project.repo }) : t('confirmSelectTitle', { repo: confirm?.project.repo ?? '' })}
+                title={confirm?.kind === 'remove' ? t('confirmRemoveTitle', { repo: shownName(confirm.project) }) : t('confirmSelectTitle', { repo: confirm ? shownName(confirm.project) : '' })}
                 description={confirm?.kind === 'remove' ? t('confirmRemoveBody') : t('confirmSelectBody', { count: inFlight, old: active })}
                 confirmLabel={confirm?.kind === 'remove' ? t('confirmRemove') : t('confirmSelect')}
                 confirmVariant={confirm?.kind === 'remove' ? 'destructive' : 'default'}
