@@ -193,6 +193,11 @@ export function chipCounts(epics: LedgerEpic[], now: number): ChipCounts {
     return c
 }
 
+export function waitingInOrder(epics: LedgerEpic[], orderIssues: number[]): number {
+    const inOrder = new Set(orderIssues)
+    return allTasks(epics).filter(t => WAITING.has(t.state) && inOrder.has(t.issue)).length
+}
+
 function allTasks(epics: LedgerEpic[]): LedgerTask[] {
     return epics.flatMap((e) => [...e.layers.flatMap((l) => l.tasks), ...(e.cycle?.tasks ?? [])])
 }

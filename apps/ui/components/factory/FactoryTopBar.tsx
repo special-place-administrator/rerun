@@ -17,7 +17,7 @@ import { FactoryWorkOrders, FactoryWorkOrdersSkeleton } from './FactoryWorkOrder
 import { SAMPLE_TEXT } from './FactoryTasks'
 import { type Bucket } from './factory-bucket'
 import { isAnswering } from './factory-loader'
-import { DEPARTMENT_VIEW, buildLedger, chipCounts, filterLedger, type ChipCounts, type LedgerFilter } from './factory-ledger'
+import { DEPARTMENT_VIEW, buildLedger, chipCounts, filterLedger, waitingInOrder, type ChipCounts, type LedgerFilter } from './factory-ledger'
 import { throttleShown } from './factory-throttle'
 import type { FactoryControlsState } from './use-factory-controls'
 
@@ -38,8 +38,8 @@ const CHIP = 'flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bo
 const sameFilter = (a: LedgerFilter | null, b: LedgerFilter) =>
     a !== null && (typeof a === 'string' || typeof b === 'string' ? a === b : a.department === b.department)
 
-function Chip({ name, label, count, filter, active, onPress, color, asOf, className }: {
-    name: string; label: string; count?: number | string; filter: LedgerFilter; active: boolean; onPress: (f: LedgerFilter, chip: HTMLElement) => void; color?: string; asOf?: string | undefined; className?: string
+function Chip({ name, label, count, filter, active, onPress, color, asOf, note, className }: {
+    name: string; label: string; count?: number | string; filter: LedgerFilter; active: boolean; onPress: (f: LedgerFilter, chip: HTMLElement) => void; color?: string; asOf?: string | undefined; note?: string | undefined; className?: string
 }) {
     return (
         <button
@@ -52,6 +52,7 @@ function Chip({ name, label, count, filter, active, onPress, color, asOf, classN
             {color && <span className="size-2 rounded-full" style={{ background: color }} />}
             {label}{count !== undefined ? ` ${count}` : ''}
             {asOf && <span data-as-of className="text-muted-foreground">{asOf}</span>}
+            {note && <span data-chip-note className="text-muted-foreground">{note}</span>}
         </button>
     )
 }
@@ -126,7 +127,10 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
     const asOf = isAnswering(snapshot.madeAt, now) ? undefined : t('asOf', { time: formatDate(snapshot.madeAt, locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) })
     const departments = (Object.keys(counts.byDepartment) as FactoryDepartment[]).filter(d => (counts.byDepartment[d] ?? 0) > 0)
     const { running, pool } = throttleShown(snapshot, controls.view)
-    const countOf = (key: MainChip) => (key === 'running' ? `${running}/${pool}` : counts[key])
+    const order = snapshot.work_order
+    const inOrder = order ? waitingInOrder(epics, order.issues) : null
+    const countOf = (key: MainChip) => (key === 'running' ? `${running}/${pool}` : key === 'waiting' && inOrder !== null ? inOrder : counts[key])
+    const noteOf = (key: MainChip) => (key === 'waiting' && inOrder !== null ? t('waitingOutside', { count: counts.waiting - inOrder }) : undefined)
     const clickIn = (selector: string) => root?.querySelector<HTMLButtonElement>(selector)?.click()
     const folded = MAIN_CHIPS.filter(c => FOLDING_CHIPS.includes(c.key))
 
@@ -148,7 +152,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                     onProjects={() => clickIn('[data-project-picker] > button')} onChooseWork={() => clickIn('[data-work-orders] button')} />
                 {MAIN_CHIPS.map(c => (
                     <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)} onPress={press}
-                        asOf={c.key === 'running' ? asOf : undefined} {...(FOLDING_CHIPS.includes(c.key) ? { className: '@max-[1050px]:hidden' } : {})}
+                        asOf={c.key === 'running' ? asOf : undefined} note={noteOf(c.key)} {...(FOLDING_CHIPS.includes(c.key) ? { className: '@max-[1050px]:hidden' } : {})}
                         {...(c.key === 'problems' && counts.problems > 0 ? { color: 'var(--destructive)' } : {})} />
                 ))}
                 <Popover open={moreOpen} onOpenChange={setMoreOpen}>
@@ -160,7 +164,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                     </PopoverTrigger>
                     <PopoverContent container={root} side="bottom" align="end" sideOffset={8} className="w-auto flex-row gap-2 p-2">
                         {folded.map(c => (
-                            <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)}
+                            <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} note={noteOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)}
                                 onPress={f => { setMoreOpen(false); press(f, moreRef.current) }} />
                         ))}
                     </PopoverContent>
