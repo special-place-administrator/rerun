@@ -160,7 +160,7 @@ describe('FactoryTopBar', () => {
         await act(async () => {
             root.render(createElement(TooltipProvider, null, createElement(FactoryTopBar, {
                 snapshot: idle, selected: null, onSelect: () => {}, names: {}, onOpenCoworker: () => {},
-                controls: { view: { isOwner: true, activeRepo: null, state: 'RUNNING', providersOff: [], throttle: null, orders: [] }, loadError: null, reload: async () => {} },
+                controls: { view: { isOwner: true, activeRepo: null, state: 'RUNNING', providersOff: [], throttle: null, orders: [], projectLimits: null }, loadError: null, reload: async () => {} },
             })))
         })
         const pill = q('[data-topbar] [role="status"][data-state-pill]')!
@@ -191,7 +191,7 @@ describe('FactoryTopBar', () => {
         await act(async () => {
             root.render(createElement(TooltipProvider, null, createElement(FactoryTopBar, {
                 snapshot: idle, selected: null, onSelect: () => {}, names: {}, onOpenCoworker: () => {},
-                controls: { view: { isOwner: true, activeRepo: 'o/r', state: 'RUNNING', providersOff: [], throttle: null, orders: [] }, loadError: null, reload: async () => {} },
+                controls: { view: { isOwner: true, activeRepo: 'o/r', state: 'RUNNING', providersOff: [], throttle: null, orders: [], projectLimits: null }, loadError: null, reload: async () => {} },
             })))
         })
         const start = q('[data-state-button="RUNNING"]')!
