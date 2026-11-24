@@ -1,5 +1,5 @@
 import type { ContextSize, RunGoal } from '@moldwright/contracts'
-import { MCP_SERVER_NAME_RE, connectorSkillReadOnlyError, contextSizeSchema, FACTORY_SNAPSHOT_MAX_BYTES, factorySnapshotSchema, isSetupAnswered, MAX_TEXT_WRITE_CHARS, providerSchema, runGoalSchema, sleep, triggerMethodSchema, verbositySchema } from '@moldwright/contracts'
+import { MCP_SERVER_NAME_RE, connectorSkillReadOnlyError, contextSizeSchema, FACTORY_SNAPSHOT_MAX_BYTES, factorySnapshotSchema, isRecord, isSetupAnswered, MAX_TEXT_WRITE_CHARS, providerSchema, runGoalSchema, sleep, triggerMethodSchema, verbositySchema } from '@moldwright/contracts'
 import { AccessDeniedError, assertAgentInWorkspace, callableEngineAgentIds, isAdminActor, keepVisible, manageableSpaceIds, spaceAccessMap, visibleAgentIds, visibleSpaceIds, type Actor } from '@/app/api/_auth/access'
 import type { Database } from '@/app/api/database.types'
 import { putFactorySnapshot } from '@/lib/factory/snapshot-store'
@@ -336,6 +336,25 @@ function readMemoryEntries(value: unknown): MemoryEntry[] {
 }
 
 const FACTORY_SNAPSHOT_MAX_SKEW_MS = 120_000
+
+export class AccountToolError extends Error {
+    constructor(
+        message: string,
+        readonly code?: string
+    ) {
+        super(message)
+        this.name = 'AccountToolError'
+    }
+}
+
+function engineErrorCode(body: string): string | undefined {
+    try {
+        const parsed: unknown = JSON.parse(body)
+        return isRecord(parsed) && typeof parsed.code === 'string' ? parsed.code : undefined
+    } catch {
+        return undefined
+    }
+}
 
 export async function dispatchAccountTool(actor: Actor, name: string, args: Record<string, unknown>, { actorUserId = null }: { actorUserId?: string | null } = {}): Promise<unknown> {
     const workspaceId = actor.workspaceId
@@ -919,7 +938,7 @@ export async function dispatchAccountTool(actor: Actor, name: string, args: Reco
             if (!res.ok) {
                 const body = await res.text().catch(() => '')
                 if (res.status === 400 && body.includes('invalid_goal')) throw new Error(`invalid_goal: the engine refused the goal. ${body}`.trim())
-                throw new Error(`The coworker could not be reached: ${res.status} ${body}`.trim())
+                throw new AccountToolError(`The coworker could not be reached: ${res.status} ${body}`.trim(), engineErrorCode(body))
             }
 
             const runId = res.headers.get('x-run-id')

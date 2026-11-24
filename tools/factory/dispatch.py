@@ -459,7 +459,11 @@ def make_account(url, key, opener=urllib.request.urlopen, fetcher=None):
         res = msg.get("result") or {}
         out = "".join(p.get("text", "") for p in res.get("content") or [] if p.get("type") == "text")
         if res.get("isError"):
-            named = " invalid_goal" if "invalid_goal" in out else " " + NO_ROUTE if "No connection can run this coworker now" in out else ""
+            try:
+                code = json.loads(out).get("code")
+            except (ValueError, AttributeError):
+                code = None
+            named = " invalid_goal" if "invalid_goal" in out else " " + NO_ROUTE if code == NO_ROUTE or "No connection can run this coworker now" in out else ""
             raise Error("account %s failed: the tool reported an error%s" % (tool, named))
         try:
             return json.loads(out)

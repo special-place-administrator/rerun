@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { memberActor, workspaceActor, type Actor } from '@/app/api/_auth/access'
-import { dispatchAccountTool } from '@/app/api/_services/mcp-account.service'
+import { AccountToolError, dispatchAccountTool } from '@/app/api/_services/mcp-account.service'
 import { deleteAgent } from '@/app/api/_services/agent.service'
 import { ACCOUNT_TOOL_DEFS } from '@/lib/mcp/account-tools'
 import { authenticateApiKey, bindImportKey, type AuthenticatedApiKey } from '@/lib/mcp/api-keys'
@@ -89,8 +89,9 @@ export async function handleAccountMcp(req: Request, token: string, { importOnly
             return rpcResult(id, { content: [{ type: 'text', text }], structuredContent: out })
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Tool failed'
+            const code = err instanceof AccountToolError ? err.code : undefined
             console.error(`[mcp-account] tools/call ${name} failed:`, message)
-            return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify({ error: message }) }], isError: true })
+            return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify(code ? { error: message, code } : { error: message }) }], isError: true })
         }
     }
 

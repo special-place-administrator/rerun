@@ -107,6 +107,11 @@ describe('dispatchAccountTool', () => {
             expect(engineChat).not.toHaveBeenCalled()
         })
 
+        it('keeps the refusal message and carries the engine code with it', async () => {
+            vi.mocked(engineChat).mockResolvedValue(new Response(JSON.stringify({ error: 'refused', code: 'no_usable_connection' }), { status: 503 }))
+            await expect(dispatchAccountTool(member, 'send_message', { agentId: 'agent-own', message: 'hi' })).rejects.toMatchObject({ message: 'The coworker could not be reached: 503 {"error":"refused","code":"no_usable_connection"}', code: 'no_usable_connection' })
+        })
+
         describe('once the engine took the message', () => {
             const done = { id: 'run-1', status: 'done', sessionId: 's-1', output: 'ok', costMicros: null } as never
             const send = async (waitSeconds: number) => {
