@@ -10,6 +10,9 @@ RETRIES, BACKOFF_S = 3, 2
 GRACE_S = 10
 STOPS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 HELD = []
+NO_FILTERS = ["-c", "submodule.recurse=false", "-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"]
+NOT_REACHABLE = re.compile(r"repository not found|authentication|could not read username|\b40[34]\b", re.I)
+ERRORS_LOG, LOG_ENTRY_MAX = "git-errors.log", 2000
 
 
 def url(full):
@@ -26,8 +29,33 @@ def path(repo):
     return os.path.join(root(), repo + ".git")
 
 
-def git(args, cwd="/tmp", timeout=300):
-    return run([F.GIT] + args, cwd, timeout)
+def network():
+    return GITHUB.split("://", 1)[0]
+
+
+def git(args, cwd="/tmp", timeout=300, net=False, local=False):
+    if not (net or local):
+        return run([F.GIT] + args, cwd, timeout)
+    allow = "file" if local else network()
+    fence = ["-c", "protocol.file.allow=" + ("always" if allow == "file" else "never")] + NO_FILTERS
+    return run([F.GIT] + fence + args, cwd, timeout, {"GIT_ALLOW_PROTOCOL": allow, "GIT_LFS_SKIP_SMUDGE": "1"})
+
+
+def failure(r, what):
+    import lines
+    raw = (r.stderr or r.stdout or "").strip()
+    os.makedirs(F.STATE, exist_ok=True)
+    fd = os.open(os.path.join(F.STATE, ERRORS_LOG), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        entry = lines.scrub("%s %s: %s" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), what, raw))
+        os.write(fd, (entry[:LOG_ENTRY_MAX] + "\n").encode())
+    finally:
+        os.close(fd)
+    if r.returncode < 0:
+        return "timed_out"
+    if "No space left on device" in raw:
+        return "disk_low"
+    return "not_reachable" if NOT_REACHABLE.search(raw) else "unknown"
 
 
 def tell(p, sig):
@@ -51,8 +79,8 @@ def end(p):
     return "", "the command and its children did not end %d s after SIGKILL" % GRACE_S
 
 
-def run(cmd, cwd="/tmp", timeout=300):
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+def run(cmd, cwd="/tmp", timeout=300, extra_env=None):
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", **(extra_env or {}))
     p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, pass_fds=tuple(HELD), start_new_session=True)
     old = {s: signal.getsignal(s) for s in STOPS}
 
@@ -111,7 +139,7 @@ def setup(m):
 
 
 def refresh(full):
-    repo = F.short(full)
+    repo = F.folder(full)
     os.makedirs(root(), exist_ok=True)
     lk = open(os.path.join(root(), repo + ".lock"), "a")
     try:
@@ -126,9 +154,9 @@ def refresh(full):
         if not os.path.isdir(m):
             tmp = m + ".tmp"
             shutil.rmtree(tmp, ignore_errors=True)
-            r = git(["clone", "--quiet", "--mirror", url(full), tmp], timeout=900)
+            r = git(["clone", "--quiet", "--mirror", url(full), tmp], timeout=900, net=True)
             if r.returncode:
-                print("TRANSIENT: mirror %s could not be cloned: %s" % (repo, (r.stderr or "").strip()[-300:]))
+                print("TRANSIENT: mirror %s could not be cloned: %s" % (repo, failure(r, "mirror clone " + full)))
                 return 3
             setup(tmp)
             os.rename(tmp, m)
@@ -136,12 +164,12 @@ def refresh(full):
             print("MIRROR %s: removed stale git lock %s" % (repo, f))
         setup(m)
         for i in range(RETRIES):
-            r = git(["fetch", "--quiet", "--prune", "origin"], cwd=m)
+            r = git(["fetch", "--quiet", "--prune", "origin"], cwd=m, net=True)
             if r.returncode == 0:
                 break
             time.sleep(BACKOFF_S * (i + 1))
         else:
-            print("TRANSIENT: mirror %s fetch failed %d times: %s" % (repo, RETRIES, (r.stderr or "").strip()[-300:]))
+            print("TRANSIENT: mirror %s fetch failed %d times: %s" % (repo, RETRIES, failure(r, "mirror fetch " + full)))
             return 3
         try:
             F.ensure_clone(full)
@@ -159,11 +187,11 @@ def refresh(full):
 
 
 def fresh(full, branch="dev"):
-    m = path(F.short(full))
+    m = path(F.folder(full))
     if not os.path.isdir(m):
         return "MISSING", "", ""
     have = git(["rev-parse", "--verify", "--quiet", "refs/heads/" + branch], cwd=m).stdout.strip()
-    r = git(["ls-remote", url(full), "refs/heads/" + branch], timeout=60)
+    r = git(["ls-remote", url(full), "refs/heads/" + branch], timeout=60, net=True)
     if r.returncode:
         return "UNREACHABLE", have, ""
     want = (r.stdout.split() or [""])[0]
@@ -172,7 +200,7 @@ def fresh(full, branch="dev"):
 
 def check(full):
     state, have, want = fresh(full)
-    repo = F.short(full)
+    repo = F.folder(full)
     if state == "FRESH":
         print("MIRROR %s fresh at %s" % (repo, have[:8]))
         return 0

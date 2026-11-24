@@ -1,5 +1,5 @@
 import type { ToolSet } from 'ai'
-import { filesystemTools } from './builtin/filesystem.js'
+import { extraRootsAllowed, filesystemTools } from './builtin/filesystem.js'
 import { sharedTools } from './builtin/shared.js'
 import { shellTools } from './builtin/shell.js'
 import { webTools } from './builtin/web.js'
@@ -42,7 +42,7 @@ export async function buildTools(ctx: RunContext): Promise<{ tools: ToolSet; hel
     const cfg = ctx.agent.config.tools
     const tools: ToolSet = {}
     if (ctx.agent.config.kind === 'foreman') Object.assign(tools, foremanTools(ctx), agentFilesTools())
-    if (cfg.filesystem) Object.assign(tools, filesystemTools(ctx))
+    if (cfg.filesystem) Object.assign(tools, filesystemTools(ctx, await extraRootsAllowed(ctx.agent)))
     if (cfg.shared) Object.assign(tools, sharedTools(ctx))
     if (cfg.shell) Object.assign(tools, shellTools(ctx))
     if (cfg.web) Object.assign(tools, webTools(ctx))

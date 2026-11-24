@@ -51,7 +51,7 @@ def update(argv, gh):
     if not sha:
         print("TOOLS current at %s" % (cur or "none")[:8])
         return 0
-    m = M.path(F.short(FULL))
+    m = M.path(F.folder(FULL))
     if not os.path.isdir(m) or M.git(["cat-file", "-e", sha + "^{commit}"], cwd=m).returncode:
         print("TRANSIENT: the mirror lacks %s; the next `mirror refresh` brings it" % sha[:8])
         return 3

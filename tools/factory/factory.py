@@ -133,6 +133,7 @@ def base_roster(full):
 
 
 def repo_full(name):
+    name = name.replace("+", "/", 1)
     full = name if "/" in name else OWNERS[0] + "/" + name
     if full.split("/")[0] not in OWNERS:
         die("repo owner not allowed: " + full)
@@ -150,8 +151,13 @@ def short(full):
     return FOLDER_NAMES.get(name, name)
 
 
+def folder(full):
+    owner, name = full.split("/")
+    return short(full) if owner == OWNERS[0] else "%s+%s" % (owner, name)
+
+
 def named(full):
-    return home() if short(full) == short(home()) else full
+    return home() if folder(full) == folder(home()) else full
 
 
 def trim(s, n):
@@ -310,7 +316,7 @@ def plan_check(full, issue):
 
 
 def ensure_clone(full):
-    p = os.path.join(REPOS, short(full))
+    p = os.path.join(REPOS, folder(full))
     if not os.path.isdir(os.path.join(p, ".git")):
         run([GIT, "clone", "--quiet", "https://github.com/%s.git" % full, p], timeout=600)
     run([GIT, "fetch", "--quiet", "--prune", "origin"], cwd=p, timeout=300)
@@ -435,7 +441,7 @@ def cmd_wt(a):
     full, issue, chunk = repo_full(a[1]), a[2].lstrip("#"), a[3]
     if not (issue.isdigit() and re.fullmatch(r"[a-z0-9]{1,12}", chunk)):
         die("issue must be a number and chunk a short id like 1 or 2b")
-    repo = short(full)
+    repo = folder(full)
     path = os.path.join(WT, repo, "%s-%s" % (issue, chunk))
     branch = "chunk/%s-%s" % (issue, chunk)
     if a[0] == "done":
@@ -658,7 +664,7 @@ def clone_ready(top, full, branch, base):
     import mirror
     if not os.path.isfile(os.path.join(top, ".git", "factory-ready")):
         i, c = branch.split("/", 1)[1].split("-", 1)
-        die("this clone was not finished. Run `wt new %s %s %s` again first; it finishes the steps and changes nothing else." % (short(full), i, c))
+        die("this clone was not finished. Run `wt new %s %s %s` again first; it finishes the steps and changes nothing else." % (folder(full), i, c))
     url = run([GIT, "remote", "get-url", "origin"], cwd=top).stdout.strip()
     if url != mirror.url(full):
         die("origin of this clone is %s, not %s. Nothing pushed; tell @boss." % (url, mirror.url(full)))
@@ -812,15 +818,15 @@ def cmd_pr_open(a):
         pending = ciwait.unfinished((runs.get("workflow_runs") or []) if isinstance(runs, dict) else [])
         if pending:
             die("a workflow run of the pull request's head %s is not finished (%s). One CI run per head: wait for it with `ci-wait %s %s`, then push once."
-                % (head[:7], ciwait.pending_text(pending), short(full), ex[0]["number"]))
+                % (head[:7], ciwait.pending_text(pending), folder(full), ex[0]["number"]))
         preflight_lines(top, plan)
         preflight_lint(top, changed)
         try:
-            os.remove(marker(short(full), branch))
+            os.remove(marker(folder(full), branch))
         except OSError:
             pass
         run([GIT, "push", "--quiet", "origin", branch], cwd=top)
-        print("PUSHED fix to %s\nPR %s\nNext: `ci-wait %s %s`" % (branch, ex[0]["url"], short(full), ex[0]["number"]))
+        print("PUSHED fix to %s\nPR %s\nNext: `ci-wait %s %s`" % (branch, ex[0]["url"], folder(full), ex[0]["number"]))
         return
     if "--title" not in a or "--body-file" not in a:
         die("usage: pr-open --title 'T' --body-file FILE   (template: pr-open --template)")
@@ -853,7 +859,7 @@ def cmd_pr_open(a):
         die("command failed: %s\n%s%s" % (" ".join(cmd[:6]), text[-600:], suffix), 1)
     os.remove(tmp)
     url = r.stdout.strip().splitlines()[-1]
-    print("PR %s\nbase %s <- %s | %s commits | %d files\nNext: `ci-wait %s %s`. Fix a red result yourself; hand over only when green." % (url, base, branch, ahead, len(changed), short(full), url.rsplit("/", 1)[-1]))
+    print("PR %s\nbase %s <- %s | %s commits | %d files\nNext: `ci-wait %s %s`. Fix a red result yourself; hand over only when green." % (url, base, branch, ahead, len(changed), folder(full), url.rsplit("/", 1)[-1]))
 
 
 def cmd_ci_wait(a):
@@ -864,7 +870,7 @@ def cmd_ci_wait(a):
     if not pr:
         die("PR not found", 1)
     sha, branch = pr["head"]["sha"], pr["head"]["ref"]
-    sf = os.path.join(STATE, "ciwait__%s__%s__%s.json" % (short(full), n, sha[:12]))
+    sf = os.path.join(STATE, "ciwait__%s__%s__%s.json" % (folder(full), n, sha[:12]))
     try:
         first = json.load(open(sf))["first"]
     except Exception:
@@ -881,7 +887,7 @@ def cmd_ci_wait(a):
     print("CI %s | %s#%s @ %s | waited %d min in total" % (s, full, n, sha[:8], waited // 60))
     print(ci_table(cs))
     if s == "GREEN":
-        open(marker(short(full), branch), "w").write(sha)
+        open(marker(folder(full), branch), "w").write(sha)
         print("NEXT: return the PR link to @boss. Do not merge.")
     elif s == "RED":
         for c in [c for c in cs if c["conclusion"] in ("failure", "timed_out", "startup_failure")][:2]:
@@ -929,7 +935,7 @@ def cmd_risk(a):
         ro = base_roster(full)
     except RosterError as e:
         die("risk: " + str(e), 1)
-    if ro is None and short(full) != short(home()):
+    if ro is None and folder(full) != folder(home()):
         import roster as R
         need.setdefault(R.GATE_SENSITIVE, ["this project has no roster: every change needs the second reviewer", []])[1].extend(f["filename"] for f in files)
     if ro:
@@ -1061,8 +1067,8 @@ def cmd_merge_dev(a):
     m = api("repos/%s/pulls/%s" % (full, n))
     print("MERGED %s#%s into %s as %s | head %s | remote branch %s deleted" % (full, n, base, (m.get("merge_commit_sha") or "?")[:8], pr["head"]["sha"][:8], head))
     mm = re.fullmatch(r"chunk/(\d+)-([a-z0-9]+)", head)
-    if mm and os.path.isdir(os.path.join(WT, short(full), "%s-%s" % mm.groups())):
-        print("folder %s/%s-%s stays; the janitor removes it" % (short(full), mm.group(1), mm.group(2)))
+    if mm and os.path.isdir(os.path.join(WT, folder(full), "%s-%s" % mm.groups())):
+        print("folder %s/%s-%s stays; the janitor removes it" % (folder(full), mm.group(1), mm.group(2)))
 
 
 def cmd_job_open(a):

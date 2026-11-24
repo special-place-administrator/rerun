@@ -277,7 +277,7 @@ def claims_line(ro, names, builder, others, verdict):
 
 def ledger_builders(full, jobrepo, jobn, ids, ref):
     import ledger as L
-    if F.short(F.repo_full(jobrepo)) != F.short(full):
+    if F.folder(F.repo_full(jobrepo)) != F.folder(full):
         return [], "PR body names %s#%s but branch is %s" % (jobrepo, jobn, ref)
     mj = re.fullmatch(r"factory/job-(\d+)", ref)
     if mj and mj.group(1) != str(jobn):
@@ -413,7 +413,7 @@ def gate(repo, n):
     if ro:
         import roster as R
         need = R.required(ro, [f["filename"] for f in files], builder)
-    elif not roster_err and F.short(full) != F.short(F.home()):
+    elif not roster_err and F.folder(full) != F.folder(F.home()):
         import roster as R
         need.add(R.GATE_SENSITIVE)
     if len(files) > 25 or lines > 1200:
@@ -480,7 +480,7 @@ def gate(repo, n):
         print("%s %s %s" % (k, "PASS" if v["ok"] else "FAIL", v["receipt"]))
     os.makedirs(F.STATE + "/gate", exist_ok=True)
     json.dump({"repo": full, "pr": int(n), "head": head, "verdict": "FAIL" if failed else "PASS", "checks": res},
-              open(F.STATE + "/gate/%s-%s-%s.json" % (F.short(full), n, head), "w"), indent=1)
+              open(F.STATE + "/gate/%s-%s-%s.json" % (F.folder(full), n, head), "w"), indent=1)
     return 3 if failed else 0
 
 
