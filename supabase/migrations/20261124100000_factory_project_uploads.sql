@@ -10,16 +10,20 @@
 --
 -- The bucket is private with no policy: only the service role reads or writes it.
 --
--- Rollback:
---   delete from storage.buckets where id = 'factory-uploads';
+-- Rollback (where direct deletes from storage.objects are blocked, empty the bucket through the Storage API first):
+--   begin;
+--   delete from storage.objects where bucket_id = 'factory-uploads';
+--   update public.factory_projects set error_code = 'unknown' where error_code = 'already_added';
+--   delete from public.factory_projects where repo is null;
 --   alter table public.factory_projects drop constraint factory_projects_error_code_check,
 --       add constraint factory_projects_error_code_check check (error_code is null or error_code in (
 --           'invalid_link', 'owner_not_allowed', 'not_reachable', 'quota_unset', 'quota_exceeded', 'upload_too_large', 'too_many_files',
 --           'unsafe_entry', 'checksum_mismatch', 'no_github_remote', 'disk_low', 'timed_out', 'unknown'));
 --   alter table public.factory_projects drop constraint factory_projects_upload_fields, drop constraint factory_projects_repo_when_working,
 --       drop column dropped, drop column upload_head, drop column upload_bytes, drop column upload_sha256;
---   delete from public.factory_projects where repo is null;
 --   alter table public.factory_projects alter column repo set not null;
+--   delete from storage.buckets where id = 'factory-uploads';
+--   commit;
 begin;
 
 alter table public.factory_projects alter column repo drop not null;

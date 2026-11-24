@@ -74,7 +74,20 @@ def die(msg, code=2):
 def run(cmd, cwd="/tmp", check=True, timeout=300):
     r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout)
     if check and r.returncode:
-        die("command failed: %s\n%s" % (" ".join(cmd[:6]), (r.stderr or r.stdout).strip()[-600:]), 1)
+        failed(r, " ".join([os.path.basename(cmd[0])] + cmd[1:3]))
+    return r
+
+
+def failed(r, what):
+    import mirror
+    die("command failed: %s: %s" % (what, mirror.failure(r, what)), 1)
+
+
+def net_git(args, cwd, check=False):
+    import mirror
+    r = mirror.git(args, cwd=cwd, net=True)
+    if check and r.returncode:
+        failed(r, "git " + " ".join(args[:2]))
     return r
 
 
@@ -334,6 +347,7 @@ def remote_has(p, br):
 
 
 def follow_base(p):
+    import mirror
     if remote_has(p, "dev"):
         base = "dev"
     else:
@@ -351,7 +365,7 @@ def follow_base(p):
         cur = run([GIT, "rev-parse", "--short", "HEAD"], cwd=p, check=False).stdout.strip()
         print("shared checkout %s has local changes; left at %s" % (p, cur), file=sys.stderr)
         return
-    run([GIT, "checkout", "--quiet", "--detach", "origin/" + base], cwd=p, check=False)
+    run([GIT] + mirror.NO_FILTERS + ["checkout", "--quiet", "--detach", "origin/" + base], cwd=p, check=False)
 
 
 class Unprovable(Exception):
@@ -376,7 +390,7 @@ def unsaved(p, path, branch):
     if SWEEP_FETCH is not None and p in SWEEP_FETCH:
         if not SWEEP_FETCH[p]:
             return None
-    elif run([GIT, "fetch", "--quiet", "--prune", "origin"], cwd=p, check=False).returncode:
+    elif net_git(["fetch", "--quiet", "--prune", "origin"], p).returncode:
         return None
     tips = {run([GIT, "rev-parse", "--verify", "--quiet", ref], cwd=c, check=False).stdout.strip()
             for c, ref in ((path, "HEAD"), (p, "refs/heads/" + branch)) if os.path.isdir(c)} - {""}
@@ -394,7 +408,7 @@ def wt_save(p, path, branch):
         die("cannot fetch origin, so cannot prove the commits of %s are saved. Nothing deleted." % branch)
     for sha in left:
         rb = "rescue/%s-%s" % (branch, sha[:8])
-        run([GIT, "push", "--quiet", "origin", "%s:refs/heads/%s" % (sha, rb)], cwd=p, check=False)
+        net_git(["push", "--quiet", "origin", "%s:refs/heads/%s" % (sha, rb)], p)
         try:
             saved = on_remote(p, sha)
         except Unprovable:
@@ -579,7 +593,7 @@ def wt_sweep(apply, only=None, quiet=False):
             p = os.path.join(REPOS, r)
             if not os.path.isdir(p):
                 continue
-            SWEEP_FETCH[p] = run([GIT, "fetch", "--quiet", "--prune", "origin"], cwd=p, check=False).returncode == 0
+            SWEEP_FETCH[p] = net_git(["fetch", "--quiet", "--prune", "origin"], p).returncode == 0
         return _sweep_each(dirs, apply, only, quiet, n, kept)
     finally:
         SWEEP_FETCH = None
@@ -681,11 +695,12 @@ def clone_ready(top, full, branch, base):
 
 
 def merge_base_in(top, branch, base):
+    import mirror
     if run([GIT, "merge-base", "--is-ancestor", "origin/" + base, "HEAD"], cwd=top, check=False).returncode == 0:
         return
     mark = os.path.join(top, ".git", "factory-merging")
     open(mark, "w").close()
-    r = run([GIT, "merge", "--no-commit", "--no-ff", "origin/" + base], cwd=top, check=False)
+    r = run([GIT] + mirror.NO_FILTERS + ["merge", "--no-commit", "--no-ff", "origin/" + base], cwd=top, check=False)
     if r.returncode:
         files = run([GIT, "diff", "--name-only", "--diff-filter=U"], cwd=top, check=False).stdout.split()
         run([GIT, "merge", "--abort"], cwd=top, check=False)
@@ -695,7 +710,7 @@ def merge_base_in(top, branch, base):
     if r.returncode:
         run([GIT, "merge", "--abort"], cwd=top, check=False)
         os.remove(mark)
-        die("the automatic merge of origin/%s could not be committed: %s. Nothing pushed." % (base, (r.stderr or r.stdout).strip()[-300:]))
+        die("the automatic merge of origin/%s could not be committed: %s. Nothing pushed." % (base, mirror.failure(r, "merge commit")))
     os.remove(mark)
     print("MERGED origin/%s into %s first: the branch was behind" % (base, branch))
 
@@ -775,7 +790,7 @@ def cmd_pr_open(a):
         clone_ready(top, full, branch, base)
     if run([GIT, "status", "--porcelain"], cwd=top).stdout.strip():
         die("uncommitted changes. Commit everything for this chunk first (one push per chunk).")
-    run([GIT, "fetch", "--quiet", "origin", base], cwd=top)
+    net_git(["fetch", "--quiet", "origin", base], top, check=True)
     ahead = run([GIT, "rev-list", "--count", "origin/%s..HEAD" % base], cwd=top).stdout.strip()
     if ahead == "0":
         die("no commits ahead of origin/%s" % base)
@@ -830,7 +845,7 @@ def cmd_pr_open(a):
             os.remove(marker(folder(full), branch))
         except OSError:
             pass
-        run([GIT, "push", "--quiet", "origin", branch], cwd=top)
+        net_git(["push", "--quiet", "origin", branch], top, check=True)
         print("PUSHED fix to %s\nPR %s\nNext: `ci-wait %s %s`" % (branch, ex[0]["url"], folder(full), ex[0]["number"]))
         return
     if "--title" not in a or "--body-file" not in a:
@@ -847,7 +862,7 @@ def cmd_pr_open(a):
         body += "\n\nCloses #%s\n" % issue
     tmp = os.path.join(STATE, "prbody-%d.md" % os.getpid())
     open(tmp, "w").write(body)
-    run([GIT, "push", "--quiet", "-u", "origin", branch], cwd=top)
+    net_git(["push", "--quiet", "-u", "origin", branch], top, check=True)
     cmd = [GH, "pr", "create", "-R", full, "--base", base, "--head", branch, "--title", title, "--body-file", tmp]
     delays = [60, 120, 240]
     while True:

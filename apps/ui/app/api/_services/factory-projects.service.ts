@@ -70,6 +70,8 @@ const UPLOAD_BUCKET = 'factory-uploads'
 const UPLOAD_NAME_MAX = 100
 const UPLOAD_NAME_DEFAULT = 'Uploaded folder'
 const MB = 1024 * 1024
+const UPLOAD_STALE_MS = 30 * 60_000
+const UPLOAD_HEARTBEAT_MS = 2 * 60_000
 const uploadPath = (workspaceId: number, id: number) => `${workspaceId}/${id}.tar`
 
 export async function isFactoryOwner(workspaceId: number, userId: string): Promise<boolean> {
@@ -95,9 +97,21 @@ async function projectRow(workspaceId: number, id: number): Promise<FactoryProje
 }
 
 async function projectByRepo(workspaceId: number, repo: string): Promise<FactoryProject | null> {
-    const { data, error } = await selectMaybeSingle(createServiceRoleClient(), 'factory_projects', FACTORY_PROJECT_COLUMNS, { workspace_id: workspaceId, repo })
+    const { data, error } = await selectMany(createServiceRoleClient(), 'factory_projects', FACTORY_PROJECT_COLUMNS, { workspace_id: workspaceId, repo: { ilike: repo.replace(/[\\%_]/g, '\\$&') } }, { column: 'id' }, 1)
     if (error) throw new AppError('generic')
-    return data as FactoryProject | null
+    return (data?.[0] ?? null) as FactoryProject | null
+}
+
+async function sweepStaleUploads(workspaceId: number): Promise<void> {
+    const supabase = createServiceRoleClient()
+    const { data, error } = await selectMany(supabase, 'factory_projects', ['id', 'updated_at'] as const, { workspace_id: workspaceId, state: 'uploading', updated_at: { lt: new Date(Date.now() - UPLOAD_STALE_MS).toISOString() } })
+    if (error) throw new AppError('generic')
+    for (const row of data ?? []) {
+        const failed = await supabase.from('factory_projects').update<ProjectUpdate>(failedChange('timed_out'))
+            .eq('id', row.id).eq('workspace_id', workspaceId).eq('state', 'uploading').eq('updated_at', row.updated_at)
+            .select('id')
+        if (!failed.error && failed.data?.length) await dropUploadObject(workspaceId, row.id)
+    }
 }
 
 async function projectLimitsOf(workspaceId: number): Promise<FactoryProjectLimits | null> {
@@ -160,6 +174,7 @@ export async function addGithubProject(workspaceId: number, userId: string, link
 async function projectRoom(workspaceId: number): Promise<{ limits: FactoryProjectLimits | null; full: boolean }> {
     const limits = await projectLimitsOf(workspaceId)
     if (!limits) return { limits, full: false }
+    await sweepStaleUploads(workspaceId)
     const count = await selectCount(createServiceRoleClient(), 'factory_projects', { workspace_id: workspaceId })
     if (count.error) throw new AppError('generic')
     return { limits, full: (count.data ?? 0) >= limits.max_count }
@@ -221,7 +236,17 @@ export async function uploadProject(workspaceId: number, userId: string, upload:
     if (error || !data) return { code: 'unknown' }
     const id = (data as unknown as FactoryProject).id
     const body = measured(upload.body, Math.min(length, max))
-    const stored = await uploadPrivateFile(supabase, UPLOAD_BUCKET, uploadPath(workspaceId, id), body.stream, 'application/x-tar').then(() => true, () => false)
+    let beatBytes = 0
+    const heartbeat = setInterval(() => {
+        if (body.seen.bytes === beatBytes) return
+        beatBytes = body.seen.bytes
+        void supabase.from('factory_projects').update<ProjectUpdate>({ updated_at: new Date().toISOString() })
+            .eq('id', id).eq('workspace_id', workspaceId).eq('state', 'uploading')
+            .then(() => undefined, () => undefined)
+    }, UPLOAD_HEARTBEAT_MS)
+    const stored = await uploadPrivateFile(supabase, UPLOAD_BUCKET, uploadPath(workspaceId, id), body.stream, 'application/x-tar')
+        .then(() => true, () => false)
+        .finally(() => clearInterval(heartbeat))
     const refusal: UploadRefusal | null = body.seen.over ? 'upload_too_large' : !stored || body.seen.bytes !== length ? 'unknown' : null
     if (!refusal) {
         const queued = await supabase.from('factory_projects')
@@ -232,7 +257,7 @@ export async function uploadProject(workspaceId: number, userId: string, upload:
         if (!queued.error && queued.data) return { project: queued.data as unknown as FactoryProject }
     }
     await dropUploadObject(workspaceId, id)
-    await supabase.from('factory_projects').update<ProjectUpdate>(failedChange(refusal === 'upload_too_large' ? 'upload_too_large' : 'unknown')).eq('id', id).eq('workspace_id', workspaceId)
+    await supabase.from('factory_projects').update<ProjectUpdate>(failedChange(refusal === 'upload_too_large' ? 'upload_too_large' : 'unknown')).eq('id', id).eq('workspace_id', workspaceId).eq('state', 'uploading')
     return { code: refusal ?? 'unknown' }
 }
 
@@ -357,6 +382,7 @@ type FactoryProjectsAnswer = {
 export type FactoryReportAnswer = ProjectAskAnswer & { project?: { repo: string; by: string; at: string }; projects?: FactoryProjectsAnswer }
 
 async function projectsAnswer(workspaceId: number): Promise<FactoryProjectsAnswer> {
+    await sweepStaleUploads(workspaceId)
     const supabase = createServiceRoleClient()
     const [limits, ids, queue] = await Promise.all([
         projectLimitsOf(workspaceId),

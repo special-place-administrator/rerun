@@ -1,6 +1,6 @@
 import json, os, stat, subprocess, unittest
 from unittest import mock
-from test_factory import FactoryCase, FULL, F, git, write
+from test_factory import FactoryCase, FULL, F, git, write, mirror
 from test_dispatch import Base, HEAD
 
 PIN = "ruff==0.17.5"
@@ -62,10 +62,16 @@ class PrOpenBase(FactoryCase):
                 out = [{"number": 9, "url": "https://github.com/%s/pull/9" % FULL, "headRefOid": "1234567abcdef"}] if fix else []
                 return subprocess.CompletedProcess(cmd, 0, json.dumps(out), "")
             return subprocess.CompletedProcess(cmd, 0, "https://github.com/%s/pull/9\n" % FULL, "")
+        real_git = mirror.run
+
+        def counting_git(cmd, *a, **k):
+            if "push" in cmd:
+                self.pushes.append(cmd)
+            return real_git(cmd, *a, **k)
 
         ctx = (p, FULL, "chunk/7-1", "dev", "7", "1")
         argv = ["--fix"] if fix else ["--title", "t", "--body-file", body]
-        with mock.patch.object(F, "wt_context", lambda: ctx), mock.patch.object(F, "run", fake_run), \
+        with mock.patch.object(F, "wt_context", lambda: ctx), mock.patch.object(F, "run", fake_run), mock.patch.object(mirror, "run", counting_git), \
                 mock.patch.dict(os.environ, {"FACTORY_UVX": self.uvx}):
             return self.call(F.cmd_pr_open, argv)
 

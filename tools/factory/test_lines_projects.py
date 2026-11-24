@@ -102,8 +102,10 @@ class LearnProjects(Pair):
 
     def test_a_queued_project_is_cloned_once_through_the_mirror_and_reported_cloning(self):
         queue = [{"id": 5, "repo": "acme/app", "source": "github"}, {"id": 6, "repo": "acme/site", "source": "github"}]
+        self.d.gh = unittest.mock.Mock(side_effect=OSError)
         self.learn(queue)
         self.learn(queue)
+        self.assertEqual(self.d.gh.call_args_list, [unittest.mock.call(["api", "repos/acme/app", "--jq", ".size"])])
         self.assertEqual(self.popen.call_count, 1)
         self.assertEqual(self.popen.call_args[0][0][-2:], ["refresh", "acme/app"])
         self.assertEqual(self.items()[5]["state"], "cloning")
@@ -188,6 +190,39 @@ class LearnProjects(Pair):
         self.assertEqual({i: (x["state"], x["error_code"]) for i, x in self.items().items()}, {5: ("failed", "checksum_mismatch"), 6: ("failed", "unknown")})
         self.popen.assert_not_called()
         self.assertEqual(os.listdir(os.path.join(self.dir.name, "projects", "11", "5")), [])
+
+    def test_unpack_leftovers_of_a_restart_are_removed_and_the_project_files_and_links_are_kept(self):
+        d = os.path.join(self.dir.name, "projects", "11", "5")
+        outside = os.path.join(self.dir.name, "outside")
+        for path in (os.path.join(d, "incoming"), os.path.join(d, "tmp-0a1b"), os.path.join(d, "src"), outside):
+            os.makedirs(path)
+        with open(os.path.join(d, "incoming", "archive.tar"), "wb") as f:
+            f.write(b"raw")
+        os.symlink(outside, os.path.join(d, "tmp-link"))
+        P.write_meta(d, {"owner": "acme", "repo": "acme/app", "source": "upload", "bytes": 1, "at": "2026-11-24T00:00:00Z"})
+        self.learn([], ids=[5])
+        self.assertEqual(sorted(os.listdir(d)), ["meta.json", "src", "tmp-link"])
+        self.assertTrue(os.path.isdir(outside))
+        self.assertEqual(self.items()[5]["state"], "ready")
+
+    def test_a_clone_refused_for_its_size_removes_only_a_mirror_it_made(self):
+        small = dict(LIMITS, max_project_mb=1)
+        for pid, existed in ((5, False), (6, True)):
+            with self.subTest(existed=existed):
+                cache = os.path.join(self.dir.name, "state", "mirrors", "app%d.git" % pid)
+                queue = [{"id": pid, "repo": "acme/app", "source": "github"}]
+                if existed:
+                    os.makedirs(cache)
+                with unittest.mock.patch("mirror.path", return_value=cache):
+                    self.popen.return_value.poll.return_value = None
+                    self.learn(queue, limits=small)
+                    os.makedirs(cache, exist_ok=True)
+                    with open(os.path.join(cache, "pack"), "wb") as f:
+                        f.write(b"x" * (2 * P.MB))
+                    self.popen.return_value.poll.return_value = 0
+                    self.learn(queue, limits=small)
+                self.assertEqual(self.items()[pid]["error_code"], "quota_exceeded")
+                self.assertEqual(os.path.isdir(cache), existed)
 
     def test_a_folder_whose_id_the_hub_no_longer_has_is_removed(self):
         for n in ("4", "5"):
