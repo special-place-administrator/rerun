@@ -154,6 +154,12 @@ class TestState(unittest.TestCase):
             self.assertEqual([p for p in tests if sent.get(p, 0)], [], short)
         self.assertEqual(short, [], sent)
 
+    def test_the_token_estimate_covers_a_measured_jev_call(self):
+        pr_1577_body_chars, pr_1577_input_tokens = 5821, 2104
+        self.assertGreaterEqual(pr_1577_body_chars / F.JEV_CHARS_PER_TOKEN, pr_1577_input_tokens)
+        measured_chars_per_token = pr_1577_body_chars / pr_1577_input_tokens
+        self.assertLessEqual(F.JEV_TOKENS_MAX * F.JEV_CHARS_PER_TOKEN / measured_chars_per_token, F.JEV_TOKENS_MAX)
+
     def test_no_credential_leaves_in_the_title_a_name_or_a_line(self):
         gh = "gh" + "p_" + "Q7xk2Lm9Rt4Vb8Nc1Hd6Js3Wy0Mg5Pz7Kq"
         split = "gh" + "o_" + "Zr4Tq8Wn" * 4
