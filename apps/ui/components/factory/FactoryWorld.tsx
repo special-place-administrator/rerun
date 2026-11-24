@@ -2,19 +2,21 @@
 
 import type { FactorySnapshot } from '@moldwright/contracts'
 import { formatDate } from '@moldwright/i18n/format'
-import { IsoGrid, frameTemplateBoard, routeTileLinks, useRenderedFrame, type AxisPoint, type Tile } from '@moldwright/ui/iso-grid'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { ChromeBar, ChromeButton } from '@moldwright/ui/chrome'
+import { IsoGrid, frameTemplateBoard, routeTileLinks, useRenderedFrame, type AxisPoint, type IsoCamera, type Tile } from '@moldwright/ui/iso-grid'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 
 import { fireMoldwrightConfetti } from '@/lib/confetti'
 import { Button } from '@/components/ui/button'
+import { FocusCenterIcon } from '@/lib/icons'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipLabeled, TooltipTrigger } from '@/components/ui/tooltip'
 import { applyMoves, canMove, copyTree, dropReason, layoutStorageKey, loadLayout, readMoves, saveLayout, subscribeLayout, treeRoutes } from './factory-layout'
 import { type Bucket } from './factory-bucket'
 import { METRICS, barModel, hasData, type MetricDef, type MetricGroup, type MetricKey, type MetricValues } from './factory-metrics'
 import { FactoryBarFrame } from './FactoryBarFrame'
-import { floorFrame } from './factory-camera'
+import { botCentre, floorFrame } from './factory-camera'
 import { FactoryOverlay } from './FactoryOverlay'
 import { LOOP_MS, factoryScene, type Cell, type FactoryFrame } from './factory-scene'
 
@@ -22,6 +24,8 @@ const OVERHEAD_PX = 120
 const BAR_PX = 110
 const BAR_MARGIN_PX = 20
 const SIDE_PX = 40
+const ZOOM_RANGE = { min: 0.1, max: 3 }
+const ZOOM_STEP = 1.2
 
 const TICK_MS = 250
 const METRIC_GROUPS: MetricGroup[] = ['flow', 'cost', 'runs', 'plan']
@@ -98,12 +102,45 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     ] as Tile[]), [frame.containers])
     const barSpace = bar ? bar.height + 2 * BAR_MARGIN_PX : BAR_PX
     const topSpace = topBar ? (top ? top.height + 2 * BAR_MARGIN_PX : BAR_PX) : 0
-    const camera = useMemo(() => {
-        if (!size) return null
-        const { width, height, shiftX, shiftY } = floorFrame({ stage: size, rightInset, topSpace, bottomSpace: barSpace, overhead: OVERHEAD_PX, side: SIDE_PX })
-        const c = frameTemplateBoard(corners, { width, height }, 2, 0.94, 0.1)
-        return { zoom: c.zoom, pan: { x: c.pan.x + shiftX / c.zoom, y: c.pan.y + shiftY / c.zoom } }
-    }, [size, corners, rightInset, barSpace, topSpace])
+    const floor = useMemo(() => (size ? floorFrame({ stage: size, rightInset, topSpace, bottomSpace: barSpace, overhead: OVERHEAD_PX, side: SIDE_PX }) : null), [size, rightInset, barSpace, topSpace])
+    const fitZoom = useMemo(() => (floor ? frameTemplateBoard(corners, floor, 2, 0.94, ZOOM_RANGE.min).zoom : null), [floor, corners])
+
+    const [camera, setCamera] = useState<IsoCamera | null>(null)
+    const [zoom, setZoom] = useState(1)
+    const view = useRef<IsoCamera | null>(null)
+    useEffect(() => { if (camera) view.current = camera }, [camera])
+    const onCameraChange = useCallback((c: IsoCamera) => { view.current = c; setZoom(c.zoom) }, [])
+    const centred = (z: number) => {
+        const c = botCentre({ tiles, pods: frame.pods, routes, floor: frame.containers })
+        return { x: -c.x + (floor?.shiftX ?? 0) / z, y: -c.y + (floor?.shiftY ?? 0) / z }
+    }
+    const show = (next: IsoCamera) => {
+        setZoom(next.zoom)
+        setCamera(prev => ({ ...next, nonce: (prev?.nonce ?? 0) + 1 }))
+    }
+    const zoomTo = (z: number) => {
+        const at = view.current ?? camera
+        if (at) show({ zoom: Math.min(ZOOM_RANGE.max, Math.max(ZOOM_RANGE.min, z)), pan: at.pan })
+    }
+    const centre = () => {
+        const z = view.current?.zoom ?? zoom
+        show({ zoom: z, pan: centred(z) })
+    }
+    const frameKey = floor && fitZoom !== null ? `${floor.width}x${floor.height}@${floor.shiftX},${floor.shiftY}:${snapshot ? 'live' : 'sample'}` : null
+    const [framed, setFramed] = useState<string | null>(null)
+    if (frameKey !== null && fitZoom !== null && frameKey !== framed) {
+        setFramed(frameKey)
+        show({ zoom: fitZoom, pan: centred(fitZoom) })
+    }
+    const onMapKey = (e: KeyboardEvent<HTMLDivElement>) => {
+        if (e.target !== e.currentTarget) return
+        const z = view.current?.zoom ?? zoom
+        if (e.key === '+' || e.key === '=') zoomTo(z * ZOOM_STEP)
+        else if (e.key === '-' || e.key === '_') zoomTo(z / ZOOM_STEP)
+        else if (e.key === '0') centre()
+        else return
+        e.preventDefault()
+    }
 
     const stale = frame.notAnswering === true && snapshot !== null
     const asOf = stale ? t('asOf', { time: formatDate(snapshot.madeAt, locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) }) : undefined
@@ -114,7 +151,9 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     const tile = (m: MetricDef) => <Metric key={m.key} def={m} value={values[m.key]} {...(m.key === 'building' && asOf ? { asOf } : {})} />
 
     return (
-        <div ref={ref} className={`${theme} relative h-dvh w-full overflow-hidden bg-background text-foreground`} style={{ '--factory-drop-max': `${size ? size.height - topSpace - barSpace : 0}px` } as CSSProperties}>
+        <div ref={ref} className={`${theme} relative h-full w-full overflow-hidden bg-background text-foreground`} style={{ '--factory-drop-max': `${size ? size.height - topSpace - barSpace : 0}px` } as CSSProperties}>
+            <div data-factory-map role="region" tabIndex={0} aria-label={t('map')} onKeyDown={onMapKey}
+                className="absolute inset-0 overflow-hidden outline-none focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50">
             <IsoGrid
                 {...(stale ? { className: 'opacity-50' } : {})}
                 tiles={gridTiles}
@@ -124,6 +163,8 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                 onToastExpire={onToastExpire}
                 camera={camera}
                 cameraTransitionMs={0}
+                onCameraChange={onCameraChange}
+                zoomRange={ZOOM_RANGE}
                 showLinks
                 onTileMove={onTileMove}
                 canDropTile={canDropTile}
@@ -132,6 +173,16 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                 scrollGestures
                 worldOverlay={worldOverlay}
             />
+            </div>
+
+            <ChromeBar data-map-view className="absolute z-30 px-1" style={{ left: BAR_MARGIN_PX, bottom: barSpace }}>
+                <input type="range" aria-label={t('zoom')} min={ZOOM_RANGE.min} max={ZOOM_RANGE.max} step={0.05} value={zoom}
+                    onChange={e => zoomTo(Number(e.currentTarget.value))}
+                    className="mx-2 h-1 w-24 cursor-pointer rounded-full accent-primary outline-none focus-visible:ring-3 focus-visible:ring-ring/50" />
+                <TooltipLabeled label={t('centerHint')}>
+                    <ChromeButton aria-label={t('center')} icon={FocusCenterIcon} onClick={centre} className="outline-none focus-visible:ring-3 focus-visible:ring-ring/50" />
+                </TooltipLabeled>
+            </ChromeBar>
 
             <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef} className="items-stretch gap-4 px-5 py-3">
                 <div className="flex shrink-0 items-center gap-2 pr-1">

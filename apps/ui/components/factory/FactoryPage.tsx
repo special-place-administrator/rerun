@@ -100,7 +100,7 @@ export function FactoryPage() {
     const rightInset = viewport < BREAKPOINT_PX ? 0 : loaderOpen ? LOADER_PANEL_PX : selectedAgentId ? loadSidePanelWidth(viewport) + SIDE_PANEL_GAP : 0
 
     return (
-        <div className="relative">
+        <div className="relative h-full overflow-hidden">
             <FactoryWorld
                 {...(snapshot ? { scene, selectedIssue: selected, onSelectJob: onSelect, onOpenBucket, onOpenCoworker: openByName } : {})}
                 {...(workspace ? { workspace: String(workspace.id) } : {})}
