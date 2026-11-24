@@ -1193,6 +1193,9 @@ export type Database = {
       factory_controls: {
         Row: {
           max_ghosts: number
+          project_limits: Json | null
+          project_limits_at: string | null
+          project_limits_by: string | null
           providers_at: string | null
           providers_by: string | null
           providers_off: string[]
@@ -1206,6 +1209,9 @@ export type Database = {
         }
         Insert: {
           max_ghosts?: number
+          project_limits?: Json | null
+          project_limits_at?: string | null
+          project_limits_by?: string | null
           providers_at?: string | null
           providers_by?: string | null
           providers_off?: string[]
@@ -1219,6 +1225,9 @@ export type Database = {
         }
         Update: {
           max_ghosts?: number
+          project_limits?: Json | null
+          project_limits_at?: string | null
+          project_limits_by?: string | null
           providers_at?: string | null
           providers_by?: string | null
           providers_off?: string[]
@@ -1247,9 +1256,16 @@ export type Database = {
           active: boolean
           created_at: string
           created_by: string | null
+          error_code: string | null
           host_path: string | null
           id: number
+          name: string
+          progress_done: number | null
+          progress_total: number | null
           repo: string
+          source: string
+          state: string
+          updated_at: string
           workspace_id: number
         }
         Insert: {
@@ -1258,9 +1274,16 @@ export type Database = {
           active?: boolean
           created_at?: string
           created_by?: string | null
+          error_code?: string | null
           host_path?: string | null
           id?: never
+          name: string
+          progress_done?: number | null
+          progress_total?: number | null
           repo: string
+          source?: string
+          state?: string
+          updated_at?: string
           workspace_id: number
         }
         Update: {
@@ -1269,9 +1292,16 @@ export type Database = {
           active?: boolean
           created_at?: string
           created_by?: string | null
+          error_code?: string | null
           host_path?: string | null
           id?: never
+          name?: string
+          progress_done?: number | null
+          progress_total?: number | null
           repo?: string
+          source?: string
+          state?: string
+          updated_at?: string
           workspace_id?: number
         }
         Relationships: [
