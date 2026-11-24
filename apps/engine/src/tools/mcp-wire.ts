@@ -1,4 +1,4 @@
-import { tool, type LanguageModelMiddleware, type ToolSet } from 'ai'
+import { jsonSchema, tool, type LanguageModelMiddleware, type ToolSet } from 'ai'
 import { z } from 'zod'
 import { isRecord } from '@moldwright/contracts'
 import { loopToolNameFor } from '../runtime/tool-repair.js'
@@ -81,14 +81,29 @@ export function mcpWireMiddleware(catalog: McpCatalogEntry[]): LanguageModelMidd
     }
 }
 
+const mcpCallInput = z.looseObject({ tool: z.string() })
+
 export function mcpCallTool(): ToolSet {
     return {
         [MCP_CALL_TOOL]: tool({
             description: `Run a tool of your connected MCP servers. Give its exact name as ${MCP_SEARCH_TOOL} returned it, and its arguments as the input schema ${MCP_SEARCH_TOOL} returned for it describes them.`,
-            inputSchema: z.object({
-                tool: z.string().describe('Exact name of the tool, "<server>_<tool>".'),
-                arguments: z.looseObject({}).optional().describe("The tool's arguments, following its input schema."),
-            }),
+            inputSchema: jsonSchema<{ tool: string; arguments?: Record<string, unknown> }>(
+                {
+                    type: 'object',
+                    properties: {
+                        tool: { type: 'string', description: 'Exact name of the tool, "<server>_<tool>".' },
+                        arguments: { type: 'object', additionalProperties: true, description: "The tool's arguments, following its input schema." },
+                    },
+                    required: ['tool'],
+                    additionalProperties: false,
+                },
+                {
+                    validate: async value => {
+                        const parsed = await mcpCallInput.safeParseAsync(value)
+                        return parsed.success ? { success: true, value: parsed.data } : { success: false, error: parsed.error }
+                    },
+                },
+            ),
             execute: async ({ tool: asked }) => ({ error: `No tool of your MCP servers is named "${asked}". Nothing was run. Call ${MCP_SEARCH_TOOL} to find the tool and its input schema.` }),
         }),
     }
