@@ -127,6 +127,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
     const departments = (Object.keys(counts.byDepartment) as FactoryDepartment[]).filter(d => (counts.byDepartment[d] ?? 0) > 0)
     const { running, pool } = throttleShown(snapshot, controls.view)
     const countOf = (key: MainChip) => (key === 'running' ? `${running}/${pool}` : counts[key])
+    const clickIn = (selector: string) => root?.querySelector<HTMLButtonElement>(selector)?.click()
     const folded = MAIN_CHIPS.filter(c => FOLDING_CHIPS.includes(c.key))
 
     return (
@@ -143,7 +144,8 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                 <FactoryPoolPick snapshot={snapshot} controls={controls} />
             </div>
             <div ref={statusRef} data-zone="status" className={cn(ZONE, DIVIDED)}>
-                <FactoryStatePill snapshot={snapshot} controls={controls} now={now} />
+                <FactoryStatePill snapshot={snapshot} controls={controls} now={now}
+                    onProjects={() => clickIn('[data-project-picker] > button')} onChooseWork={() => clickIn('[data-work-orders] button')} />
                 {MAIN_CHIPS.map(c => (
                     <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)} onPress={press}
                         asOf={c.key === 'running' ? asOf : undefined} {...(FOLDING_CHIPS.includes(c.key) ? { className: '@max-[1050px]:hidden' } : {})}
