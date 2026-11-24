@@ -119,6 +119,10 @@
         "noData": "Pas encore de données : {metrics}",
         "moreMetrics": "{count, plural, one {# chiffre de plus} other {# chiffres de plus}}",
         "moreLabel": "Plus",
-        "moreChips": "{count, plural, one {# filtre de plus} other {# filtres de plus}}"
+        "moreChips": "{count, plural, one {# filtre de plus} other {# filtres de plus}}",
+        "map": "Plan de l’usine",
+        "zoom": "Zoom",
+        "center": "Centrer",
+        "centerHint": "Centrer sur les bots (touche 0). Molette ou pincement pour zoomer, glisser pour déplacer."
     }
 }

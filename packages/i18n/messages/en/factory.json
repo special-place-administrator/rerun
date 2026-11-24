@@ -10,7 +10,9 @@
         "floor.asOf": "Shown under a live count when the factory stopped reporting: the count is the one of its last report; {time} is that report's local time, HH:MM.",
         "controls.holdLong": "Short text of the factory state pill while sending is held; {kind} is the hold reason as the factory reports it (for example sign-in renewal), {seconds} the seconds left.",
         "controls.holdSentence": "Full sentence behind the state pill while sending is held; {time} is the local time the hold ends, HH:MM.",
-        "floor.moreMetrics": "Accessible name of the tile that gathers the figures hidden on a narrow screen."
+        "floor.moreMetrics": "Accessible name of the tile that gathers the figures hidden on a narrow screen.",
+        "floor.center": "Button that moves the factory map so the bots are in the middle of the visible floor; the zoom stays.",
+        "floor.centerHint": "Tooltip of the center button. Key 0 does the same when the map has focus."
     },
     "projects": {
         "trigger": "Factory project: {repo}. Open the projects",
@@ -132,6 +134,10 @@
         "noData": "No data yet: {metrics}",
         "moreMetrics": "{count, plural, one {# more figure} other {# more figures}}",
         "moreLabel": "More",
-        "moreChips": "{count, plural, one {# more filter} other {# more filters}}"
+        "moreChips": "{count, plural, one {# more filter} other {# more filters}}",
+        "map": "Factory map",
+        "zoom": "Zoom",
+        "center": "Center",
+        "centerHint": "Center on the bots (key 0). Wheel or pinch to zoom, drag to move."
     }
 }

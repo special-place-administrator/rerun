@@ -119,6 +119,10 @@
         "noData": "Noch keine Daten: {metrics}",
         "moreMetrics": "{count, plural, one {# weitere Kennzahl} other {# weitere Kennzahlen}}",
         "moreLabel": "Mehr",
-        "moreChips": "{count, plural, one {# weiterer Filter} other {# weitere Filter}}"
+        "moreChips": "{count, plural, one {# weiterer Filter} other {# weitere Filter}}",
+        "map": "Fabrikkarte",
+        "zoom": "Zoom",
+        "center": "Zentrieren",
+        "centerHint": "Auf die Bots zentrieren (Taste 0). Mausrad oder zwei Finger zum Zoomen, ziehen zum Verschieben."
     }
 }

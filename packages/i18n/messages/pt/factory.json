@@ -119,6 +119,10 @@
         "noData": "Ainda sem dados: {metrics}",
         "moreMetrics": "{count, plural, one {# número a mais} other {# números a mais}}",
         "moreLabel": "Mais",
-        "moreChips": "{count, plural, one {# filtro a mais} other {# filtros a mais}}"
+        "moreChips": "{count, plural, one {# filtro a mais} other {# filtros a mais}}",
+        "map": "Mapa da fábrica",
+        "zoom": "Zoom",
+        "center": "Centralizar",
+        "centerHint": "Centralizar nos bots (tecla 0). Roda ou pinça para dar zoom, arraste para mover."
     }
 }
