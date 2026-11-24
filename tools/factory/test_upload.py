@@ -122,6 +122,14 @@ class Walker(unittest.TestCase):
         self.assertEqual((got["ok"], got["head"]), (True, None))
         self.assertEqual(os.listdir(os.path.join(self.d, "src")), ["b.txt"])
 
+    def test_written_files_get_0755_with_the_owner_execute_bit_and_0644_otherwise(self):
+        self.addCleanup(os.umask, os.umask(0o077))
+        got = self.walk([entry(".git/config", ORIGIN), entry("run.sh", b"#!/bin/sh\n", mode=0o744), entry("lib.py", b"x", mode=0o664),
+                         entry("bin/tool", b"x", mode=0o710), entry("notes.txt", b"x", mode=0o611)])
+        self.assertTrue(got["ok"])
+        modes = {n: os.stat(os.path.join(self.d, "src", n)).st_mode & 0o7777 for n in ("run.sh", "lib.py", "bin/tool", "notes.txt")}
+        self.assertEqual(modes, {"run.sh": 0o755, "lib.py": 0o644, "bin/tool": 0o755, "notes.txt": 0o644})
+
     def test_no_github_origin_of_an_allowed_owner_is_refused(self):
         other = ORIGIN.replace(b"https://github.com/", b"https://gitlab.com/")
         stranger = ORIGIN.replace(b"special-place-ai-heaven", b"someone-else")
@@ -130,7 +138,20 @@ class Walker(unittest.TestCase):
                 self.refused(entries, "no_github_remote")
 
 
+CREDENTIAL_KEPT = ("src/PasswordField.tsx", "cookie-banner.tsx", "password-reset.ts", "src/Password.tsx")
+CREDENTIAL_DROPPED = ("credentials.json", "config/credentials.yml", "client_secret.json", "client-secret.json", "service-account.json",
+                      "service_account-prod.json", "cookies.txt", "x.cookies", ".git-credentials", "password.txt", "passwords.csv")
+
+
 class SensitivePaths(unittest.TestCase):
+    def test_the_credential_label_matches_the_file_name_and_extension_not_a_part_of_the_path(self):
+        for path in CREDENTIAL_KEPT:
+            with self.subTest(kept=path):
+                self.assertEqual(U.sensitive_labels(path), [])
+        for path in CREDENTIAL_DROPPED:
+            with self.subTest(dropped=path):
+                self.assertEqual(U.sensitive_labels(path), ["Credential file"])
+
     def test_the_patterns_and_labels_are_the_same_as_the_contracts(self):
         with open(SECRETS_TS, encoding="utf-8") as f:
             block = f.read().split("SENSITIVE_PATH_PATTERNS")[1].split("\n]\n")[0]
@@ -138,7 +159,7 @@ class SensitivePaths(unittest.TestCase):
         self.assertEqual([label for label, _ in hub], [label for label, _ in U.SENSITIVE_PATHS])
         for path in (".env", ".env.example", "app/.env.local", "environment.ts", ".ssh/id_ed25519", "a/.aws/config", "certs/server.pem",
                      "keys/app.key", "keyboard.ts", "id_rsa", "id_rsa.pub", "config/credentials.yml", "src/Password.tsx", "client_secret.json",
-                     "service-account.json", "README.md", ".secrets", "docs/.gnupg/x", "cookies.txt", "a.p12"):
+                     "service-account.json", "README.md", ".secrets", "docs/.gnupg/x", "cookies.txt", "a.p12") + CREDENTIAL_KEPT + CREDENTIAL_DROPPED:
             with self.subTest(path=path):
                 self.assertEqual(U.sensitive_labels(path), [label for label, rx in hub if rx.search(path)])
 
