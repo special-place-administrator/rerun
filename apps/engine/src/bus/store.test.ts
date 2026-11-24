@@ -91,6 +91,20 @@ describe('bus store', () => {
         expect(await moveDelivery(first.id, `agent:${bob.id}`, 'read', 'svc:bus')).toEqual({ state: 'done', changed: true })
     })
 
+    it('stores one message when concurrent posts share an idempotency key, without stalling', async () => {
+        const from = await senderOf(alice)
+        const input = { to: [`agent:${bob.id}`], type: 'FYI', idem_key: key(), body: 'concurrent notes' }
+        const started = Date.now()
+        const posted = await Promise.all(Array.from({ length: 8 }, () => postMessage(from, input)))
+        const elapsed = Date.now() - started
+
+        expect(posted.filter(post => !post.duplicate)).toHaveLength(1)
+        expect(posted.filter(post => post.duplicate)).toHaveLength(7)
+        expect(new Set(posted.map(post => post.id)).size).toBe(1)
+        expect(await rows('SELECT id FROM bus_messages WHERE sender = ? AND idem_key = ?', [`agent:${alice.id}`, input.idem_key])).toHaveLength(1)
+        expect(elapsed).toBeLessThan(1000)
+    })
+
     it('takes the sender from the run, with the copy suffix, and refuses a from field', async () => {
         const ghost = await senderOf(carol, { copyIndex: 3 })
         expect(await status(postMessage(ghost, { from: `agent:${alice.id}`, to: [`agent:${bob.id}`], type: 'FYI', idem_key: key(), body: 'x' }))).toBe(400)
@@ -180,6 +194,7 @@ describe('bus store', () => {
         const from = await senderOf(alice)
         for (let i = 0; i < 2; i++) await postMessage(from, { to: [`agent:${dave.id}`], type: 'TASK', idem_key: key(), body: `task ${i}` })
         await expect(postMessage(from, { to: [`agent:${dave.id}`], type: 'QUESTION', idem_key: key(), body: 'third' })).rejects.toMatchObject({ status: 429, code: 'bus_pair_cap' })
+        await expect(postMessage(from, { to: [`agent:${dave.id}#1`], type: 'TASK', idem_key: key(), body: 'to a copy' })).rejects.toMatchObject({ status: 429, code: 'bus_pair_cap' })
         expect(await status(postMessage(from, { to: [`agent:${dave.id}`], type: 'FYI', idem_key: key(), body: 'passive' }))).toBe('ok')
 
         const sides = [await senderOf(bob), await senderOf(carol)]
