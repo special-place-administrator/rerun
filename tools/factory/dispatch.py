@@ -76,6 +76,7 @@ RUNS_ON_TTL_S = 10 * 60
 ROUTE_UNREADABLE = "connection list unreadable: re-checks next tick"
 ROUTE_UNKNOWN = "coworker connection unknown: re-checks next tick"
 NO_PROVIDER = "no enabled provider"
+NO_ROUTE = "no_usable_connection"
 DRAIN_SEND_S = 300
 ORDER_VIEW_S = 300
 DRAIN_MAX_S = 3 * 3600
@@ -458,7 +459,8 @@ def make_account(url, key, opener=urllib.request.urlopen, fetcher=None):
         res = msg.get("result") or {}
         out = "".join(p.get("text", "") for p in res.get("content") or [] if p.get("type") == "text")
         if res.get("isError"):
-            raise Error("account %s failed: the tool reported an error%s" % (tool, " invalid_goal" if "invalid_goal" in out else ""))
+            named = " invalid_goal" if "invalid_goal" in out else " " + NO_ROUTE if "No connection can run this coworker now" in out else ""
+            raise Error("account %s failed: the tool reported an error%s" % (tool, named))
         try:
             return json.loads(out)
         except ValueError:
@@ -1343,6 +1345,12 @@ class Dispatcher:
             if "invalid_goal" in str(e):
                 self.store.abandon(j["fire_id"], str(e)[:200])
                 return self.end(j, "failed", str(e)[:200])
+            if NO_ROUTE in str(e):
+                self.store.abandon(j["fire_id"], NO_ROUTE)
+                j.update(state=BACK[state], not_before=self.now() + 2 * self.cfg.get("poll_s", 30), retry_attempt=j.get("attempt", 1), sending=None)
+                self.save(j, "send of '%s' held: %s" % (step, NO_ROUTE))
+                log(j["issue"], "%s not sent: no connection can run it now, it waits for the default picked under Providers" % step)
+                return
             self.save(j, "send of '%s' raised" % step)
             log(j["issue"], "send of '%s' raised: %s" % (step, e))
             return

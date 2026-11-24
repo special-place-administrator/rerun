@@ -1,4 +1,5 @@
 import contextlib
+import io
 import json
 import os
 import shutil
@@ -553,6 +554,33 @@ class Controls(Pair):
         self.control("RUNNING")
         self.tick(4)
         self.recovers_once(D.NO_PROVIDER, self.down.clear, pinned=None)
+
+    def test_a_route_the_engine_refuses_four_times_holds_the_work_and_launches_once_when_it_can_run(self):
+        refusing, refused = [True], []
+        why = {"error": "The coworker could not be reached: 503 " + json.dumps({"error": "No connection can run this coworker now: opus cannot run "
+               "claude-opus-5-5, and the default picked under Providers cannot either. It runs once one of them is connected again."})}
+
+        def opener(req, timeout):
+            refused.append(json.loads(req.data)["params"]["arguments"]["agentId"])
+            return io.BytesIO(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(why)}], "isError": True}}).encode())
+
+        engine = D.make_account("https://acct.example/mcp", "k", opener)
+        self.run_on({"b1": "95h6", "b2": "95h6", "r1": "95h6", "r2": "95h6"}, off=["95h6"], default="opus")
+        listed = self.w.account
+        self.w.account = lambda tool, args, **kw: engine(tool, args) if tool == "send_message" and refusing else listed(tool, args, **kw)
+        self.d = self.new()
+        self.control("RUNNING")
+        for _ in range(40):
+            if len(refused) >= 4:
+                break
+            self.tick()
+            self.w.clock += 300
+        refusing.clear()
+        self.tick(4)
+        self.assertEqual((len(refused), self.state(), [a.get("connectionId") for a in self.w.send_args]), (4, "building", ["opus"]))
+        self.assertFalse(self.d.lines["o/r"].store.retries("5", "transient"))
+        self.tick(4)
+        self.assertEqual(len(self.w.sends), 1)
 
     def test_an_off_coworker_is_never_sent_by_a_replan_a_resend_or_a_direct_send(self):
         self.cfg["types"] = {"coder": {"coworkers": self.cfg["builders"]}, "reviewer": {"coworkers": self.cfg["reviewers"]},
