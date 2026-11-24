@@ -114,8 +114,13 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     const [userCamera, setUserCamera] = useState(() => camera !== null)
     const [moreMetricsRoot, setMoreMetricsRoot] = useState<HTMLDivElement | null>(null)
     const view = useRef<IsoCamera | null>(null)
-    useEffect(() => { if (camera) view.current = camera }, [camera])
+    const applied = useRef(camera?.nonce)
+    useEffect(() => {
+        if (camera) view.current = camera
+        applied.current = camera?.nonce
+    }, [camera])
     const onCameraChange = useCallback((c: IsoCamera) => {
+        if (camera && camera.nonce !== applied.current) return
         view.current = c
         setZoom(c.zoom)
         if (!camera || cameraScope === null) return
