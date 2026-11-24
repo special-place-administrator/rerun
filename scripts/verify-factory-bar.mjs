@@ -5,11 +5,15 @@ import { join } from 'node:path'
 import { BAR_FIT_SLACK, BAR_NATURAL_WIDTH, BAR_PANE_FLOOR, BAR_TIERS } from '../apps/ui/components/factory/factory-bar-tiers.ts'
 import { PORT, REPO_ROOT, assertLocalProfile, assertMigrated, chromium, ensureServer, fail, linkTestEngine, localStack, log, signIn, testAccount } from './verify/shared.mjs'
 
-const PANES = [BAR_PANE_FLOOR, 614, 632, 792, 1254, 1262, 1902].sort((a, b) => a - b)
 const TIER_CHAIN = [['t1', 't0'], ['t2', 't1'], ['t3', 't2']]
+const REPO_BAND_FROM = 640
+const PANES = [...new Set([BAR_PANE_FLOOR, 590, 614, 632, REPO_BAND_FROM - 1, REPO_BAND_FROM, 792, 1254, 1262, 1902, ...TIER_CHAIN.flatMap(([tier]) => [BAR_TIERS[tier].below - 1, BAR_TIERS[tier].below])])].sort((a, b) => a - b)
+const VIEWPORTS = [1024, 1440]
+const CHAT_OPEN = 'chat=open'
 for (const [tier, wider] of TIER_CHAIN) {
     if (BAR_TIERS[tier].below !== BAR_NATURAL_WIDTH[wider] + BAR_FIT_SLACK) fail(`${tier} starts below ${BAR_TIERS[tier].below} px, not at the ${wider} natural width ${BAR_NATURAL_WIDTH[wider]} + ${BAR_FIT_SLACK}.`)
 }
+if (!BAR_TIERS.t3.repo.includes(`@min-[${REPO_BAND_FROM}px]`)) fail(`The t3 repo band no longer starts at ${REPO_BAND_FROM} px.`)
 const tierAt = (pane) => TIER_CHAIN.reduce((tier, [narrower]) => (pane < BAR_TIERS[narrower].below ? narrower : tier), 't0')
 const HEIGHT = 800
 const SETTLE_MS = 500
@@ -57,12 +61,20 @@ function measure() {
 const fits = (box) => box.scrollWidth <= box.clientWidth && box.insidePane && box.overflowPx === 0
 const describe = (box) => `${box.scrollWidth}/${box.clientWidth}${box.overflowPx ? ` (+${box.overflowPx} px past its padding)` : ''}${box.insidePane ? '' : ' past the pane'}`
 
-async function check(context, base, path) {
+const withChat = (path) => `${path}${path.includes('?') ? '&' : '?'}${CHAT_OPEN}`
+
+async function open(context, url, width) {
     const page = await context.newPage()
-    await page.setViewportSize({ width: 1920, height: HEIGHT })
-    await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded', timeout: 120_000 })
+    await page.setViewportSize({ width, height: HEIGHT })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120_000 })
     await page.waitForSelector('[data-topbar] [data-state-pill]', { timeout: 120_000 })
     await page.evaluate(() => document.fonts.ready)
+    await page.waitForTimeout(SETTLE_MS)
+    return page
+}
+
+async function check(context, base, path) {
+    const page = await open(context, `${base}${path}`, 1920)
     const results = []
     for (const pane of PANES) {
         await sizePane(page, pane)
@@ -72,6 +84,17 @@ async function check(context, base, path) {
         log(`${path} pane ${pane} (${tierAt(pane)}): bar ${describe(bar)}, strip ${describe(strip)} ${ok ? 'ok' : 'OVERFLOWS'}`)
     }
     await page.close()
+    for (const viewport of VIEWPORTS) {
+        for (const chat of [path, withChat(path)]) {
+            const at = await open(context, `${base}${chat}`, viewport)
+            const pane = await at.evaluate(paneWidth)
+            const { bar, strip } = await at.evaluate(measure)
+            const ok = pane >= BAR_PANE_FLOOR && fits(bar) && fits(strip)
+            results.push(ok)
+            log(`${chat} viewport ${viewport}: pane ${pane} (${tierAt(pane)}), bar ${describe(bar)}, strip ${describe(strip)} ${ok ? 'ok' : pane < BAR_PANE_FLOOR ? `PANE UNDER THE ${BAR_PANE_FLOOR} FLOOR` : 'OVERFLOWS'}`)
+            await at.close()
+        }
+    }
     return results.every(Boolean)
 }
 
