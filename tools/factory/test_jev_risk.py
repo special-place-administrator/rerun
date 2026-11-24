@@ -128,8 +128,8 @@ class TestState(unittest.TestCase):
                  + ["tools/factory/step%02d.py" % i for i in range(7)]
                  + ["tools/factory/test_step%02d.py" % i for i in range(3)])
         files = [{"filename": p, "status": "modified", "additions": 5, "deletions": 2,
-                  "patch": patch_file(*["+    const row%d = useProjectRow(project, %d)" % (j, i) for j in range(5)]
-                                      + ["-    const row%d = useRow(project)" % j for j in range(2)])} for i, p in enumerate(paths)]
+                  "patch": patch_file(*["+row%d = use(%d)" % (j, i) for j in range(5)]
+                                      + ["-row%d = old()" % j for j in range(2)])} for i, p in enumerate(paths)]
         judge, need, note = ask(self.PR, files, self.LOW)
         raw, change = judge.sent[0].data.decode(), judge.body()["state"]["change"]
         self.assertNotIn("files", change)
@@ -143,7 +143,7 @@ class TestState(unittest.TestCase):
         code = ["apps/engine/src/connections/refreshPlan%02d.ts" % i for i in range(17)]
         tests = ["tools/factory/test_step%02d.py" % i for i in range(8)]
         files = ([{"filename": p, "status": "modified", "additions": 6, "deletions": 0,
-                   "patch": patch_file(*[("+    const plan%d = refresh(%d) " % (j, i)).ljust(40, "x") for j in range(6)])} for i, p in enumerate(code)]
+                   "patch": patch_file(*[("+plan%d = refresh(%d) " % (j, i)).ljust(24, "x") for j in range(6)])} for i, p in enumerate(code)]
                  + [{"filename": p, "status": "modified", "additions": 6, "deletions": 0,
                      "patch": patch_file(*[("+    assert step%d(%d) == " % (j, i)).ljust(F.JEV_LINE_MAX, "y") for j in range(6)])} for i, p in enumerate(tests)])
         judge, need, note = ask(self.PR, files, self.LOW)
