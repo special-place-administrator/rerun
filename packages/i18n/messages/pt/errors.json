@@ -455,5 +455,10 @@
     "factoryOrderNotActiveProject": "{repo} não é o projeto em que a fábrica trabalha",
     "factoryWorkOrderActive": "{repo} já tem uma ordem de trabalho: cancele-a primeiro",
     "factoryWorkOrderNotFound": "Esta ordem de trabalho não existe ou terminou",
-    "factoryWorkOrderNotHalted": "O trabalho #{issue} não espera repetição nem salto"
+    "factoryWorkOrderNotHalted": "O trabalho #{issue} não espera repetição nem salto",
+    "factoryProjectLinkInvalid": "Cole um link do GitHub como https://github.com/owner/repo",
+    "factoryProjectOwnerNotAllowed": "A factory só trabalha com repositórios de {owners}: use um repositório de um desses proprietários",
+    "factoryProjectQuotaUnset": "Defina uma cota de projetos nas Configurações para adicionar projetos",
+    "factoryProjectQuotaExceeded": "Este workspace atingiu o limite de {max} projetos: remova um ou aumente a cota nas Configurações",
+    "factoryProjectNotReady": "{name} ainda não está pronto: aguarde até a factory terminar de copiá-lo"
 }

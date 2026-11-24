@@ -687,7 +687,7 @@ const AGENT_TOOL_DEFS = [
 export const FACTORY_TOOL_DEFS = [
     {
         name: 'factory_report',
-        description: 'Called by the factory delegator on each beat: replaces the workspace\'s last picture of the factory line with the snapshot given. Answers { kept }, false when a newer picture is already held, plus `project` { repo, by, at } for the project the workspace owner selected, a pending `check` ({ repo, at } or { path }) and `repos: true` while the owner wants the list of reachable repositories.',
+        description: 'Called by the factory delegator on each beat: replaces the workspace\'s last picture of the factory line with the snapshot given. Answers { kept }, false when a newer picture is already held, plus `project` { repo, by, at } for the project the workspace owner selected, a pending `check` ({ repo, at } or { path }) `repos: true` while the owner wants the list of reachable repositories, and `projects` { workspace_id, limits, ids, queue } for the projects the factory keeps in its own area.',
         inputSchema: { type: 'object', properties: { snapshot: { type: 'object' } }, required: ['snapshot'] },
     },
 ] as const

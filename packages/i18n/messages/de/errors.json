@@ -455,5 +455,10 @@
     "factoryOrderNotActiveProject": "{repo} ist nicht das Projekt, an dem die Fabrik arbeitet",
     "factoryWorkOrderActive": "{repo} hat schon einen Arbeitsauftrag: brich ihn zuerst ab",
     "factoryWorkOrderNotFound": "Dieser Arbeitsauftrag wurde nicht gefunden oder ist beendet",
-    "factoryWorkOrderNotHalted": "Job #{issue} wartet nicht auf Wiederholen oder Überspringen"
+    "factoryWorkOrderNotHalted": "Job #{issue} wartet nicht auf Wiederholen oder Überspringen",
+    "factoryProjectLinkInvalid": "Füge einen GitHub-Link wie https://github.com/owner/repo ein",
+    "factoryProjectOwnerNotAllowed": "Die Factory arbeitet nur mit Repositorys von {owners}: Nutze ein Repository eines dieser Eigentümer",
+    "factoryProjectQuotaUnset": "Lege in den Einstellungen ein Projektkontingent fest, um Projekte hinzuzufügen",
+    "factoryProjectQuotaExceeded": "Dieser Workspace hat sein Limit von {max} Projekten erreicht: Entferne eines oder erhöhe das Kontingent in den Einstellungen",
+    "factoryProjectNotReady": "{name} ist noch nicht bereit: Warte, bis die Factory das Kopieren abgeschlossen hat"
 }

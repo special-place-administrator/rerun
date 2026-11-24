@@ -108,6 +108,16 @@ class LearnProjects(Pair):
         self.learn([], ids=[5])
         self.assertEqual(self.items()[5]["state"], "ready")
 
+    def test_a_clone_that_ends_without_a_mirror_is_not_ready_and_is_cloned_again(self):
+        missing = os.path.join(self.dir.name, "state", "mirrors", "app.git")
+        with unittest.mock.patch("mirror.path", return_value=missing):
+            self.learn([{"id": 5, "repo": "acme/app", "source": "github"}])
+            self.popen.return_value.poll.return_value = 0
+            self.learn([{"id": 5, "repo": "acme/app", "source": "github"}])
+        self.assertEqual(self.items()[5]["state"], "cloning")
+        self.assertEqual(self.popen.call_count, 2)
+        self.assertFalse(os.path.exists(os.path.join(self.dir.name, "projects", "11", "5", "meta.json")))
+
     def test_a_failed_clone_reports_a_known_code_only_and_never_the_mirror_output(self):
         def failing(argv, stdout=None, **kw):
             os.write(stdout, b"TRANSIENT: not_reachable mirror acme/app: fatal: secret remote text\n")

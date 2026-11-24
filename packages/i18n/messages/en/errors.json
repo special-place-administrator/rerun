@@ -461,5 +461,10 @@
     "factoryOrderNotActiveProject": "{repo} is not the project the factory works on",
     "factoryWorkOrderActive": "{repo} already has a work order: cancel it first",
     "factoryWorkOrderNotFound": "This work order was not found or has ended",
-    "factoryWorkOrderNotHalted": "Job #{issue} is not waiting for a retry or a skip"
+    "factoryWorkOrderNotHalted": "Job #{issue} is not waiting for a retry or a skip",
+    "factoryProjectLinkInvalid": "Paste a GitHub link like https://github.com/owner/repo",
+    "factoryProjectOwnerNotAllowed": "The factory only works on repositories of {owners}: use a repository of one of these owners",
+    "factoryProjectQuotaUnset": "Set a project quota in Settings to add projects",
+    "factoryProjectQuotaExceeded": "This workspace has reached its limit of {max} projects: remove one, or raise the quota in Settings",
+    "factoryProjectNotReady": "{name} is not ready yet: wait until the factory has finished copying it"
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { factoryProjectItemSchema } from './factory-projects.js'
 
 export const factoryJobStateSchema = z.enum([
     'waiting', 'queued', 'building', 'review_wait', 'reviewing', 'fix_wait', 'fixing', 'checks', 'proof_wait', 'proving',
@@ -220,6 +221,8 @@ export const factoryProjectsSchema = z.object({
         message: z.string().max(200),
         repo: z.string().max(201),
     })).max(10),
+    owners: z.array(z.string().max(100)).max(20).optional(),
+    items: z.array(factoryProjectItemSchema).max(1000).optional(),
 })
 
 export const FACTORY_CONTROL_STATES = ['RUNNING', 'PAUSED', 'DRAINING', 'STOPPED'] as const
