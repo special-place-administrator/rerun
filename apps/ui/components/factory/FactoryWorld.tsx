@@ -224,8 +224,8 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                             <span className={BAR_TIERS.t3.srOnly}>Factory</span>
                         </span>
                     </TooltipLabeled>
-                    {stale && <span data-stale-age data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{dataAge(t, frame.lastBeatMs ?? 0)}</span>}
-                    {sample && <span className="text-[10px] text-muted-foreground">sample</span>}
+                    {stale && <span data-stale-age data-last-beat className="text-[10px] text-amber-700 dark:text-amber-400">{dataAge(t, frame.lastBeatMs ?? 0)}</span>}
+                    {sample && <span className="text-[10px] text-neutral-600 dark:text-muted-foreground">sample</span>}
                 </div>
                 {groups.map(({ group, metrics }) => (
                     <div key={group} data-metric-group={group}
@@ -240,7 +240,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                                 <button type="button" data-more-metrics aria-label={t('moreMetrics', { count: folded.length })}
                                     className="flex flex-col items-center justify-center rounded-sm leading-none outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50">
                                     <span className="font-mono text-sm/4 font-semibold tabular-nums">+{folded.length}</span>
-                                    <span className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{t('moreLabel')}</span>
+                                    <span className="mt-1 text-[10px] uppercase tracking-wider text-neutral-600 dark:text-muted-foreground">{t('moreLabel')}</span>
                                 </button>
                             </PopoverTrigger>
                             <PopoverContent container={moreMetricsRoot} side="top" align="start" sideOffset={8} className="w-auto flex-row gap-4 rounded-2xl border border-border/60 bg-background/95 p-3 backdrop-blur-xl">
@@ -275,7 +275,7 @@ function dataAge(t: ReturnType<typeof useTranslations<'factory.floor'>>, ageMs: 
     return t('dataAgeHours', { hours: Math.floor(minutes / 60) })
 }
 
-const TONES: Partial<Record<MetricKey, string>> = { building: 'text-amber-500', review: 'text-emerald-500', checks: 'text-sky-500', solvedGreen: 'text-green-500' }
+const TONES: Partial<Record<MetricKey, string>> = { building: 'text-amber-700 dark:text-amber-500', review: 'text-emerald-700 dark:text-emerald-500', checks: 'text-sky-700 dark:text-sky-500', solvedGreen: 'text-green-700 dark:text-green-500' }
 
 function Metric({ def, value, asOf }: { def: MetricDef; value: MetricValues[MetricKey]; asOf?: string }) {
     return (
@@ -288,8 +288,8 @@ function Metric({ def, value, asOf }: { def: MetricDef; value: MetricValues[Metr
                             <span className={`block h-full rounded-full transition-all duration-700 ${value.warn ? 'bg-red-500' : 'bg-[#4d34f7]'}`} style={{ width: `${value.fill}%` }} />
                         </span>
                     )}
-                    <span className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{def.label}</span>
-                    {asOf && <span data-as-of className="mt-0.5 text-[10px] text-muted-foreground">{asOf}</span>}
+                    <span className="mt-1 text-[10px] uppercase tracking-wider text-neutral-600 dark:text-muted-foreground">{def.label}</span>
+                    {asOf && <span data-as-of className="mt-0.5 text-[10px] text-neutral-600 dark:text-muted-foreground">{asOf}</span>}
                 </div>
             </TooltipTrigger>
             <TooltipContent className="max-w-64">
