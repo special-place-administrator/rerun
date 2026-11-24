@@ -303,6 +303,18 @@ describe('v6 to v7: everos-shared-allowlist', () => {
     })
 })
 
+describe('v7 to v8: bus-tables', () => {
+    it('creates the empty bus tables and replays without harm', async () => {
+        await writeDataVersion(7)
+        await migrateDataDir()
+        expect(readDataVersion()).toBe(DATA_DIR_VERSION)
+        await DATA_DIR_MIGRATIONS.find(s => s.id === 'bus-tables' && s.version === 8)!.up()
+        const names = (await raw().execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'bus_%' ORDER BY name")).rows.map(r => String(r.name))
+        expect(names).toEqual(['bus_deliveries', 'bus_events', 'bus_flags', 'bus_heartbeat', 'bus_messages', 'bus_wakes'])
+        expect((await raw().execute('SELECT COUNT(*) AS n FROM bus_messages')).rows[0].n).toBe(0)
+    })
+})
+
 describe('data-dir ladder', () => {
     it('numbers its steps from 1 without gaps', () => {
         expect(DATA_DIR_MIGRATIONS.map(s => s.version)).toEqual(DATA_DIR_MIGRATIONS.map((_, i) => i + 1))
@@ -339,6 +351,10 @@ describe('data-dir ladder', () => {
             [
               7,
               "everos-shared-allowlist",
+            ],
+            [
+              8,
+              "bus-tables",
             ],
           ]
         `)
