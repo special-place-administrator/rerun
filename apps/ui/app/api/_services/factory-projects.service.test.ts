@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { factoryProjectsSchema } from '@moldwright/contracts'
 
 import { workspaceFounderUserId } from '@/app/api/_auth/ownership'
@@ -7,7 +8,7 @@ import { putFactorySnapshot } from '@/lib/factory/snapshot-store'
 import { createServiceRoleClient } from '@/supabase/serviceRole'
 import { selectCount, selectMany, selectMaybeSingle } from '@/supabase/supabase-helpers'
 
-import { addGithubProject, addPathProject, addRepoProject, applyFactoryProjectItems, factoryReportAnswer, removeProject, selectProject } from './factory-projects.service'
+import { addGithubProject, addPathProject, addRepoProject, applyFactoryProjectItems, factoryReportAnswer, removeProject, selectProject, uploadProject } from './factory-projects.service'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/app/api/_auth/ownership', () => ({ workspaceFounderUserId: vi.fn() }))
@@ -127,6 +128,83 @@ describe('factory projects: uploads cut off mid-way', () => {
         await factoryReportAnswer(701)
         expect(writes).toEqual([{ payload: expect.objectContaining({ state: 'failed', error_code: 'timed_out' }), eqs: [['id', 21], ['workspace_id', 701], ['state', 'uploading'], ['updated_at', stale.updated_at]] }])
         expect(removed).toEqual([['701/21.tar']])
+    })
+
+    it('leaves an upload that keeps streaming past 30 minutes, fails one that sends nothing, and keeps its timed_out', async () => {
+        vi.useFakeTimers({ now: new Date('2026-11-24T08:00:00Z') })
+        onTestFinished(() => { vi.useRealTimers() })
+        const LIMITS = { max_count: 10, max_project_mb: 500, max_total_mb: 2000, upload_max_mb: 200, upload_max_files: 20000, upload_max_depth: 32, upload_max_file_mb: 50 }
+        const rows = new Map<number, Record<string, unknown>>()
+        const updates: { payload: Record<string, unknown>; eqs: [string, unknown][] }[] = []
+        const removed: string[] = []
+        let nextId = 41
+        vi.mocked(selectMaybeSingle).mockImplementation(((_c: unknown, table: string) => Promise.resolve({
+            data: table === 'workspace_members' ? { role: 'admin' } : table === 'factory_controls' ? { project_limits: LIMITS } : null, error: null,
+        })) as never)
+        vi.mocked(selectCount).mockResolvedValue({ data: 0, error: null } as never)
+        vi.mocked(selectMany).mockImplementation(((_c: unknown, _t: string, _s: unknown, filters: { state?: unknown; updated_at?: { lt: string } }) => Promise.resolve({
+            data: filters.state === 'uploading' && filters.updated_at
+                ? [...rows.values()].filter(r => r.state === 'uploading' && String(r.updated_at) < filters.updated_at!.lt).map(r => ({ id: r.id, updated_at: r.updated_at }))
+                : [],
+            error: null,
+        })) as never)
+        from.mockImplementation(() => ({
+            insert: (payload: Record<string, unknown>) => ({ select: () => ({ single: () => {
+                const row = { id: nextId++, ...payload, updated_at: new Date().toISOString() }
+                rows.set(row.id, row)
+                return Promise.resolve({ data: { ...row }, error: null })
+            } }) }),
+            update: (payload: Record<string, unknown>) => {
+                const write = { payload, eqs: [] as [string, unknown][] }
+                updates.push(write)
+                const apply = () => [...rows.values()].filter(r => write.eqs.every(([k, v]) => r[k] === v)).map(r => Object.assign(r, payload))
+                const query = {
+                    eq: (k: string, v: unknown) => { write.eqs.push([k, v]); return query },
+                    select: () => ({
+                        single: () => { const [r] = apply(); return Promise.resolve(r ? { data: { ...r }, error: null } : { data: null, error: { code: 'PGRST116' } }) },
+                        then: (done: (v: unknown) => unknown) => done({ data: apply().map(r => ({ id: r.id })), error: null }),
+                    }),
+                    then: (done: (v: unknown) => unknown) => { apply(); return done({ data: null, error: null }) },
+                }
+                return query
+            },
+        }))
+        vi.mocked(createServiceRoleClient).mockReturnValue({ from, storage: {
+            createBucket: () => Promise.resolve({ error: null }),
+            from: () => ({
+                upload: async (_path: string, body: ReadableStream<Uint8Array>) => {
+                    const reader = body.getReader()
+                    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) expect(chunk.value.byteLength).toBe(1)
+                    return { error: null }
+                },
+                remove: (paths: string[]) => { removed.push(...paths); return Promise.resolve({ error: null }) },
+            }),
+        } } as never)
+        const bodyAt = (minutes: number[]) => {
+            let last = 0
+            const pending = [...minutes]
+            return new ReadableStream<Uint8Array>({ async pull(controller) {
+                const minute = pending.shift()
+                if (minute === undefined) return controller.close()
+                await new Promise(resolve => setTimeout(resolve, (minute - last) * 60_000))
+                last = minute
+                controller.enqueue(new Uint8Array([minute]))
+            } })
+        }
+        const liveMinutes = Array.from({ length: 35 }, (_, i) => i + 1)
+        const live = uploadProject(801, OWNER, { name: 'live', length: String(liveMinutes.length), body: bodyAt(liveMinutes) })
+        const stalled = uploadProject(801, OWNER, { name: 'stalled', length: '1', body: bodyAt([35]) })
+        await vi.advanceTimersByTimeAsync(31 * 60_000)
+        await factoryReportAnswer(801)
+        expect(rows.get(41)).toMatchObject({ name: 'live', state: 'uploading' })
+        expect(rows.get(42)).toMatchObject({ name: 'stalled', state: 'failed', error_code: 'timed_out' })
+        expect(removed).toEqual(['801/42.tar'])
+        await vi.advanceTimersByTimeAsync(5 * 60_000)
+        expect(await live).toEqual({ project: expect.objectContaining({ id: 41, state: 'queued' }) })
+        expect(rows.get(41)).toMatchObject({ state: 'queued', upload_bytes: 35, upload_sha256: createHash('sha256').update(Uint8Array.from(liveMinutes)).digest('hex') })
+        expect(await stalled).toEqual({ code: 'unknown' })
+        expect(rows.get(42)).toMatchObject({ state: 'failed', error_code: 'timed_out' })
+        expect(updates.find(u => u.payload.error_code === 'unknown')?.eqs).toContainEqual(['state', 'uploading'])
     })
 })
 
