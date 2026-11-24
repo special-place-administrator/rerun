@@ -1,6 +1,7 @@
 import json, os, sys, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pools
+import problems
 import store as S
 from test_dispatch import Base, ready
 from test_lines import Pair
@@ -52,6 +53,17 @@ class Waiters(Base):
         self.assertEqual(len(self.w.issue(5)["comments"]), 1)
         self.assertEqual(self.job(5)["state"], "blocked")
 
+    def test_a_queued_row_outside_the_window_leaves_the_room_to_the_window(self):
+        self.cfg.update(types={"coder": {"coworkers": [{"id": "b1", "name": "B1"}], "max_jobs": 1}})
+        self.w.issues = [issue(5), issue(8)]
+        self.d = self.new()
+        self.d.store.put_job("8", "queued", {"issue": 8, "title": "t8", "body": ready(), "state": "queued", "round": 1,
+                                             "worker": "coder", "paths": ["c/d.py"], "test": "c/test_d.py"})
+        self.d.work = {"wait": None, "issues": [5], "order": [5, 8]}
+        self.tick()
+        self.assertIsNotNone(self.job(5))
+        self.assertEqual(self.job(8)["state"], "queued")
+
     def test_a_building_row_closed_by_a_merged_pull_request_ends_merged(self):
         self.w.issues = [issue(5)]
         self.w.unlabelled.add(5)
@@ -86,6 +98,26 @@ class Window(Pair):
         got = self.d.work()
         self.assertIn(16, got["issues"])
         self.assertEqual([n for n in got["issues"] if n < 16], [])
+
+    def test_a_waiter_ended_by_a_rejected_dependency_is_skipped_and_shown_as_a_problem(self):
+        self.w.issues = [issue(5, "#7"), issue(6)]
+        self.w.open_numbers = {5, 6, 7}
+        self.order([5, 6], 1)
+        self.d = self.new()
+        self.d.kv.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
+        line = self.d.lines["o/r"]
+        line.store.put_job("7", "rejected", {"issue": 7, "title": "t7", "state": "rejected", "relabelled": True, "commented": True})
+        self.tick(4)
+        j = line.store.get_job("5")
+        self.assertEqual((j["state"], j.get("reason")), ("blocked", "dependency #7 ended rejected"))
+        got = self.d.work()
+        self.assertNotIn("halted", got)
+        self.assertIn(5, got["done"])
+        self.assertIn(6, got["issues"])
+        self.assertIn(line.store.get_job("6")["state"], ("queued", "building"))
+        self.assertEqual(len(self.w.issue(5)["comments"]), 1)
+        found = problems.Watch().find(line.store.jobs(), {}, {5, 6}, "", 0, [])
+        self.assertIn("dependency #7 ended rejected", found["ended #5"])
 
     def test_a_station_asked_for_zero_seats_keeps_one(self):
         self.cfg["builders"] = [{"id": "code", "name": "code"}, {"id": "larry", "name": "LARRY"}]
