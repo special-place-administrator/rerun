@@ -30,7 +30,7 @@ LIMIT_KEYS = ("max_count", "max_project_mb", "max_total_mb", "upload_max_mb", "u
 CLONE_CODES = ("not_reachable", "disk_low", "timed_out")
 ITEMS_MAX = 1000
 MB = 1024 * 1024
-MIRROR = "/data/tools/bin/mirror"
+MIRROR = os.environ.get("FACTORY_MIRROR") or "/data/tools/bin/mirror"
 
 
 @dataclasses.dataclass(frozen=True)

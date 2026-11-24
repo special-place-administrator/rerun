@@ -12,6 +12,7 @@ import {
     type FactoryProjectSource,
     type FactoryProjectState,
 } from '@moldwright/contracts'
+import type { Actor } from '@/app/api/_auth/access'
 import { workspaceFounderUserId } from '@/app/api/_auth/ownership'
 import { AuthorizationError } from '@/app/api/_auth/errors'
 import type { Database } from '@/app/api/database.types'
@@ -53,6 +54,10 @@ export async function isFactoryOwner(workspaceId: number, userId: string): Promi
     if ((await workspaceFounderUserId(workspaceId)) !== userId) return false
     const { data } = await selectMaybeSingle(createServiceRoleClient(), 'workspace_members', ['role'] as const, { workspace_id: workspaceId, user_id: userId })
     return data?.role === 'admin'
+}
+
+export async function isFactoryReporter(actor: Actor): Promise<boolean> {
+    return actor.kind === 'workspace' || (actor.kind === 'user' && (await workspaceFounderUserId(actor.workspaceId)) === actor.userId)
 }
 
 export async function assertFactoryOwner(workspaceId: number, userId: string): Promise<void> {
@@ -110,8 +115,10 @@ export async function addGithubProject(workspaceId: number, userId: string, link
     if (!parsed.ok) throw new AppError('factoryProjectLinkInvalid')
     const [owner, name] = parsed.repo.split('/')
     const owners = projectsOf(workspaceId)?.owners
-    if (owners && !owners.some(o => o.toLowerCase() === owner.toLowerCase())) throw new AppError('factoryProjectOwnerNotAllowed', { owners: owners.join(', ') })
-    const existing = await projectByRepo(workspaceId, parsed.repo)
+    const listed = owners ? owners.find(o => o.toLowerCase() === owner.toLowerCase()) : owner
+    if (!listed) throw new AppError('factoryProjectOwnerNotAllowed', { owners: owners?.join(', ') ?? '' })
+    const repo = `${listed}/${name}`
+    const existing = await projectByRepo(workspaceId, repo)
     if (existing) return { project: existing, existed: true }
     const limits = await projectLimitsOf(workspaceId)
     if (!limits) throw new AppError('factoryProjectQuotaUnset')
@@ -119,11 +126,11 @@ export async function addGithubProject(workspaceId: number, userId: string, link
     if (count.error) throw new AppError('generic')
     if ((count.data ?? 0) >= limits.max_count) throw new AppError('factoryProjectQuotaExceeded', { max: limits.max_count })
     const { data, error } = await createServiceRoleClient().from('factory_projects')
-        .insert<ProjectInsert>({ workspace_id: workspaceId, repo: parsed.repo, name, source: 'github', state: 'queued', created_by: userId })
+        .insert<ProjectInsert>({ workspace_id: workspaceId, repo, name, source: 'github', state: 'queued', created_by: userId })
         .select(FACTORY_PROJECT_COLUMNS.join(','))
         .single()
     if (error?.code === UNIQUE_VIOLATION) {
-        const raced = await projectByRepo(workspaceId, parsed.repo)
+        const raced = await projectByRepo(workspaceId, repo)
         if (raced) return { project: raced, existed: true }
     }
     if (error || !data) throw new AppError('generic')
@@ -226,7 +233,7 @@ type FactoryProjectsAnswer = {
     ids: number[]
     queue: { id: number; repo: string; source: FactoryProjectSource }[]
 }
-export type FactoryReportAnswer = ProjectAskAnswer & { project?: { repo: string; by: string; at: string }; projects: FactoryProjectsAnswer }
+export type FactoryReportAnswer = ProjectAskAnswer & { project?: { repo: string; by: string; at: string }; projects?: FactoryProjectsAnswer }
 
 async function projectsAnswer(workspaceId: number): Promise<FactoryProjectsAnswer> {
     const supabase = createServiceRoleClient()
@@ -247,9 +254,9 @@ async function projectsAnswer(workspaceId: number): Promise<FactoryProjectsAnswe
 export async function factoryReportAnswer(workspaceId: number): Promise<FactoryReportAnswer> {
     const [{ data }, projects] = await Promise.all([
         selectMaybeSingle(createServiceRoleClient(), 'factory_projects', ['repo', 'activated_at', 'activated_by'] as const, { workspace_id: workspaceId, active: true }),
-        projectsAnswer(workspaceId),
+        projectsAnswer(workspaceId).catch(() => undefined),
     ])
-    const asks = takeProjectAskAnswer(workspaceId)
-    if (!data?.activated_at) return { ...asks, projects }
-    return { ...asks, project: { repo: data.repo, by: data.activated_by ?? '', at: factoryStamp(Date.parse(data.activated_at)) }, projects }
+    const answer = projects ? { ...takeProjectAskAnswer(workspaceId), projects } : takeProjectAskAnswer(workspaceId)
+    if (!data?.activated_at) return answer
+    return { ...answer, project: { repo: data.repo, by: data.activated_by ?? '', at: factoryStamp(Date.parse(data.activated_at)) } }
 }

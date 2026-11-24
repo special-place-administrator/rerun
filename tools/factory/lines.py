@@ -460,7 +460,7 @@ class Lines:
     def project_refusal(self, repo, quota):
         if not projects.safe_repo(repo):
             return "invalid_link"
-        if repo.split("/")[0].lower() not in {o.lower() for o in self.owners()}:
+        if repo.split("/")[0] not in self.owners():
             return "owner_not_allowed"
         if quota is None:
             return "quota_unset"
@@ -485,7 +485,7 @@ class Lines:
             return
         if rc:
             return self.fail_project(pid, code)
-        cache = mirror.path(factory.short(repo))
+        cache = mirror.path(factory.folder(repo))
         if not os.path.isdir(cache):
             self.managed.pop(pid)
             return self.mod.log("project", "project %s: the mirror of %s is not there yet; it is cloned again" % (pid, repo))
