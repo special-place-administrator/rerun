@@ -4,7 +4,7 @@ import { raw } from '../db/client.js'
 import { HttpError } from '../lib/errors.js'
 import { ulid } from '../lib/ids.js'
 import { logger } from '../lib/logger.js'
-import { FACTORY_SERVICE, isConcrete, isFactoryThread, parseAddress } from './address.js'
+import { agentAddress, FACTORY_SERVICE, isConcrete, isFactoryThread, parseAddress } from './address.js'
 import { BUS_VERSION, envelopeSha, isActionable, postInputSchema, type PostInput } from './envelope.js'
 import { secretLabels } from './secrets.js'
 import type { BusSender } from './sender.js'
@@ -60,7 +60,15 @@ function parseInput(input: unknown): PostInput {
     throw refuse(400, 'bus_invalid', `invalid message fields: ${fields.join(', ')}`)
 }
 
-async function inTransaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
+let writeQueue: Promise<unknown> = Promise.resolve()
+
+function inTransaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
+    const result = writeQueue.then(() => runTransaction(work))
+    writeQueue = result.catch(() => {})
+    return result
+}
+
+async function runTransaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
     const tx = await raw().transaction('write')
     try {
         const result = await work(tx)
@@ -108,6 +116,14 @@ async function isBoundGhost(tx: Pick<Transaction, 'execute'>, thread: string, ad
         [thread, FACTORY_SERVICE, address],
     )
     return row !== null
+}
+
+async function openRequests(tx: Pick<Transaction, 'execute'>, sender: string, recipient: string): Promise<number> {
+    const address = parseAddress(recipient)
+    const base = address?.kind === 'agent' ? agentAddress(address.id) : null
+    const sql = `SELECT COUNT(*) AS n FROM bus_deliveries WHERE sender = ? AND actionable = 1 AND state IN ${OPEN_STATES} AND `
+    const row = base ? await one(tx, `${sql}(recipient = ? OR recipient LIKE ?)`, [sender, base, `${base}#%`]) : await one(tx, `${sql}recipient = ?`, [sender, recipient])
+    return Number(row?.n ?? 0)
 }
 
 async function recipientsOf(input: PostInput, sender: BusSender, actionable: boolean): Promise<string[]> {
@@ -180,8 +196,7 @@ async function post(sender: BusSender, input: unknown, limits: BusLimits): Promi
 
         if (actionable) {
             for (const recipient of recipients) {
-                const open = await one(tx, `SELECT COUNT(*) AS n FROM bus_deliveries WHERE sender = ? AND recipient = ? AND actionable = 1 AND state IN ${OPEN_STATES}`, [sender.address, recipient])
-                if (Number(open?.n ?? 0) >= limits.openActionablePerPair) throw refuse(429, 'bus_pair_cap', `refused: ${limits.openActionablePerPair} requests to ${recipient} are still open, wait for an answer`)
+                if ((await openRequests(tx, sender.address, recipient)) >= limits.openActionablePerPair) throw refuse(429, 'bus_pair_cap', `refused: ${limits.openActionablePerPair} requests to ${recipient} are still open, wait for an answer`)
             }
         }
 
