@@ -9,7 +9,7 @@ import { actOnFactoryWorkOrderAction, cancelFactoryWorkOrderAction, createFactor
 import type { ActionResult } from '@/app/api/_actions/space.actions'
 import type { FactoryWorkOrder, WorkOrderAction } from '@/app/api/_services/factory-controls.service'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -26,12 +26,13 @@ const openIssues = (snapshot: FactorySnapshot): string => snapshot.jobs.filter(j
 const hashes = (issues: number[]): string => issues.map(n => `#${n}`).join(', ')
 type Confirm = { kind: 'replace' } | { kind: 'cancel'; order: FactoryWorkOrder } | null
 
-export function FactoryWorkOrders({ snapshot, controls, open, onOpenChange, fallback, className }: {
+export function FactoryWorkOrders({ snapshot, controls, open, onOpenChange, fallback, onPickProject, className }: {
     snapshot: FactorySnapshot
     controls: FactoryControlsState
     open: boolean
     onOpenChange: (open: boolean) => void
     fallback: () => HTMLElement | null | undefined
+    onPickProject?: () => void
     className?: string
 }) {
     const t = useTranslations('factory.orders')
@@ -53,8 +54,8 @@ export function FactoryWorkOrders({ snapshot, controls, open, onOpenChange, fall
         return (
             <div data-work-orders className={cn('flex min-w-0 items-center', className)}>
                 <TooltipLabeled label={t('needsProjectWhy')}>
-                    <button type="button" aria-disabled="true" data-needs-project
-                        className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/60 px-3 py-1 text-xs text-muted-foreground outline-none aria-disabled:cursor-not-allowed focus-visible:ring-3 focus-visible:ring-ring/50">
+                    <button type="button" data-needs-project onClick={onPickProject}
+                        className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/60 px-3 py-1 text-xs text-muted-foreground outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50">
                         {t('needsProject')}
                         <span className="sr-only">{t('needsProjectWhy')}</span>
                     </button>
@@ -92,10 +93,10 @@ export function FactoryWorkOrders({ snapshot, controls, open, onOpenChange, fall
             <Popover open={open} onOpenChange={onOpenChange}>
                 <PopoverAnchor virtualRef={anchor} />
                 <PopoverTrigger asChild>
-                    <button ref={triggerRef} type="button" aria-label={active ? t('trigger') : t('ask', { repo })}
-                        className="flex max-w-[min(20rem,calc(100vw-2rem))] items-center gap-1.5 rounded-full border border-border/60 px-3 py-1 text-xs hover:bg-accent">
+                    <button ref={triggerRef} type="button" aria-label={active ? t('trigger') : t('ask', { repo })} data-order-trigger={active ? 'order' : 'ask'}
+                        className={cn('flex max-w-[min(20rem,calc(100vw-2rem))] items-center', active ? 'gap-1.5 rounded-full border border-border/60 px-3 py-1 text-xs hover:bg-accent' : cn(buttonVariants({ variant: 'default', size: 'xs' }), 'rounded-full px-3'))}>
                         <span className="truncate">{active ? t('trigger') : t('triggerAsk')}</span>
-                        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <ChevronDown className={cn('size-3.5 shrink-0', active ? 'text-muted-foreground' : 'text-primary-foreground/80')} aria-hidden />
                     </button>
                 </PopoverTrigger>
                 <PopoverContent align="start" sideOffset={8} className="w-96 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0"

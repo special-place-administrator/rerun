@@ -15,6 +15,7 @@ import { TooltipDisabledReason, TooltipLabeled } from '@/components/ui/tooltip'
 import { useErrorText } from '@/hooks/useErrorText'
 import { cn } from '@/lib/utils'
 import { BAR_TIERS } from './factory-bar-tiers'
+import { WAITS } from './FactoryStatePill'
 import { thrown, type FactoryControlsState } from './use-factory-controls'
 
 const SEGMENTS: { state: FactoryControlState; key: 'start' | 'pause' | 'stop'; icon: LucideIcon }[] = [
@@ -35,6 +36,9 @@ export function FactoryRunControl({ snapshot, controls, moreItems }: { snapshot:
 
     const reported = snapshot.control?.state ?? FACTORY_CONTROL_DEFAULT
     const owner = view?.isOwner === true
+    const repo = view?.activeRepo ?? null
+    const wait = snapshot.work_order?.wait ?? null
+    const startNeeds = !view || !owner ? null : repo === null ? 'project' : !view.orders.some(o => o.repo === repo && o.status === 'active') ? 'order' : wait !== null && WAITS[wait] === 'done' ? 'done' : null
 
     const send = async (state: FactoryControlState) => {
         setBusy(state)
@@ -58,12 +62,19 @@ export function FactoryRunControl({ snapshot, controls, moreItems }: { snapshot:
     )
     if (view === null) return <div data-run-control className="flex shrink-0 items-center">{retry}</div>
 
+    const needs = (b: (typeof SEGMENTS)[number]) => (b.state === 'RUNNING' ? startNeeds : null)
+    const label = (b: (typeof SEGMENTS)[number]) => {
+        const need = needs(b)
+        return need ? t('startBlocked', { need }) : t(b.key)
+    }
     const segment = (b: (typeof SEGMENTS)[number]) => {
         const Icon = b.icon
+        const need = needs(b)
         return (
-            <Button key={b.state} type="button" size="xs" variant={reported === b.state ? 'default' : 'ghost'} aria-label={t(b.key)}
+            <Button key={b.state} type="button" size="xs" variant={reported === b.state ? 'default' : 'ghost'} aria-label={label(b)}
                 data-state-button={b.state} aria-pressed={reported === b.state} disabled={!owner || busy !== null}
-                className={BAR_TIERS.t3.square} onClick={() => void send(b.state)}>
+                {...(need ? { 'aria-disabled': true, 'data-start-needs': need } : {})}
+                className={cn(BAR_TIERS.t3.square, 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50')} onClick={() => { if (!need) void send(b.state) }}>
                 <Icon aria-hidden className={cn('hidden size-4', BAR_TIERS.t3.show)} />
                 <span className={BAR_TIERS.t3.hide}>{t(b.key)}</span>
             </Button>
@@ -71,7 +82,7 @@ export function FactoryRunControl({ snapshot, controls, moreItems }: { snapshot:
     }
     const segments = (
         <ButtonGroup aria-label={t('groupLabel')} aria-busy={busy !== null} className="rounded-lg border border-border/60">
-            {SEGMENTS.map(b => (owner ? <TooltipLabeled key={b.state} label={t(b.key)}>{segment(b)}</TooltipLabeled> : segment(b)))}
+            {SEGMENTS.map(b => (owner ? <TooltipLabeled key={b.state} label={label(b)}>{segment(b)}</TooltipLabeled> : segment(b)))}
         </ButtonGroup>
     )
 

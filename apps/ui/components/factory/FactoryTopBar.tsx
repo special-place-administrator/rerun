@@ -155,7 +155,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
         },
     }
     const orderItem = (afterClose: (open: () => void) => void) => controls.view === null ? null : repo === null ? (
-        <DropdownMenuItem disabled data-needs-project className="flex-col items-start gap-0.5">
+        <DropdownMenuItem data-needs-project className="flex-col items-start gap-0.5" onSelect={() => afterClose(() => setProjectsOpen(true))}>
             <span>{tOrders('needsProject')}</span>
             <span className="text-xs text-muted-foreground">{tOrders('needsProjectWhy')}</span>
         </DropdownMenuItem>
@@ -172,7 +172,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                 </div>
                 {controls.view === null && controls.loadError === null
                     ? <div className={cn('flex', BAR_TIERS.t2.hide)}><FactoryWorkOrdersSkeleton /></div>
-                    : <FactoryWorkOrders snapshot={snapshot} controls={controls} open={ordersOpen} onOpenChange={setOrdersOpen} fallback={moreControls} className={BAR_TIERS.t2.hide} />}
+                    : <FactoryWorkOrders snapshot={snapshot} controls={controls} open={ordersOpen} onOpenChange={setOrdersOpen} fallback={moreControls} onPickProject={() => setProjectsOpen(true)} className={BAR_TIERS.t2.hide} />}
             </div>
             <div data-zone="controls" className={cn(ZONE, DIVIDED)}>
                 <FactoryRunControl snapshot={snapshot} controls={controls} moreItems={afterClose => <>{orderItem(afterClose)}<FactoryPoolMenu snapshot={snapshot} controls={controls} /></>} />
