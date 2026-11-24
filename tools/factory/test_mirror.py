@@ -1,4 +1,4 @@
-import fcntl, os, re, signal, subprocess, sys, textwrap, time, unittest
+import contextlib, fcntl, io, os, re, signal, subprocess, sys, textwrap, time, unittest
 from unittest import mock
 
 import test_factory as T
@@ -298,6 +298,19 @@ class CloneErrorsStayLocal(MirrorCase):
             text = f.read()
         self.assertIn("remote: secret text", text)
         self.assertNotIn("ghs_", text)
+
+
+class NetworkScheme(unittest.TestCase):
+    def test_a_network_url_other_than_https_refuses_before_git_runs(self):
+        import mirror as M
+        for base in ("http://github.com/", "ssh://github.com/", "git://github.com/"):
+            out = io.StringIO()
+            with self.subTest(base), mock.patch.object(M, "GITHUB", base), mock.patch.object(M, "run", side_effect=AssertionError("git ran")) as ran:
+                with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as stop:
+                    M.git(["ls-remote", "x"], net=True)
+                self.assertEqual(stop.exception.code, 2)
+                self.assertIn("REFUSED", out.getvalue())
+                ran.assert_not_called()
 
 
 class OwnerFolders(unittest.TestCase):
