@@ -19,17 +19,17 @@ class DeadDeps(Base):
     def lookups(self, n):
         return [c for c in self.w.gh_calls if c[:2] == ["api", "repos/o/r/issues/%d" % n]]
 
-    def test_a_dependency_whose_job_ended_rejected_is_named_dead_and_commented_once(self):
+    def test_a_dependency_whose_job_ended_rejected_ends_the_waiter_and_is_commented_once(self):
         self.w.issues = [issue(5, "#7")]
         self.ended(7, "rejected")
         self.tick(3, fresh=True)
-        self.assertEqual(self.state(), "waiting")
+        self.assertEqual(self.state(), "blocked")
         self.assertEqual(self.out.getvalue().count("waits on dead #7 (rejected)"), 1)
         self.assertEqual(len(self.w.issue(5)["comments"]), 1)
-        self.assertIn("#7 (rejected)", self.w.issue(5)["comments"][0])
+        self.assertIn("dependency #7 ended rejected", self.w.issue(5)["comments"][0])
         self.assertEqual(self.data()["dead"], [[7, "rejected"]])
         snap = snapshot.build_snapshot(self.d.store, self.cfg, self.w.clock, None, beat=3)
-        self.assertEqual([j["reason"] for j in snap["jobs"] if j["issue"] == 5], ["waits on dead #7 (rejected)"])
+        self.assertEqual([j["reason"] for j in snap["jobs"] if j["issue"] == 5], ["dependency #7 ended rejected"])
 
     def test_an_ended_dependency_carrying_the_label_again_is_not_dead(self):
         self.w.issues = [issue(5, "#7"), issue(7)]
@@ -95,7 +95,8 @@ class DeadDeps(Base):
         self.assertEqual(self.w.issue(5)["comments"], [])
 
     def test_the_beat_line_counts_rejected_today_and_jobs_waiting_on_a_dead_dependency(self):
-        self.w.issues = [issue(5, "#7")]
+        self.w.issues = [issue(5, "#8")]
+        self.w.close_reasons[8] = "not_planned"
         self.ended(7, "rejected")
         self.tick(2)
         line = open(self.cfg["heartbeat_file"], encoding="utf-8").read().strip()
