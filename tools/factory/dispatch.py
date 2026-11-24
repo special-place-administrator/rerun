@@ -1046,7 +1046,8 @@ class Dispatcher:
                             self.save(data, line)
                             log(i["number"], line)
                         digest =hashlib.sha256(json.dumps(dead).encode()).hexdigest()[:16] if dead else ""
-                        ended = [d for d in unmet if got[d] in states.PROBLEM and not self.re_plannable(d, got[d])]
+                        ended = [d for d in unmet if got[d] in states.PROBLEM and not self.re_plannable(d, got[d])
+                                 and (got[d] not in ("blocked", "failed") or d in (self.work or {}).get("skipped", ()))]
                         if ended:
                             said = self.store.get_all(str(i["number"])).get("dead_deps", "") == digest
                             self.store.set(str(i["number"]), "dead_deps", digest)

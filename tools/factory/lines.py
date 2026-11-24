@@ -268,7 +268,7 @@ class Lines:
                 done.append(n)
                 continue
             if j.get("state") in FAILED and retried.get(str(n)) != j.get("take", 1):
-                return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n}
+                return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n, "skipped": skipped}
             if j.get("state") in states.END and j.get("state") not in FAILED:
                 done.append(n)
                 continue
@@ -284,10 +284,10 @@ class Lines:
                 break
             picked.append(n)
             if wait or len(picked) >= most:
-                return {"wait": wait, "issues": picked, "order": issues, "done": done}
+                return {"wait": wait, "issues": picked, "order": issues, "done": done, "skipped": skipped}
         if picked or waiting:
-            return {"wait": None, "issues": picked, "order": issues, "done": done}
-        return {"wait": "the work order is done", "issues": [], "order": issues, "done": done}
+            return {"wait": None, "issues": picked, "order": issues, "done": done, "skipped": skipped}
+        return {"wait": "the work order is done", "issues": [], "order": issues, "done": done, "skipped": skipped}
 
     def learn_action(self, ask):
         if ask is None:
