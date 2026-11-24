@@ -39,6 +39,7 @@ ORDER_ISSUES_MAX = 200
 ORDER_TEXT_MAX = 4000
 ORDER_ACTIONS = ("retry", "skip")
 FAILED = ("blocked", "failed")
+DEPENDENCY_ENDED = re.compile(r"^dependency #[0-9]+ ended [a-z_]+$")
 GHOSTS_CEILING = 32
 FILE_AGAIN_S = 5 * 60
 STATION_MAX = 64
@@ -58,7 +59,7 @@ def station(name):
 
 def ceiling():
     try:
-        return max(0, int(os.environ.get("FACTORY_MAX_GHOSTS", GHOSTS_CEILING)))
+        return max(1, int(os.environ.get("FACTORY_MAX_GHOSTS", GHOSTS_CEILING)))
     except ValueError:
         return GHOSTS_CEILING
 
@@ -167,8 +168,8 @@ class Lines:
     def throttle(self):
         saved = self.read("throttle", {})
         stations = saved.get("stations") if isinstance(saved.get("stations"), dict) else {}
-        return {"max_ghosts": saved["max_ghosts"] if whole(saved.get("max_ghosts")) else 1,
-                "stations": {k: v for k, v in stations.items() if isinstance(k, str) and whole(v)}, "by": saved.get("by"), "at": saved.get("at")}
+        return {"max_ghosts": max(1, saved["max_ghosts"]) if whole(saved.get("max_ghosts")) else 1,
+                "stations": {k: max(1, v) for k, v in stations.items() if isinstance(k, str) and whole(v)}, "by": saved.get("by"), "at": saved.get("at")}
 
     def stations(self, d):
         members = {}
@@ -208,7 +209,7 @@ class Lines:
             return self.problem("throttle answer not understood: the pool stays %d" % old["max_ghosts"])
         known = {s for d in self.lines.values() for s in self.stations(d)}
         stations = {k: v for k, v in stations.items() if station(k) and k in known and whole(v)}
-        new = {"max_ghosts": min(most, top), "stations": dict(old["stations"], **{k: min(v, top) for k, v in stations.items()})}
+        new = {"max_ghosts": max(1, min(most, top)), "stations": dict(old["stations"], **{k: max(1, min(v, top)) for k, v in stations.items()})}
         if new == {"max_ghosts": old["max_ghosts"], "stations": old["stations"]} and "throttle" in self.kv.get_all("-"):
             return
         self.change("throttle", dict(new, by=printable(ask.get("by")), at=self.mod.iso(self.now()), asked_at=str(ask.get("at"))[:64]),
@@ -258,17 +259,21 @@ class Lines:
             return {"wait": wait, "issues": [], "order": issues}
         if order["kind"] in ("feature", "bug"):
             issues = [order["filed"]]
-        store, skipped, retried, done, picked = self.lines[self.active].store, order.get("skipped", []), order.get("retried", {}), [], []
+        store, skipped, retried, done, picked, waiting = self.lines[self.active].store, order.get("skipped", []), order.get("retried", {}), [], [], []
         most = max(1, min(self.throttle()["max_ghosts"], ceiling()))
         for n in issues:
             j, kv = store.get_job(str(n)) or {}, store.get_all(str(n))
-            if n in skipped or (not j and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")):
+            if n in skipped or (not j and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")) or (
+                    j.get("state") == "blocked" and DEPENDENCY_ENDED.match(j.get("reason") or "")):
                 done.append(n)
                 continue
             if j.get("state") in FAILED and retried.get(str(n)) != j.get("take", 1):
-                return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n}
+                return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n, "skipped": skipped}
             if j.get("state") in states.END and j.get("state") not in FAILED:
                 done.append(n)
+                continue
+            if j.get("state") == "waiting":
+                waiting.append(n)
                 continue
             wait = None
             if not j and kv.get("order_paused"):
@@ -279,10 +284,10 @@ class Lines:
                 break
             picked.append(n)
             if wait or len(picked) >= most:
-                return {"wait": wait, "issues": picked, "order": issues, "done": done}
-        if picked:
-            return {"wait": None, "issues": picked, "order": issues, "done": done}
-        return {"wait": "the work order is done", "issues": [], "order": issues, "done": done}
+                return {"wait": wait, "issues": picked, "order": issues, "done": done, "skipped": skipped}
+        if picked or waiting:
+            return {"wait": None, "issues": picked, "order": issues, "done": done, "skipped": skipped}
+        return {"wait": "the work order is done", "issues": [], "order": issues, "done": done, "skipped": skipped}
 
     def learn_action(self, ask):
         if ask is None:
