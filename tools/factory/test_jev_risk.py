@@ -154,11 +154,33 @@ class TestState(unittest.TestCase):
             self.assertEqual([p for p in tests if sent.get(p, 0)], [], short)
         self.assertEqual(short, [], sent)
 
-    def test_the_token_estimate_covers_a_measured_jev_call(self):
-        pr_1577_body_chars, pr_1577_input_tokens = 5821, 2104
-        self.assertGreaterEqual(pr_1577_body_chars / F.JEV_CHARS_PER_TOKEN, pr_1577_input_tokens)
-        measured_chars_per_token = pr_1577_body_chars / pr_1577_input_tokens
-        self.assertLessEqual(F.JEV_TOKENS_MAX * F.JEV_CHARS_PER_TOKEN / measured_chars_per_token, F.JEV_TOKENS_MAX)
+    def test_every_code_file_of_a_wide_pr_reaches_the_judge(self):
+        shape = [("apps/ui/app/api/_services/factory-projects.service.test.ts", 40, 216),
+                 ("apps/ui/app/api/_services/factory-projects.service.ts", 171, 240),
+                 ("apps/ui/app/api/factory/projects/[id]/archive/route.test.ts", 95, 171),
+                 ("apps/ui/app/api/factory/projects/[id]/archive/route.ts", 28, 120),
+                 ("apps/ui/app/api/factory/projects/upload/route.test.ts", 104, 200),
+                 ("apps/ui/app/api/factory/projects/upload/route.ts", 36, 160),
+                 ("apps/ui/components/factory/FactoryProjectPicker.tsx", 21, 194),
+                 ("apps/ui/lib/mcp/account-rpc.ts", 2, 150), ("apps/ui/lib/storage/private.ts", 2, 214),
+                 ("apps/engine/src/factory/projects.ts", 11, 180), ("packages/contracts/src/factory-projects.ts", 11, 160),
+                 ("packages/db/src/database.types.ts", 18, 150), ("packages/i18n/messages/.i18n-lock.json", 4, 150),
+                 ("packages/i18n/messages/de/errors.json", 3, 170), ("packages/i18n/messages/fr/errors.json", 3, 170),
+                 ("supabase/migrations/20261124100000_factory_project_uploads.sql", 45, 200),
+                 ("tools/factory/dispatch.py", 17, 190), ("tools/factory/lines.py", 78, 220),
+                 ("tools/factory/test_lines_projects.py", 46, 200), ("tools/factory/test_upload.py", 147, 210),
+                 ("tools/factory/upload.py", 217, 230), ("tools/factory/upload_limits.py", 120, 240),
+                 ("tools/factory/clones.py", 9, 180)]
+        files = [{"filename": p, "status": "modified", "additions": n, "deletions": 0,
+                  "patch": patch_file(*[("+%s_%d = handle(%d) " % (p.rsplit("/", 1)[-1].split(".")[0], j, j)).ljust(width, "z") for j in range(n)])}
+                 for p, n, width in shape]
+        code = [p for p, _, _ in shape if not F.re.search(F.cutshape.TESTF, p)]
+        self.assertEqual((len(files), len(code)), (23, 18))
+        judge, need, note = ask({"title": "factory: project uploads", "body": ""}, files, self.LOW)
+        self.assertLessEqual(len(judge.sent[0].data), F.JEV_TOKENS_MAX * F.JEV_CHARS_PER_TOKEN)
+        change, entries = judge.body()["state"]["change"], entries_by_path(judge.body())
+        self.assertEqual([p for p in code if not entries.get(p, {}).get("lines")], [], sorted(entries))
+        self.assertLessEqual(change.get("files_omitted", 0), len(files) - len(code))
 
     def test_no_credential_leaves_in_the_title_a_name_or_a_line(self):
         gh = "gh" + "p_" + "Q7xk2Lm9Rt4Vb8Nc1Hd6Js3Wy0Mg5Pz7Kq"
