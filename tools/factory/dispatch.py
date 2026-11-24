@@ -700,7 +700,7 @@ class Dispatcher:
 
     def control_hold(self):
         now = self.now()
-        if self.work is not None and self.work.get("wait"):
+        if self.work is not None and self.work.get("wait") and not (self.work.get("halted") and self.work.get("issues")):
             holds.arm(self.store, "no work", now + 2 * self.cfg.get("poll_s", 30))
         elif holds.until(self.store, "no work") > now:
             holds.clear(self.store, "no work")

@@ -1,5 +1,6 @@
 import json, os, sys, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import holds
 import pools
 import problems
 import store as S
@@ -138,6 +139,34 @@ class Window(Pair):
         self.tick(3)
         self.assertIn(line.store.get_job("5")["state"], ("queued", "building"))
         self.assertNotEqual(self.d.work()["wait"], "the work order is done")
+
+    def halted_order(self, order):
+        self.w.issues = [issue(5), issue(8, "#6"), issue(6), issue(7)]
+        self.w.open_numbers = {5, 6, 7, 8}
+        self.order(order, 4)
+        self.d = self.new()
+        self.d.kv.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
+        line = self.d.lines["o/r"]
+        for n, f in ((5, "a/b.py"), (7, "e/f.py")):
+            line.store.put_job(str(n), "queued", {"issue": n, "title": "t%d" % n, "body": ready(), "state": "queued", "round": 1,
+                                                  "worker": "coder", "paths": [f], "test": f.replace("/", "/test_")})
+        line.store.put_job("6", "blocked", {"issue": 6, "title": "t6", "body": ready(), "state": "blocked", "reason": "review blocked",
+                                            "take": 1, "relabelled": True, "commented": True})
+        self.tick(3)
+        return line
+
+    def test_a_picked_job_ahead_of_a_failed_job_still_dispatches(self):
+        line = self.halted_order([5, 8, 6, 7])
+        self.assertEqual(self.d.work()["wait"], "job #6 failed: retry or skip")
+        self.assertNotEqual(line.store.get_job("5")["state"], "queued")
+        self.assertEqual(line.store.get_job("7")["state"], "queued")
+        self.assertNotIn((line.store.get_job("8") or {}).get("state"), ("building", "review_wait", "reviewing"))
+
+    def test_a_failed_job_with_nothing_picked_ahead_still_holds(self):
+        line = self.halted_order([6, 7])
+        self.assertEqual(self.d.work()["wait"], "job #6 failed: retry or skip")
+        self.assertIn("no work", holds.active_kinds(line.store, self.d.now()))
+        self.assertEqual(line.store.get_job("7")["state"], "queued")
 
     def test_a_station_asked_for_zero_seats_keeps_one(self):
         self.cfg["builders"] = [{"id": "code", "name": "code"}, {"id": "larry", "name": "LARRY"}]
