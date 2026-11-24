@@ -29,6 +29,11 @@ describe('dashboard routes', () => {
         await expect(Home({ searchParams: Promise.resolve({ template: 'seo', tag: ['a', 'b'] }) })).rejects.toThrow('redirect:/board?template=seo&tag=a&tag=b')
     })
 
+    it('/ keeps the factory for a query the board does not handle', async () => {
+        const page = await Home({ searchParams: Promise.resolve({ workspace: '7', members: '1' }) })
+        expect(page.type).toBe(FactoryPage)
+    })
+
     it('/board renders the board', async () => {
         const page = await BoardPage()
         expect(page.props.children.type).toBe(HomeContent)
