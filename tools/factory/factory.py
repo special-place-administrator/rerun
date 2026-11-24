@@ -1060,20 +1060,25 @@ def jev_body(state):
     return json.dumps({"model": "jev-latest", "state": state, "questions": JEV_QUESTIONS}, separators=(",", ":")).encode()
 
 
+def jev_root(names):
+    common = []
+    for parts in zip(*[n.split("/")[:-1] for n in names if n != JEV_NAME_WITHHELD]):
+        if len(set(parts)) > 1:
+            break
+        common.append(parts[0])
+    return "".join(p + "/" for p in common)
+
+
 def jev_state(pr, files):
     order = sorted(files, key=lambda f: bool(re.search(cutshape.TESTF, f["filename"])))
-    todo = [jev_lines(f.get("patch")) for f in order]
-    change = {"title": JEV_TITLE_WITHHELD if jev_credential(pr["title"]) else pr["title"], "diff_summary": [], "files_omitted": len(files)}
-    kept, room = change["diff_summary"], int(JEV_TOKENS_MAX * JEV_CHARS_PER_TOKEN) - len(jev_body({"change": change}))
-    for f, lines in zip(order, todo):
-        name = JEV_NAME_WITHHELD if jev_pattern(f["filename"]) else f["filename"]
-        entry = {"file": "%s %s +%d/-%d" % (name, JEV_STATUS.get(f.get("status"), "?"), f.get("additions", 0), f.get("deletions", 0)), "lines": []}
-        cost = len(json.dumps(dict(entry, cut=len(lines)))) + 1
-        if cost > room:
-            break
-        kept.append(entry)
-        room -= cost
-    taken = [0] * len(kept)
+    names = [JEV_NAME_WITHHELD if jev_pattern(f["filename"]) else f["filename"] for f in order]
+    root = jev_root(names)
+    change = {"title": JEV_TITLE_WITHHELD if jev_credential(pr["title"]) else pr["title"]}
+    if root:
+        change["root"] = root
+    change.update(diff_summary=[], files_omitted=len(files))
+    kept, todo, taken = change["diff_summary"], [], []
+    room = int(JEV_TOKENS_MAX * JEV_CHARS_PER_TOKEN) - len(jev_body({"change": change}))
 
     def take(i):
         nonlocal room
@@ -1083,12 +1088,26 @@ def jev_state(pr, files):
         kept[i]["lines"].append(todo[i][taken[i]])
         room, taken[i] = room - cost, taken[i] + 1
         return True
-    split = sum(not re.search(cutshape.TESTF, f["filename"]) for f in order[:len(kept)])
-    for group in (range(split), range(split, len(kept))):
-        for _ in range(JEV_LINES_MIN):
-            for i in group:
-                if taken[i] < JEV_LINES_MIN:
-                    take(i)
+
+    def admit(group):
+        nonlocal room
+        for f, name in group:
+            lines = jev_lines(f.get("patch"))
+            label = name if name == JEV_NAME_WITHHELD else name[len(root):]
+            entry = {"file": "%s %s +%d/-%d" % (label, JEV_STATUS.get(f.get("status"), "?"), f.get("additions", 0), f.get("deletions", 0)), "lines": []}
+            cost = len(json.dumps(dict(entry, cut=len(lines)), separators=(",", ":"))) + 1
+            if cost + sum(len(json.dumps(line)) + 1 for line in lines[:JEV_LINES_MIN]) > room:
+                return
+            kept.append(entry)
+            todo.append(lines)
+            taken.append(0)
+            room -= cost
+            for _ in lines[:JEV_LINES_MIN]:
+                take(len(kept) - 1)
+    rows = list(zip(order, names))
+    split = sum(not re.search(cutshape.TESTF, f["filename"]) for f in order)
+    admit(rows[:split])
+    admit(rows[split:])
     while any([take(i) for i in range(len(kept))]):
         pass
     for entry, n, lines in zip(kept, taken, todo):
