@@ -24,8 +24,8 @@ import { FactoryOverlay } from './FactoryOverlay'
 import { LOOP_MS, factoryScene, type Cell, type FactoryFrame } from './factory-scene'
 
 const OVERHEAD_PX = 120
-const BAR_PX = 110
-const BAR_MARGIN_PX = 20
+const BAR_PX = 80
+const BAR_MARGIN_PX = 12
 const SIDE_PX = 40
 const ZOOM_RANGE = { min: 0.1, max: 3 }
 const ZOOM_STEP = 1.2
@@ -215,7 +215,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                 </TooltipLabeled>
             </ChromeBar>
 
-            <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef} className="items-stretch gap-4 px-5 py-3">
+            <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef} className="items-stretch gap-3 px-5 py-2">
                 <div className="flex shrink-0 items-center gap-2 pr-1">
                     <TooltipLabeled label={<span className="flex flex-col gap-0.5"><span>Factory</span>{noData.length > 0 && <span>{t('noData', { metrics: noData.map(m => m.label).join(', ') })}</span>}</span>}>
                         <span {...(noData.length > 0 ? { 'data-no-data': true } : {})} tabIndex={0}
@@ -239,7 +239,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                             <PopoverTrigger asChild>
                                 <button type="button" data-more-metrics aria-label={t('moreMetrics', { count: folded.length })}
                                     className="flex flex-col items-center justify-center rounded-sm leading-none outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50">
-                                    <span className="font-mono text-base font-semibold tabular-nums">+{folded.length}</span>
+                                    <span className="font-mono text-sm/4 font-semibold tabular-nums">+{folded.length}</span>
                                     <span className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{t('moreLabel')}</span>
                                 </button>
                             </PopoverTrigger>
@@ -259,7 +259,7 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
             </FactoryBarFrame>
 
             {topBar && (
-                <FactoryBarFrame edge="top" rightInset={rightInset} frameRef={topRef} className="h-11 w-[calc(100%-2.5rem)] items-center px-3 py-1.5">
+                <FactoryBarFrame edge="top" rightInset={rightInset} frameRef={topRef} className="h-11 w-[calc(100%-1.5rem)] items-center px-3 py-1.5">
                     {topBar}
                 </FactoryBarFrame>
             )}
@@ -274,7 +274,7 @@ function Metric({ def, value, asOf }: { def: MetricDef; value: MetricValues[Metr
         <Tooltip>
             <TooltipTrigger asChild>
                 <div className="flex cursor-help flex-col items-center justify-center leading-none" tabIndex={0} {...(value.title ? { title: value.title } : {})}>
-                    <span className={`font-mono text-base font-semibold tabular-nums ${value.warn ? 'text-destructive' : (TONES[def.key] ?? 'text-foreground')}`}>{value.text}</span>
+                    <span className={`font-mono text-sm/4 font-semibold tabular-nums ${value.warn ? 'text-destructive' : (TONES[def.key] ?? 'text-foreground')}`}>{value.text}</span>
                     {value.fill !== undefined && (
                         <span className="mt-1 h-1 w-14 overflow-hidden rounded-full bg-muted">
                             <span className={`block h-full rounded-full transition-all duration-700 ${value.warn ? 'bg-red-500' : 'bg-[#4d34f7]'}`} style={{ width: `${value.fill}%` }} />

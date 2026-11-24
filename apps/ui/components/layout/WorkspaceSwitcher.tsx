@@ -176,9 +176,9 @@ export function WorkspaceSwitcher({ inline = false, pillClassName }: { inline?: 
     )
 
     const headerSection = (
-        <div className="flex flex-col gap-2.5 p-1.5">
-            <div className="flex items-center gap-2.5">
-                <WorkspaceLogoImage src={workspace.icon_url || activeIcon} fallbackSrc={activeIcon} className="size-8 shrink-0 rounded-full object-cover" />
+        <div className="flex flex-col gap-2 p-1.5">
+            <div className="flex items-center gap-2">
+                <WorkspaceLogoImage src={workspace.icon_url || activeIcon} fallbackSrc={activeIcon} className="size-6 shrink-0 rounded-full object-cover" />
                 <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-foreground">{workspace.name || t('defaultName')}</div>
                     <div className="truncate text-xs text-muted-foreground">{workspaceSummary(workspace, t)}</div>
@@ -370,7 +370,7 @@ export function WorkspaceSwitcher({ inline = false, pillClassName }: { inline?: 
     const workspaceName = workspace.name || t('defaultName')
     const pill = (
         <DropdownMenuTrigger asChild>
-            <WorkspacePill className={cn('max-w-full shrink', inline && cn('max-w-40', pillClassName))} name={workspaceName} iconUrl={workspace.icon_url || activeIcon} fallbackIconUrl={activeIcon} stripes={workspace.is_sandbox}
+            <WorkspacePill className={cn('max-w-full shrink', inline && cn('max-w-56', pillClassName))} name={workspaceName} iconUrl={workspace.icon_url || activeIcon} fallbackIconUrl={activeIcon} stripes={workspace.is_sandbox}
                 {...(inline ? { 'aria-label': workspaceName } : {})} />
         </DropdownMenuTrigger>
     )

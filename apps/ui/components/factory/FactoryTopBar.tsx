@@ -229,12 +229,12 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                     side="bottom"
                     align="start"
                     sideOffset={8}
-                    collisionPadding={{ left: 20, right: rightInset + 20 }}
+                    collisionPadding={{ left: 12, right: rightInset + 12 }}
                     onOpenAutoFocus={e => e.preventDefault()}
                     onCloseAutoFocus={e => e.preventDefault()}
                     onInteractOutside={e => e.preventDefault()}
                     style={{ maxHeight: 'var(--factory-drop-max)' }}
-                    className="w-[min(40rem,calc(100cqw-2.5rem))] gap-0 overflow-y-auto rounded-2xl border border-border/60 bg-background/95 p-3 text-foreground shadow-[0_8px_40px_rgba(0,0,0,0.12)] ring-0 backdrop-blur-xl"
+                    className="w-[min(40rem,calc(100cqw-1.5rem))] gap-0 overflow-y-auto rounded-2xl border border-border/60 bg-background/95 p-3 text-foreground shadow-[0_8px_40px_rgba(0,0,0,0.12)] ring-0 backdrop-blur-xl"
                 >
                     {selected !== null ? (
                         <div className="flex flex-col gap-2">
