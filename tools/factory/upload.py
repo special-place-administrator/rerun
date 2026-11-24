@@ -12,7 +12,7 @@ import projects
 SENSITIVE_PATHS = (
     ("Secrets folder", re.compile(r"(^|/)\.(secrets|ssh|aws|gnupg)(/|$)")),
     ("Env file", re.compile(r"(^|/)\.env(\.|$)")),
-    ("Credential file", re.compile(r"(cookie|credential|password|client[-_]secret|service[-_]account)", re.I)),
+    ("Credential file", re.compile(r"(^|/)([^/]*[-_.])?(cookies?|credentials?|passwords?|client[-_]secrets?|service[-_]accounts?)(([-_.][^/]*)?\.(json|ya?ml|txt|csv|ini|toml|xml|cfg|conf|properties))?$", re.I)),
     ("Private key file", re.compile(r"\.(pem|p12|pfx|key)$|(^|/)id_(rsa|ed25519|ecdsa)$")),
 )
 DROPPED_MAX = 50
@@ -83,6 +83,7 @@ def write(tf, member, parts, root_fd):
         out = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
     finally:
         os.close(parent)
+    os.fchmod(out, 0o755 if member.mode & stat.S_IXUSR else 0o644)
     with os.fdopen(out, "wb") as f, tf.extractfile(member) as src:
         left = member.size
         while left:

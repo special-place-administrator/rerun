@@ -208,8 +208,8 @@ class Janitor(JanitorCase):
         p = self.job()
         self.merged(p)
         fake = os.path.join(self.tmp, "git403")
-        T.write(self.tmp, "git403", "#!/bin/sh\nif [ \"$1\" = fetch ]; then for a; do case \"$a\" in *github.com/*) "
-                "echo \"fatal: unable to access '$a': The requested URL returned error: 403\" >&2; exit 128;; esac; done; fi\nexec git \"$@\"\n")
+        T.write(self.tmp, "git403", "#!/bin/sh\ncase \" $* \" in *\" fetch \"*) for a; do case \"$a\" in *github.com/*) "
+                "echo \"fatal: unable to access '$a': The requested URL returned error: 403\" >&2; exit 128;; esac; done;; esac\nexec git \"$@\"\n")
         os.chmod(fake, 0o755)
         with mock.patch.object(F, "GIT", fake):
             code, out = self.run_j("janitor", "--apply")

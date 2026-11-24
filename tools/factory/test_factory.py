@@ -35,6 +35,7 @@ class FactoryCase(unittest.TestCase):
         F.GIT, F.WORK, F.LOAD_PER_CPU = "git", os.path.join(self.tmp, "work"), None
         F.REPOS, F.WT, F.STATE = F.WORK + "/repos", F.WORK + "/wt", F.WORK + "/state"
         os.makedirs(F.STATE)
+        self.enterContext(mock.patch.object(mirror, "GITHUB", "file://" + self.tmp + "/"))
         self.origin = os.path.join(self.tmp, "origin.git")
         git(self.tmp, "init", "--quiet", "--bare", self.origin)
         seed = self.make_clone("seed", init=True)
@@ -353,13 +354,13 @@ class WtSweep(FactoryCase):
             p = self.wt(chunk=c)
             self.pr(c, 9, "MERGED", self.commit(p))
             git(p, "push", "--quiet", "origin", "chunk/7-" + c)
-        fetches, real = [], F.run
+        fetches, real = [], mirror.run
 
         def counting(cmd, *a, **k):
             if "fetch" in cmd:
                 fetches.append(cmd)
             return real(cmd, *a, **k)
-        with mock.patch.object(F, "run", counting):
+        with mock.patch.object(mirror, "run", counting):
             code, out = self.sweep("--apply")
         self.assertEqual(code, 0, out)
         self.assertEqual(len(fetches), 1, fetches)
@@ -560,9 +561,11 @@ class PrOpenRetry(FactoryCase):
                 return subprocess.CompletedProcess(cmd, rc, out, err)
             if cmd[0] == F.GH:
                 return subprocess.CompletedProcess(cmd, 0, "[]", "")
-            if cmd[:2] == [F.GIT, "fetch"]:
-                return subprocess.CompletedProcess(cmd, 0, "", "")
             return real_run(cmd, *a, **k)
+        real_git = mirror.run
+
+        def fake_git(cmd, *a, **k):
+            return subprocess.CompletedProcess(cmd, 0, "", "") if "fetch" in cmd else real_git(cmd, *a, **k)
 
         old = os.getcwd()
         os.chdir(path)
@@ -575,7 +578,7 @@ class PrOpenRetry(FactoryCase):
             else:
                 real_sleep(seconds)
 
-        with mock.patch.object(F, "run", fake_run), mock.patch.object(F.time, "sleep", fake_sleep):
+        with mock.patch.object(F, "run", fake_run), mock.patch.object(mirror, "run", fake_git), mock.patch.object(F.time, "sleep", fake_sleep):
             code, out = self.call(F.cmd_pr_open, ["--title", "T", "--body-file", self.body])
         return code, out, waits
 

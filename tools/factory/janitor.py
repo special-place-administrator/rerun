@@ -52,7 +52,7 @@ def tips(path):
 
 
 def unpushed(path, full):
-    r = C.M.git(["fetch", "--quiet", "--prune", M.url(full), "+refs/heads/*:refs/factory-remote/*"], cwd=path)
+    r = C.M.git(["fetch", "--quiet", "--prune", M.url(full), "+refs/heads/*:refs/factory-remote/*"], cwd=path, net=True)
     if r.returncode:
         return None
     return [t for t in tips(path) if not C.M.git(["for-each-ref", "--contains", t, "refs/factory-remote"], cwd=path).stdout.strip()]
@@ -61,7 +61,7 @@ def unpushed(path, full):
 def rescue(path, full, branch, left):
     for sha in left:
         rb = "rescue/%s-%s" % (branch, sha[:8])
-        C.M.git(["push", "--quiet", M.url(full), "%s:refs/heads/%s" % (sha, rb)], cwd=path)
+        C.M.git(["push", "--quiet", M.url(full), "%s:refs/heads/%s" % (sha, rb)], cwd=path, net=True)
         print("RESCUED %s of %s to %s" % (sha[:8], branch, rb))
     return unpushed(path, full)
 
