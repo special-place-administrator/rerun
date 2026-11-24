@@ -5,20 +5,20 @@ export type MetricKey =
     | 'tokensPerIssue' | 'escaped' | 'totalTokens' | 'cachedShare' | 'avgDuration' | 'errorRate'
     | 'planWeek' | 'signIn'
 
-export type MetricGroup = 'jobs' | 'runs' | 'plan'
+export type MetricGroup = 'flow' | 'cost' | 'runs' | 'plan'
 
 export type MetricDef = { key: MetricKey; group: MetricGroup; label: string; definition: string; source: string }
 
 export const METRICS: MetricDef[] = [
-    { key: 'queued', group: 'jobs', label: 'Queued', definition: 'Issues the delegator has taken and not yet sent to a builder.', source: 'ledger: jobs waiting or queued' },
-    { key: 'building', group: 'jobs', label: 'Building', definition: 'Builds and fixes running now, every copy counted.', source: 'ledger: jobs building or fixing' },
-    { key: 'review', group: 'jobs', label: 'Review', definition: 'Reviews running now.', source: 'ledger: jobs reviewing' },
-    { key: 'checks', group: 'jobs', label: 'Checks', definition: 'Approved pull requests waiting for their workflow runs.', source: 'ledger: jobs in checks' },
-    { key: 'solvedGreen', group: 'jobs', label: 'Solved green', definition: 'Issues solved and committed green to main in the last 24 hours.', source: 'digest: bar.day.solvedGreen' },
-    { key: 'tokensPerIssue', group: 'jobs', label: 'Tokens per issue', definition: 'Tokens spent per issue solved green in the last 24 hours.', source: 'digest: bar.day.tokensPerIssue' },
-    { key: 'escaped', group: 'jobs', label: 'Escaped', definition: 'Issues that reached main and then failed in the last 24 hours.', source: 'digest: bar.day.escaped' },
-    { key: 'totalTokens', group: 'runs', label: 'Tokens', definition: 'Total tokens used by the factory coworkers today.', source: 'started today, from the ledger runs of the snapshot' },
-    { key: 'cachedShare', group: 'runs', label: 'Cached', definition: 'Share of input tokens read from the cache.', source: 'stats: cachedInputTokens / inputTokens, 24h' },
+    { key: 'queued', group: 'flow', label: 'Queued', definition: 'Issues the delegator has taken and not yet sent to a builder.', source: 'ledger: jobs waiting or queued' },
+    { key: 'building', group: 'flow', label: 'Building', definition: 'Builds and fixes running now, every copy counted.', source: 'ledger: jobs building or fixing' },
+    { key: 'review', group: 'flow', label: 'Review', definition: 'Reviews running now.', source: 'ledger: jobs reviewing' },
+    { key: 'checks', group: 'flow', label: 'Checks', definition: 'Approved pull requests waiting for their workflow runs.', source: 'ledger: jobs in checks' },
+    { key: 'solvedGreen', group: 'flow', label: 'Solved green', definition: 'Issues solved and committed green to main in the last 24 hours.', source: 'digest: bar.day.solvedGreen' },
+    { key: 'tokensPerIssue', group: 'cost', label: 'Tokens per issue', definition: 'Tokens spent per issue solved green in the last 24 hours.', source: 'digest: bar.day.tokensPerIssue' },
+    { key: 'escaped', group: 'flow', label: 'Escaped', definition: 'Issues that reached main and then failed in the last 24 hours.', source: 'digest: bar.day.escaped' },
+    { key: 'totalTokens', group: 'cost', label: 'Tokens', definition: 'Total tokens used by the factory coworkers today.', source: 'started today, from the ledger runs of the snapshot' },
+    { key: 'cachedShare', group: 'cost', label: 'Cached', definition: 'Share of input tokens read from the cache.', source: 'stats: cachedInputTokens / inputTokens, 24h' },
     { key: 'avgDuration', group: 'runs', label: 'Avg run', definition: 'Average duration of a run.', source: 'snapshot: runStats.avgRunS, 24 h' },
     { key: 'errorRate', group: 'runs', label: 'Errors', definition: 'Share of runs that ended in error.', source: 'snapshot: runStats.errors / finished, 24 h' },
     { key: 'planWeek', group: 'plan', label: 'Plan week', definition: 'Share of the Claude plan weekly window used.', source: 'snapshot: plan.weekUsedPercent' },
@@ -30,6 +30,8 @@ export type MetricValues = Record<MetricKey, { text: string; fill?: number; warn
 type BarCounts = { queued: number; building: number; review: number; checks: number; merged: number; runs: number }
 
 const NO_DATA = { text: '—', title: 'no data yet' }
+
+export const hasData = (value: MetricValues[MetricKey]) => value.text !== NO_DATA.text
 const ERROR_WARN_PERCENT = 10
 const PLAN_WARN_PERCENT = 90
 const SIGN_IN_WARN_MIN = 50

@@ -8,10 +8,11 @@ import { useLocale, useTranslations } from 'next-intl'
 
 import { fireMoldwrightConfetti } from '@/lib/confetti'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipLabeled, TooltipTrigger } from '@/components/ui/tooltip'
 import { applyMoves, canMove, copyTree, dropReason, layoutStorageKey, loadLayout, readMoves, saveLayout, subscribeLayout, treeRoutes } from './factory-layout'
 import { type Bucket } from './factory-bucket'
-import { METRICS, barModel, type MetricDef, type MetricKey, type MetricValues } from './factory-metrics'
+import { METRICS, barModel, hasData, type MetricDef, type MetricGroup, type MetricKey, type MetricValues } from './factory-metrics'
 import { FactoryBarFrame } from './FactoryBarFrame'
 import { floorFrame } from './factory-camera'
 import { FactoryOverlay } from './FactoryOverlay'
@@ -23,6 +24,8 @@ const BAR_MARGIN_PX = 20
 const SIDE_PX = 40
 
 const TICK_MS = 250
+const METRIC_GROUPS: MetricGroup[] = ['flow', 'cost', 'runs', 'plan']
+const FOLDING_GROUPS: MetricGroup[] = ['cost', 'runs']
 
 function useStable<T>(value: T): T {
     const key = JSON.stringify(value)
@@ -105,6 +108,10 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
     const stale = frame.notAnswering === true && snapshot !== null
     const asOf = stale ? t('asOf', { time: formatDate(snapshot.madeAt, locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) }) : undefined
     const { sample, values } = barModel({ snapshot, counts: frame.counts, held: frame.held, now: clock.now, start: clock.start })
+    const noData = METRICS.filter(m => !hasData(values[m.key]))
+    const groups = METRIC_GROUPS.map(group => ({ group, metrics: METRICS.filter(m => m.group === group && hasData(values[m.key])) })).filter(g => g.metrics.length > 0)
+    const folded = groups.filter(g => FOLDING_GROUPS.includes(g.group)).flatMap(g => g.metrics)
+    const tile = (m: MetricDef) => <Metric key={m.key} def={m} value={values[m.key]} {...(m.key === 'building' && asOf ? { asOf } : {})} />
 
     return (
         <div ref={ref} className={`${theme} relative h-dvh w-full overflow-hidden bg-background text-foreground`} style={{ '--factory-drop-max': `${size ? size.height - topSpace - barSpace : 0}px` } as CSSProperties}>
@@ -126,18 +133,38 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
                 worldOverlay={worldOverlay}
             />
 
-            <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef}>
-                <div className="flex items-center gap-2 pr-1">
+            <FactoryBarFrame edge="bottom" rightInset={rightInset} frameRef={barRef} className="items-stretch gap-4 px-5 py-3">
+                <div className="flex shrink-0 items-center gap-2 pr-1">
                     <span className={`size-2 rounded-full ${stale ? 'bg-amber-500' : frame.held ? 'bg-red-500' : 'animate-pulse bg-emerald-500 motion-reduce:animate-none'}`} />
-                    <span className="text-sm font-semibold tracking-tight">Factory</span>
+                    {noData.length > 0 ? (
+                        <TooltipLabeled label={t('noData', { metrics: noData.map(m => m.label).join(', ') })}>
+                            <span data-no-data tabIndex={0} className="rounded-sm text-sm font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring/50">Factory</span>
+                        </TooltipLabeled>
+                    ) : <span className="text-sm font-semibold tracking-tight">Factory</span>}
                     {stale && <span data-last-beat className="text-[10px] text-amber-600 dark:text-amber-400">{t('lastBeat', { minutes: Math.max(1, Math.floor((frame.lastBeatMs ?? 0) / 60_000)) })}</span>}
                     {sample && <span className="text-[10px] text-muted-foreground">sample</span>}
                 </div>
-                {(['jobs', 'runs', 'plan'] as const).map(group => (
-                    <div key={group} className="flex flex-wrap items-center justify-center gap-4 border-l border-border/70 pl-4">
-                        {METRICS.filter(m => m.group === group).map(m => <Metric key={m.key} def={m} value={values[m.key]} {...(m.key === 'building' && asOf ? { asOf } : {})} />)}
+                {groups.map(({ group, metrics }) => (
+                    <div key={group} data-metric-group={group} className={`flex shrink-0 items-center gap-4 border-l border-border/70 pl-4${FOLDING_GROUPS.includes(group) ? ' @max-[1100px]:hidden' : ''}`}>
+                        {metrics.map(tile)}
                     </div>
                 ))}
+                {folded.length > 0 && (
+                    <div className="hidden shrink-0 items-center border-l border-border/70 pl-4 @max-[1100px]:flex">
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <button type="button" data-more-metrics aria-label={t('moreMetrics', { count: folded.length })}
+                                    className="flex flex-col items-center justify-center rounded-sm leading-none outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50">
+                                    <span className="font-mono text-base font-semibold tabular-nums">+{folded.length}</span>
+                                    <span className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">{t('moreLabel')}</span>
+                                </button>
+                            </PopoverTrigger>
+                            <PopoverContent side="top" align="start" sideOffset={8} className="w-auto flex-row gap-4 rounded-2xl border border-border/60 bg-background/95 p-3 backdrop-blur-xl">
+                                {folded.map(tile)}
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+                )}
                 {moved && (
                     <div className="flex items-center border-l border-border/70 pl-4">
                         <Button type="button" variant="outline" size="sm" onClick={() => saveLayout(storageKey, null)}>
@@ -148,20 +175,10 @@ export function FactoryWorld({ theme = 'dark', scene = factoryScene, workspace =
             </FactoryBarFrame>
 
             {topBar && (
-                <FactoryBarFrame edge="top" rightInset={rightInset} frameRef={topRef}>
+                <FactoryBarFrame edge="top" rightInset={rightInset} frameRef={topRef} className="h-11 w-[calc(100%-2.5rem)] items-center px-3 py-1.5">
                     {topBar}
                 </FactoryBarFrame>
             )}
-
-            <div
-                className="pointer-events-none absolute left-0 flex justify-center transition-all duration-500 motion-reduce:transition-none"
-                style={{ right: rightInset, top: 24 + topSpace, opacity: frame.held ? 1 : 0, transform: frame.held ? 'translateY(0)' : 'translateY(-12px)' }}
-            >
-                <div className="flex items-center gap-3 rounded-full border border-red-500/40 bg-red-500/15 px-4 py-1.5 text-sm text-red-600 shadow-[0_0_24px_rgba(239,68,68,0.35)] backdrop-blur-xl dark:text-red-300">
-                    <span className="font-semibold">Line held</span>
-                    <span>{frame.holdKind ?? 'sign-in renewal'} · {Math.ceil(frame.holdLeftMs / 1000)} s left · running builds finish</span>
-                </div>
-            </div>
         </div>
     )
 }
@@ -173,7 +190,7 @@ function Metric({ def, value, asOf }: { def: MetricDef; value: MetricValues[Metr
         <Tooltip>
             <TooltipTrigger asChild>
                 <div className="flex cursor-help flex-col items-center justify-center leading-none" tabIndex={0} {...(value.title ? { title: value.title } : {})}>
-                    <span className={`font-mono text-base font-semibold tabular-nums ${value.warn ? 'text-red-500' : (TONES[def.key] ?? 'text-foreground')}`}>{value.text}</span>
+                    <span className={`font-mono text-base font-semibold tabular-nums ${value.warn ? 'text-destructive' : (TONES[def.key] ?? 'text-foreground')}`}>{value.text}</span>
                     {value.fill !== undefined && (
                         <span className="mt-1 h-1 w-14 overflow-hidden rounded-full bg-muted">
                             <span className={`block h-full rounded-full transition-all duration-700 ${value.warn ? 'bg-red-500' : 'bg-[#4d34f7]'}`} style={{ width: `${value.fill}%` }} />
