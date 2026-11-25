@@ -7,9 +7,6 @@ function modelOutput(output: unknown): ToolResultPart['output'] {
     return typeof output === 'string' ? { type: 'text', value: output } : { type: 'json', value: (output ?? null) as never }
 }
 
-// The SDK only hands a step's messages over once the step is finished, and a Claude Code turn is a
-// single step that a spent plan ends with a thrown error: what that turn already did has to be
-// rebuilt from the chunks, or the model that takes the turn over starts it from scratch.
 export function streamedTurn() {
     let finishedSteps: ModelMessage[] = []
     let assistant: AssistantPart[] = []
@@ -45,7 +42,6 @@ export function streamedTurn() {
                 else toolResults.push(part)
             }
         },
-        // `step.response.messages` holds every step so far, not only the one that just finished.
         stepFinished(messages: ModelMessage[]): void {
             finishedSteps = messages
             assistant = []
@@ -54,8 +50,6 @@ export function streamedTurn() {
         },
         messages(): ModelMessage[] {
             const current: ModelMessage[] = []
-            // Streamed reasoning carries no signature, so the history drops it on replay: a step that
-            // only reasoned would come back as an assistant message with nothing in it.
             if (assistant.some(part => part.type !== 'reasoning')) current.push({ role: 'assistant', content: [...assistant] })
             if (toolResults.length) current.push({ role: 'tool', content: [...toolResults] })
             return [...finishedSteps, ...current]
