@@ -168,7 +168,6 @@ export function delegateTools(ctx: RunContext): ToolSet {
                     stopHeartbeat()
                 }
 
-                // The workers only leave a task queued when the calling run is stopped.
                 const notStarted = progress.filter(task => task.status === 'queued')
                 if (notStarted.length) {
                     for (const task of notStarted) endSubRun(task, SUB_RUN_STOPPED_WITH_CALLER)
