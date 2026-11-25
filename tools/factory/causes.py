@@ -292,7 +292,6 @@ class Station:
             after = changelog.rate(grouped(self.store), jobs, c["grp"])
             verdict = changelog.verdict(c["before"], after)
             fields = {"after": after, "verdict": verdict}
-            # A 0.0 baseline had nothing to lower: INCONCLUSIVE is stored, no revert is filed.
             if verdict == REVERT:
                 fields["revert"] = self.file_revert(c, after)
             self.store.set_change(c["id"], **fields)
