@@ -51,6 +51,7 @@ import type { DelegatedUsage, PartialResult, RunContext, RunLineage, RunTrigger,
 import { parseJobRef } from './job-ref.js'
 import { partialResultsNote } from './partial-results.js'
 import { plusDelegated } from './delegated-usage.js'
+import { streamedTurn } from './streamed-turn.js'
 import { registerRunAbort, setRunCancel, syncAgentStatus, unregisterRunAbort } from './run-control.js'
 import { runCurator } from './curator.js'
 import { repairToolCall } from './tool-repair.js'
@@ -288,6 +289,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
     const partialResults: PartialResult[] = []
     const delegated: DelegatedUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0, totalTokens: 0 }
     const skillProposals: SkillProposalNotice[] = []
+    const streamed = streamedTurn()
 
     const close = async (): Promise<void> => {
         await closeModel().catch(err => logger.warn({ err: String(err), agent: agent.id }, 'close model failed'))
@@ -560,11 +562,13 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
                 }
             },
             onChunk: async ({ chunk }) => {
+                streamed.add(chunk)
                 if (chunk.type === 'tool-call') live?.addToolCall()
                 if (!live || (chunk.type !== 'tool-call' && chunk.type !== 'tool-result')) return
                 await recordLiveToolCall(agent.id, sessionId, run.id, steps + 1, chunk, liveCalls, runSecrets(agent)).catch(err => logger.warn({ err: String(err), agent: agent.id }, 'record live tool call failed'))
             },
             onStepFinish: async step => {
+                streamed.stepFinished(step.response.messages)
                 steps += 1
                 const now = Date.now()
                 const durationMs = now - lastStepAt
@@ -583,7 +587,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
                     toolCallWithheld = true
                     return
                 }
-                await settle({ kind: 'error', error, errorCode: classifyProviderError(provider, error) })
+                await settle({ kind: 'error', error, errorCode: classifyProviderError(provider, error), messages: streamed.messages() })
             },
             onAbort: async () => {
                 await settle({ kind: 'cancelled' })
@@ -624,6 +628,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
                           kind: 'error',
                           error: drainError ?? new ProviderStreamCutError(),
                           errorCode: drainError ? classifyProviderError(provider, drainError) : RUN_ERROR_CODES.streamIncomplete,
+                          messages: streamed.messages(),
                       },
             )
         })().catch(err => logger.warn({ err: String(err), agent: agent.id, run: run.id }, 'run drain failed'))

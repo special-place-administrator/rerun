@@ -35,6 +35,7 @@ const { agentDir } = await import('../config/paths.js')
 const { getAgent } = await import('../agents/registry.js')
 const { createSession } = await import('../db/repos/sessions.js')
 const { getRun } = await import('../db/repos/runs.js')
+const { listMessages } = await import('../db/repos/messages.js')
 const { createConnection } = await import('../connections/store.js')
 const { agentsOnScreen } = await import('../tools/builtin/computer.js')
 const { runAgent } = await import('./loop.js')
@@ -92,7 +93,7 @@ describe('a provider that fails in the middle of its stream', () => {
         const session = await createSession(id, message)
         const run = await runAgent(await getAgent(id), session.id, message)
         const outcome = await run.settled
-        return { outcome, status: (await getRun(id, run.runId))?.status }
+        return { outcome, status: (await getRun(id, run.runId))?.status, sessionId: session.id }
     }
 
     it('goes on with the replayed step, and gives the screen back at the end', async () => {
@@ -104,6 +105,17 @@ describe('a provider that fails in the middle of its stream', () => {
         expect(status).toBe('done')
         expect(clicks).toEqual([[1, 1]])
         expect(agentsOnScreen()).toEqual([])
+    }, 15_000)
+
+    it('keeps the text the reply had streamed before the provider failed', async () => {
+        answers.push([delta({ delta: { role: 'assistant', content: 'Half an answer.' } }), failure, 'data: [DONE]\n\n'])
+
+        const { outcome, sessionId } = await send('explain')
+
+        expect(outcome).toMatchObject({ kind: 'error' })
+        const rows = await listMessages(id, sessionId)
+        expect(rows.map(row => row.role)).toEqual(['user', 'assistant'])
+        expect(rows[1].contentJson).toContain('Half an answer.')
     }, 15_000)
 
     it('does nothing more once the run failed, and leaves the screen to the next one', async () => {
