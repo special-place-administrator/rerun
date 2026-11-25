@@ -27,7 +27,7 @@ export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: Fa
 
     if (controls.view?.isOwner !== true) return null
     const repo = snapshot.repo
-    const report = snapshot.queue_clear?.repo === repo ? snapshot.queue_clear : undefined
+    const report = snapshot.queue_clear && (snapshot.queue_clear.repo === repo || snapshot.queue_clear.id === sent) ? snapshot.queue_clear : undefined
     const unanswered = sent !== null && report?.id !== sent
     const waiting = unanswered && !expired
     const status = waiting ? t('queueClearWaiting')

@@ -287,7 +287,7 @@ export const factoryWorkOrderReportSchema = z.object({
 export const factoryQueueClearReportSchema = z.object({
     id: z.string().max(64),
     repo: z.string().max(201),
-    outcome: z.enum(['cleared', 'wrong_project', 'expired']),
+    outcome: z.enum(['cleared', 'wrong_project', 'expired']).default('cleared'),
     cleared: z.array(issueNumber).max(FACTORY_QUEUE_CLEAR_MAX),
     kept: z.array(issueNumber).max(FACTORY_QUEUE_CLEAR_MAX),
     at: wireText,
