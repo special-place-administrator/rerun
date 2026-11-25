@@ -73,7 +73,14 @@
         "idleShort": "{wait, select, project {Sem projeto} order {Sem ordem} done {Tudo feito} other {Sem trabalho}}",
         "idleLong": "Sem trabalho · {reason}",
         "idleSentence": "Em execução, nada para fazer: {reason}",
-        "wait": "{wait, select, project {nenhum projeto escolhido} order {nenhuma ordem de trabalho} done {a ordem de trabalho terminou} other {{text}}}"
+        "wait": "{wait, select, project {nenhum projeto escolhido} order {nenhuma ordem de trabalho} done {a ordem de trabalho terminou} other {{text}}}",
+        "clearQueue": "Limpar fila",
+        "confirmClearQueueTitle": "{count, plural, one {Remover # trabalho da fila?} other {Remover # trabalhos da fila?}}",
+        "confirmClearQueueBody": "Trabalhos na fila e em espera são cancelados e não são retomados. Trabalhos em curso, issues e histórico permanecem.",
+        "confirmClearQueue": "Limpar fila",
+        "queueClearSent": "{count, plural, one {Removendo # trabalho} other {Removendo # trabalhos}}",
+        "queueClearWaiting": "Aguardando o despachante limpar a fila",
+        "queueClearReport": "Última limpeza: {cleared} removidos, {kept} mantidos"
     },
     "orders": {
         "trigger": "Ordem de trabalho",

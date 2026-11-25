@@ -73,7 +73,14 @@
         "idleShort": "{wait, select, project {Kein Projekt} order {Kein Auftrag} done {Alles erledigt} other {Keine Arbeit}}",
         "idleLong": "Keine Arbeit · {reason}",
         "idleSentence": "Läuft, nichts zu tun: {reason}",
-        "wait": "{wait, select, project {kein Projekt gewählt} order {kein Arbeitsauftrag} done {der Arbeitsauftrag ist erledigt} other {{text}}}"
+        "wait": "{wait, select, project {kein Projekt gewählt} order {kein Arbeitsauftrag} done {der Arbeitsauftrag ist erledigt} other {{text}}}",
+        "clearQueue": "Warteschlange leeren",
+        "confirmClearQueueTitle": "{count, plural, one {# wartenden Job entfernen?} other {# wartende Jobs entfernen?}}",
+        "confirmClearQueueBody": "Eingereihte und wartende Jobs werden abgebrochen und nicht erneut aufgenommen. Laufende Jobs, Issues und Verlauf bleiben.",
+        "confirmClearQueue": "Warteschlange leeren",
+        "queueClearSent": "{count, plural, one {# Job wird entfernt} other {# Jobs werden entfernt}}",
+        "queueClearWaiting": "Warte, bis der Dispatcher die Warteschlange leert",
+        "queueClearReport": "Zuletzt geleert: {cleared} entfernt, {kept} behalten"
     },
     "orders": {
         "trigger": "Arbeitsauftrag",

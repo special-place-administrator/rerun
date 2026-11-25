@@ -4,7 +4,9 @@ import { workspaceFounderUserId } from '@/app/api/_auth/ownership'
 import { createServiceRoleClient } from '@/supabase/serviceRole'
 import { selectMany, selectMaybeSingle } from '@/supabase/supabase-helpers'
 
-import { actOnWorkOrder, cancelWorkOrder, controlsReportAnswer, createWorkOrder, setFactoryState, setFactoryThrottle, setProviderEnabled } from './factory-controls.service'
+import { FACTORY_WIRE_ID_PATTERN } from '@moldwright/contracts'
+
+import { actOnWorkOrder, cancelWorkOrder, clearFactoryQueue, controlsReportAnswer, createWorkOrder, setFactoryState, setFactoryThrottle, setProviderEnabled } from './factory-controls.service'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/app/api/_auth/ownership', () => ({ workspaceFounderUserId: vi.fn() }))
@@ -91,5 +93,21 @@ describe('factory_report answer for controls', () => {
 
         rows({ factory_controls: { state: null, state_by: null, state_at: null, providers_off: [], providers_by: null, providers_at: null, max_ghosts: 16, stations: { coder: 5, reviewer: 6 }, throttle_by: OWNER, throttle_at: '2026-11-23T21:00:00.900+00:00' } })
         expect(await controlsReportAnswer(404)).toEqual({ throttle: { max_ghosts: 16, stations: { coder: 5, reviewer: 6 }, by: OWNER, at: '2026-11-23T21:00:00.900Z' } })
+    })
+})
+
+describe('factory queue clear', () => {
+    it('refuses a member, a bad or duplicate issue list and another project, then sends the dispatcher the confirmed issues under a wire id', async () => {
+        await expect(clearFactoryQueue(405, MEMBER, { repo: 'acme/app', issues: [4] })).rejects.toMatchObject({ code: 'factoryOwnerOnly' })
+        rows({ factory_projects: { repo: 'acme/app' } })
+        for (const issues of [[], [4, 4], [0], [1.5]]) await expect(clearFactoryQueue(405, OWNER, { repo: 'acme/app', issues })).rejects.toMatchObject({ code: 'factoryInputInvalid' })
+        await expect(clearFactoryQueue(405, OWNER, { repo: 'acme/site', issues: [4] })).rejects.toMatchObject({ code: 'factoryOrderNotActiveProject' })
+        expect(upsert).not.toHaveBeenCalled()
+
+        const sent = await clearFactoryQueue(405, OWNER, { repo: 'acme/app', issues: [4, 9] }, Date.parse('2026-11-25T09:00:00.500Z'))
+        expect(sent).toEqual({ id: expect.stringMatching(FACTORY_WIRE_ID_PATTERN), count: 2 })
+        const [payload] = upsert.mock.calls[0]
+        rows({ factory_controls: { ...payload, queue_clear_at: '2026-11-25T09:00:00.500+00:00' } })
+        expect(await controlsReportAnswer(405)).toEqual({ queue_clear: { id: sent.id, repo: 'acme/app', issues: [4, 9], by: OWNER, at: '2026-11-25T09:00:00.500Z' } })
     })
 })

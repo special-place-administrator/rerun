@@ -73,7 +73,14 @@
         "idleShort": "{wait, select, project {Sans projet} order {Sans ordre} done {Tout est fait} other {Sans travail}}",
         "idleLong": "Sans travail · {reason}",
         "idleSentence": "En marche, rien à faire : {reason}",
-        "wait": "{wait, select, project {aucun projet choisi} order {aucun ordre de travail} done {l’ordre de travail est terminé} other {{text}}}"
+        "wait": "{wait, select, project {aucun projet choisi} order {aucun ordre de travail} done {l’ordre de travail est terminé} other {{text}}}",
+        "clearQueue": "Vider la file",
+        "confirmClearQueueTitle": "{count, plural, one {Retirer # tâche en file ?} other {Retirer # tâches en file ?}}",
+        "confirmClearQueueBody": "Les tâches en file et en attente sont annulées et ne sont pas reprises. Les tâches en cours, les issues et l'historique restent.",
+        "confirmClearQueue": "Vider la file",
+        "queueClearSent": "{count, plural, one {Retrait de # tâche} other {Retrait de # tâches}}",
+        "queueClearWaiting": "En attente du répartiteur pour vider la file",
+        "queueClearReport": "Dernier vidage : {cleared} retirées, {kept} conservées"
     },
     "orders": {
         "trigger": "Ordre de travail",

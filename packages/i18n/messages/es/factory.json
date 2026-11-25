@@ -73,7 +73,14 @@
         "idleShort": "{wait, select, project {Sin proyecto} order {Sin orden} done {Todo hecho} other {Sin trabajo}}",
         "idleLong": "Sin trabajo · {reason}",
         "idleSentence": "En marcha, nada que hacer: {reason}",
-        "wait": "{wait, select, project {ningún proyecto elegido} order {ninguna orden de trabajo} done {la orden de trabajo ha terminado} other {{text}}}"
+        "wait": "{wait, select, project {ningún proyecto elegido} order {ninguna orden de trabajo} done {la orden de trabajo ha terminado} other {{text}}}",
+        "clearQueue": "Vaciar cola",
+        "confirmClearQueueTitle": "{count, plural, one {¿Quitar # trabajo en cola?} other {¿Quitar # trabajos en cola?}}",
+        "confirmClearQueueBody": "Los trabajos en cola y en espera se cancelan y no se vuelven a tomar. Los trabajos en curso, las issues y el historial se mantienen.",
+        "confirmClearQueue": "Vaciar cola",
+        "queueClearSent": "{count, plural, one {Quitando # trabajo} other {Quitando # trabajos}}",
+        "queueClearWaiting": "Esperando a que el despachador vacíe la cola",
+        "queueClearReport": "Último vaciado: {cleared} quitados, {kept} conservados"
     },
     "orders": {
         "trigger": "Orden de trabajo",

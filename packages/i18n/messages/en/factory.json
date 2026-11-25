@@ -95,7 +95,14 @@
         "idleShort": "{wait, select, project {No project} order {No order} done {All done} other {No work}}",
         "idleLong": "No work · {reason}",
         "idleSentence": "Running, nothing to work on: {reason}",
-        "wait": "{wait, select, project {no project chosen} order {no work order} done {the work order is done} other {{text}}}"
+        "wait": "{wait, select, project {no project chosen} order {no work order} done {the work order is done} other {{text}}}",
+        "clearQueue": "Clear queue",
+        "confirmClearQueueTitle": "{count, plural, one {Clear # queued job?} other {Clear # queued jobs?}}",
+        "confirmClearQueueBody": "Queued and waiting jobs are cancelled and not picked up again. Running jobs, issues and history stay.",
+        "confirmClearQueue": "Clear queue",
+        "queueClearSent": "{count, plural, one {Clearing # job} other {Clearing # jobs}}",
+        "queueClearWaiting": "Waiting for the dispatcher to clear the queue",
+        "queueClearReport": "Last clear: {cleared} cleared, {kept} kept"
     },
     "orders": {
         "trigger": "Work order",
