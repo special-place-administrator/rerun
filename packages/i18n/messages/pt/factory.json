@@ -120,6 +120,24 @@
         "note": "Desligue uma conexão e a fábrica nunca a usa. Um trabalho que já roda nela termina.",
         "noteReadOnly": "Só o proprietário do workspace pode ligar ou desligar conexões para a fábrica"
     },
+    "feed": {
+        "title": "Atividade",
+        "scope": "Histórico recente da fábrica. Os pedidos de início e paragem aplicam-se ao espaço de trabalho. As ocorrências pertencem ao projeto selecionado.",
+        "unavailable": "O histórico do despachante está indisponível.",
+        "stale": "O relatório do despachante está desatualizado.",
+        "empty": "Sem atividade no histórico disponível.",
+        "requested": "{detail, select, RUNNING {Início solicitado} PAUSED {Pausa solicitada} DRAINING {Paragem solicitada} STOPPED {Paragem imediata solicitada} SKIP {Omissão solicitada} other {Comando solicitado}}",
+        "applied": "Aplicado pelo despachante: {state}",
+        "added": "Ocorrência adicionada",
+        "cancelled": "Ordem de trabalho cancelada",
+        "accepted": "O despachante aceitou a ordem",
+        "current": "Ocorrência atual na ordem",
+        "done": "A ordem marca a ocorrência como concluída",
+        "skipped": "O despachante informou que a ocorrência foi ignorada",
+        "held": "{detail, select, stopped {Em espera: fábrica parada} paused {Em espera: fábrica em pausa} draining {Em espera: fábrica a parar} noWork {Em espera: sem trabalho disponível} failedJob {Em espera: o trabalho falhou. Tente novamente ou ignore-o.} other {O despachante informou uma espera}}",
+        "waiting": "{detail, select, issuePaused {Admissão em espera: a ocorrência tem a etiqueta factory-paused} issueShape {Admissão em espera: a ocorrência não tem o formato exigido} other {Admissão em espera}}",
+        "job": "Trabalho: {state}"
+    },
     "floor": {
         "asOf": "às {time}",
         "noData": "Ainda sem dados: {metrics}",
