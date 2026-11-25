@@ -106,11 +106,13 @@ export function cutOffWhenSettled(body: ReadableStream<UIMessageChunk>, settled:
     const reader = body.getReader()
     let cutTimer: ReturnType<typeof setTimeout> | undefined
     let closed = false
+    let aborted: UIMessageChunk | undefined
     return new ReadableStream<UIMessageChunk>({
         start(controller) {
             const finish = (outcome?: RunOutcome): void => {
                 if (closed) return
                 closed = true
+                if (aborted && outcome?.kind !== 'error') controller.enqueue(aborted)
                 if (outcome?.kind === 'error') controller.enqueue({ type: 'error', errorText: outcome.error ?? 'The run failed.' })
                 try {
                     controller.close()
@@ -128,6 +130,10 @@ export function cutOffWhenSettled(body: ReadableStream<UIMessageChunk>, settled:
                     while (true) {
                         const { done, value } = await reader.read()
                         if (done || closed) break
+                        if (value.type === 'abort') {
+                            aborted = value
+                            continue
+                        }
                         if (value.type === 'finish') endedCleanly = isCleanFinish(value.finishReason)
                         controller.enqueue(value)
                     }

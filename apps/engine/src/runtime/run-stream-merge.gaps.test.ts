@@ -247,4 +247,15 @@ describe('cutOffWhenSettled edge cases', () => {
 
         expect(await drained).toEqual([{ type: 'finish', finishReason: 'stop' }])
     })
+
+    it.each([
+        ['error', { kind: 'error', error: 'boom' }, ['start', 'error', 'error']],
+        ['stop', { kind: 'cancelled' }, ['start', 'error', 'abort']],
+    ])('shows the abort of a run only when a person stopped it: %s', async (_, outcome, types) => {
+        const chunks: UIMessageChunk[] = [{ type: 'start' }, { type: 'error', errorText: 'boom' }, { type: 'abort' }]
+
+        const drained = await drain(cutOffWhenSettled(fromChunks(chunks), Promise.resolve(outcome as RunOutcome)))
+
+        expect(drained.map(chunk => chunk.type)).toEqual(types)
+    })
 })

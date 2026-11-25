@@ -15,6 +15,7 @@ const { sent, stream, prep, curator, recalls, gate } = vi.hoisted(() => ({
         modelError: null as Error | null,
         toolsGate: null as Promise<void> | null,
         closeError: null as Error | null,
+        onContext: null as ((ctx: { abortSignal?: AbortSignal }) => void) | null,
         callTargets: [] as string[],
         mcp: null as { tools: Record<string, unknown>; heldBackMcp?: unknown } | null,
     },
@@ -58,7 +59,8 @@ vi.mock('../tools/registry.js', async () => {
     const { z } = await import('zod')
     const hitl = () => tool({ description: 'hitl', inputSchema: z.record(z.string(), z.unknown()), execute: async () => ({ status: 'delivered' }) })
     return {
-        buildTools: async (ctx: { callTargets?: Array<{ id: string }> }) => {
+        buildTools: async (ctx: { callTargets?: Array<{ id: string }>; abortSignal?: AbortSignal }) => {
+            prep.onContext?.(ctx)
             prep.callTargets = (ctx.callTargets ?? []).map(a => a.id)
             if (prep.toolsGate) await prep.toolsGate
             if (prep.toolsError) throw prep.toolsError
@@ -197,6 +199,7 @@ describe('run loop paths', () => {
         prep.modelError = null
         prep.toolsGate = null
         prep.closeError = null
+        prep.onContext = null
         prep.mcp = null
         curator.calls = []
         recalls.length = 0
@@ -640,6 +643,54 @@ describe('run loop paths', () => {
 
         expect(outcome.errorCode).toBe('provider_refused')
         expect(outcome.error).toBe(`ProviderRefusedError: Provider returned error: ${reason}`)
+    })
+
+    describe('a run that failed', () => {
+        const failsThenCallsATool = () => [
+            { type: 'stream-start', warnings: [] },
+            { type: 'text-start', id: '0' },
+            { type: 'text-delta', id: '0', delta: 'On it.' },
+            { type: 'text-end', id: '0' },
+            { type: 'error', error: new Error('Streaming response failed: [500] Internal server error') },
+            { type: 'tool-call', toolCallId: 'call-late', toolName: 'probe', input: '{}' },
+            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage },
+        ]
+        const probeTool = (execute: () => Promise<unknown>) => ({ tools: { probe: dynamicTool({ description: 'probe', inputSchema: jsonSchema({ type: 'object', properties: {} }), execute }) } })
+
+        it('calls the model no more, though its step ended on a tool call', async () => {
+            prep.mcp = probeTool(async () => 'ok')
+            stream.turns = [failsThenCallsATool()]
+            stream.parts = textTurn('still here')
+
+            const { outcome, started } = await run('go')
+            await new Promise(r => setTimeout(r, 50))
+
+            expect(outcome).toMatchObject({ kind: 'error', error: expect.stringContaining('Internal server error') })
+            expect((await getRun(id, started.runId))?.status).toBe('error')
+            expect(stream.calls).toHaveLength(1)
+            expect(completions()).toHaveLength(1)
+        })
+
+        it('tells the tools it has in flight to stop', async () => {
+            let signal: AbortSignal | undefined
+            prep.onContext = ctx => (signal = ctx.abortSignal)
+            stream.turns = [failsThenCallsATool()]
+            stream.parts = textTurn('still here')
+
+            await run('go')
+
+            expect(signal?.aborted).toBe(true)
+        })
+
+        it('leaves the signal of a run that went well alone', async () => {
+            let signal: AbortSignal | undefined
+            prep.onContext = ctx => (signal = ctx.abortSignal)
+            stream.parts = textTurn('done')
+
+            await run('go')
+
+            expect(signal?.aborted).toBe(false)
+        })
     })
 
     describe('a subscription that hit its limit', () => {
