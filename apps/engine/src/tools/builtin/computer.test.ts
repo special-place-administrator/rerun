@@ -376,6 +376,22 @@ describe('computer', () => {
         expect(state.browserHolds).toBe(0)
     })
 
+    it('does not open the browser once its run was stopped while the browser was held', async () => {
+        let opened!: () => void
+        state.browserGate = new Promise(r => (opened = r))
+        const controller = new AbortController()
+        const built = build(ctxWith('a1', {}, { abortSignal: controller.signal }))
+        const opening = openApp(built, { app: 'browser' })
+        await vi.waitFor(() => expect(state.browserUrls).toHaveLength(1))
+        controller.abort()
+        opened()
+
+        await expect(opening).rejects.toThrow()
+        expect(state.apps).toEqual([])
+        built.release()
+        expect(state.browserHolds).toBe(0)
+    })
+
     it('drops an action queued behind another one when its run ends', async () => {
         let opened!: () => void
         state.browserGate = new Promise(r => (opened = r))

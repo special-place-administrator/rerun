@@ -225,12 +225,13 @@ export function computerTools(ctx: RunContext): { tools: ToolSet; release: () =>
         })
     }
 
-    const openApp = async (app: DesktopApp, url: string | undefined): Promise<void> => {
+    const openApp = async (app: DesktopApp, url: string | undefined, signal: AbortSignal | undefined): Promise<void> => {
         if (app === 'terminal' && !ctx.agent.config.tools.shell) throw new ControlRefusal('The terminal is off for this agent: its shell tool is disabled.')
         const tainted = app === 'terminal' ? taintRefusal(ctx, 'opening the terminal') : null
         if (tainted) throw new ControlRefusal(tainted)
         if (app === 'files' && !ctx.agent.config.tools.filesystem) throw new ControlRefusal('The file manager is off for this agent: its filesystem tool is disabled.')
         if (app === 'browser') holdUntilRelease(await holdBrowser(id, url))
+        signal?.throwIfAborted()
         if (released) throw new ControlRefusal(RUN_OVER)
         await openDesktopApp(id, app)
     }
@@ -248,7 +249,7 @@ export function computerTools(ctx: RunContext): { tools: ToolSet; release: () =>
                     app: desktopAppSchema,
                     url: publicHttpUrl.optional().describe('For the browser only: the page to open.'),
                 }),
-                execute: ({ app, url }, { abortSignal }) => onScreen(abortSignal, APP_OPEN_SETTLE_MS, () => openApp(app, url)),
+                execute: ({ app, url }, { abortSignal }) => onScreen(abortSignal, APP_OPEN_SETTLE_MS, (_, signal) => openApp(app, url, signal)),
             }),
         },
         release: () => {
