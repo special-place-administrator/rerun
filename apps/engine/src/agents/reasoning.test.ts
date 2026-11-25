@@ -64,7 +64,6 @@ describe('reasoning provider options with a thinking level', () => {
     })
 })
 
-// Claude 4.5 answers 400 to adaptive thinking (upstream #705); every later Claude model takes it.
 describe('reasoning provider options on Claude 4.5', () => {
     it('asks a 4.5 model on OpenCode for no thinking, and every later one as before', () => {
         for (const model of ['console/claude-haiku-4-5', 'console/claude-sonnet-4-5', 'console/claude-opus-4-5']) expect(reasoningProviderOptions('opencode', model)).toBeUndefined()

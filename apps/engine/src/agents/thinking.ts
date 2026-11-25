@@ -18,7 +18,6 @@ export function withoutXhigh(level: ThinkingLevel): Exclude<ThinkingLevel, 'xhig
 
 export const CLAUDE_DEFAULT_THINKING = { type: 'adaptive', display: 'summarized' } as const
 
-// Claude 4.5 answers 400 to adaptive thinking; every later Claude model takes it.
 export function takesAdaptiveThinking(model: string): boolean {
     return !/claude-(?:haiku|sonnet|opus)-4-5/.test(model)
 }

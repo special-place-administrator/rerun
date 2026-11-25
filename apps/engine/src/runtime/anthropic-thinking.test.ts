@@ -15,7 +15,6 @@ const bodies: SentBody[] = []
 
 const answer = (model: string) => sse([{ type: 'message_start', message: { id: 'msg_1', type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } }, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello' } }, { type: 'content_block_stop', index: 0 }, { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 2 } }, { type: 'message_stop' }])
 
-// Anthropic's own rule, in the words it answers with (RER-272).
 const anthropicApi = createServer((request, response) => {
     let raw = ''
     request.on('data', chunk => (raw += chunk))
@@ -48,7 +47,6 @@ const { runAgent } = await import('./loop.js')
 
 const id = 'thinkingagent'
 
-// The coworker of the report pins no model: it follows the default of the box.
 async function runOnBoxDefault(model: string) {
     const connection = await createConnection({ name: model, provider: 'anthropic', models: [model], extraModels: [], keys: { ANTHROPIC_API_KEY: 'sk-ant-test' } })
     await writeBoxDefault({ connectionId: connection.id, model })
