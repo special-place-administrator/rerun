@@ -1,7 +1,17 @@
-import json, os, sys, unittest, unittest.mock
+import io, json, os, sys, unittest, unittest.mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dispatch as D
 from test_dispatch import Base
+
+
+def hub_tool_error(payload):
+    answer = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(payload)}], "isError": True}}
+    return D.make_account("https://hub/mcp", "k", opener=lambda req, timeout: io.BytesIO(json.dumps(answer).encode()))
+
+
+def engine_refusal(prose):
+    body = json.dumps({"error": prose, "code": D.NO_ROUTE})
+    return {"error": "The coworker could not be reached: 503 " + body, "code": D.NO_ROUTE}
 
 
 class Replan(Base):
@@ -78,7 +88,7 @@ class Replan(Base):
         def refuse(tool, args, **kw):
             if tool == "send_message" and args["agentId"] in ("p1", "p2") and len(refused) < 4:
                 refused.append(args["agentId"])
-                raise D.Error("account send_message failed: the tool reported an error " + D.NO_ROUTE)
+                hub_tool_error(engine_refusal("Refusal %d, worded anew by a newer engine" % len(refused)))(tool, args)
             return original(tool, args, **kw)
 
         self.w.account = refuse
@@ -99,6 +109,25 @@ class Replan(Base):
         self.assertEqual((len(self.planner_sends("p1")), self.data()["replans"], self.state()), (1, 1, "returned"))
         self.assertNotIn(False, beats)
         self.assertFalse(self.d.store.retries("5", "transient"))
+
+    def test_the_hub_names_a_refusal_by_its_code_or_older_wording_and_nothing_else(self):
+        def named(payload):
+            with self.assertRaises(D.Error) as e:
+                hub_tool_error(payload)("send_message", {})
+            return D.NO_ROUTE in str(e.exception)
+        older = {"error": "The coworker could not be reached: 503 {\"error\":\"No connection can run this coworker now: no model\"}"}
+        self.assertEqual((named(engine_refusal("anything at all")), named(older), named({"error": "boom"}), named({"error": "x", "code": "other"})), (True, True, False, False))
+
+    def test_a_structured_code_decides_before_the_older_wording(self):
+        def named(payload):
+            with self.assertRaises(D.Error) as e:
+                hub_tool_error(payload)("send_message", {})
+            return ("invalid_goal" in str(e.exception), D.NO_ROUTE in str(e.exception))
+        self.assertEqual(named({"code": "other", "error": "No connection can run this coworker now"}), (False, False))
+        self.assertEqual(named({"code": D.NO_ROUTE, "error": "invalid_goal"}), (False, True))
+        self.assertEqual(named({"code": "invalid_goal", "error": "x"}), (True, False))
+        self.assertEqual(named({"error": "invalid_goal: lastLineForms is empty"}), (True, False))
+        self.assertEqual(named({"code": "", "error": "No connection can run this coworker now"}), (False, True))
 
     def test_a_re_plan_never_goes_to_a_planner_without_issue_access(self):
         self.tick()

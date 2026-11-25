@@ -94,7 +94,7 @@ export function createServer(): Hono {
     app.route('/', api)
 
     app.onError((err, c) => {
-        if (err instanceof HttpError) return c.json({ error: err.message }, err.status as 400)
+        if (err instanceof HttpError) return c.json(err.code ? { error: err.message, code: err.code } : { error: err.message }, err.status as 400)
         if (err instanceof Error && err.message.startsWith('Path escapes the root')) return c.json({ error: err.message }, 400)
         if (err instanceof ZodError) {
             const msg = err.issues.map(i => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ')

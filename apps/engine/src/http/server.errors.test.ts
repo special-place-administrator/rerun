@@ -14,11 +14,15 @@ const { createServer } = await import('./server.js')
 const { agentConfigSchema } = await import('../agents/types.js')
 const { writeAgentConfig } = await import('../agents/config-write.js')
 const { agentDir } = await import('../config/paths.js')
+const { noUsableConnection } = await import('../lib/errors.js')
 
 const id = 'erroragent'
 const app = createServer()
 app.get('/__test/http-exception', () => {
     throw new HTTPException(418, { message: 'short and stout' })
+})
+app.get('/__test/no-route', () => {
+    throw noUsableConnection('c1', 'm1')
 })
 app.get('/__test/empty-zod', () => {
     const parsed = z.string().safeParse(1)
@@ -67,6 +71,12 @@ describe('server error mapping', () => {
         const res = await app.request('/agents/ghost/skills')
         expect(res.status).toBe(404)
         expect(await res.json()).toEqual({ error: 'agent not found' })
+    })
+
+    it('answers a coded HttpError with its stable code beside the message', async () => {
+        const res = await app.request('/__test/no-route')
+        expect(res.status).toBe(503)
+        expect(await res.json()).toEqual({ error: expect.stringMatching(/^No connection can run this coworker now: c1 cannot run m1/), code: 'no_usable_connection' })
     })
 
     it('maps a path escaping its root to a 400 carrying the path', async () => {

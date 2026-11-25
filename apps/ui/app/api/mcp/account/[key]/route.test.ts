@@ -11,7 +11,7 @@ import { POST as accountPOST } from '../route'
 import { POST as keyPOST } from './route'
 
 vi.mock('@/supabase/serviceRole', () => ({ createServiceRoleClient: vi.fn() }))
-vi.mock('@/app/api/_services/mcp-account.service', () => ({ dispatchAccountTool: vi.fn() }))
+vi.mock('@/app/api/_services/mcp-account.service', async importOriginal => ({ ...(await importOriginal<typeof import('@/app/api/_services/mcp-account.service')>()), dispatchAccountTool: vi.fn() }))
 vi.mock('@/app/api/_services/agent.service', () => ({ deleteAgent: vi.fn() }))
 
 const WORKSPACE_ID = 7
