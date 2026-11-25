@@ -42,9 +42,6 @@ function withStringContent(message: unknown): unknown {
     return { ...rest, ...(text ? { content: text } : {}), ...(reasoning ? { reasoning_content: reasoning } : {}) }
 }
 
-// Mistral's reasoning models (`mistral-large-latest`) send `content` as a list of parts, the thought
-// in `thinking` ones, where the OpenAI chat format has a string: the SDK then refuses the whole
-// answer. The thought goes to `reasoning_content`, which is read as a DeepSeek's is.
 function withStringContents(json: string): string {
     if (!CONTENT_AS_PARTS.test(json)) return json
     let body: { choices?: unknown }

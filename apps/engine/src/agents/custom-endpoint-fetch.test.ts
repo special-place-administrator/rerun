@@ -73,7 +73,6 @@ const mistralChunk = (delta: object, finish: string | null = null) =>
     `data: ${JSON.stringify({ id: 'c50a', object: 'chat.completion.chunk', created: 1795345903, model: 'mistral-large-latest', choices: [{ index: 0, delta, finish_reason: finish }], p: 'abcdef' })}\n\n`
 const thinking = (text: string) => ({ type: 'thinking', thinking: [{ type: 'text', text }], closed: true })
 
-// Chunks of a real `mistral-large-latest` stream (Mistral Large 4, 22/11/2026), shortened.
 const MISTRAL_THINKING_STREAM = [
     mistralChunk({ role: 'assistant', content: '' }),
     mistralChunk({ content: [thinking('The user said hi.')] }),
