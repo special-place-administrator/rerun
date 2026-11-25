@@ -45,6 +45,7 @@ export type FactoryControlsView = {
     isOwner: boolean
     activeRepo: string | null
     state: FactoryControlState | null
+    stateAt?: string | null
     providersOff: string[]
     throttle: FactoryThrottleView | null
     projectLimits: FactoryProjectLimits | null
@@ -98,6 +99,7 @@ export async function readFactoryControls(workspaceId: number, userId: string): 
     const projectLimits = factoryProjectLimitsSchema.safeParse(row?.project_limits)
     return {
         isOwner, activeRepo, state: state.success ? state.data : null, providersOff: row?.providers_off ?? [], throttle: throttleOf(row),
+        stateAt: row?.state_at ?? null,
         projectLimits: projectLimits.success ? projectLimits.data : null, orders: orders.map(orderOf),
     }
 }
