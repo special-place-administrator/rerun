@@ -122,7 +122,6 @@ describe('OpenRouter stream retry', () => {
 
     describe('a cut the provider announced with an error', () => {
         const upstream500 = { type: 'error', error: { message: 'Streaming response failed: [500] Internal server error', type: 'server_error' } }
-        // What `@ai-sdk/openai` makes of an error chunk: the error, then a finish with no raw reason.
         const errorFinish = { type: 'finish', finishReason: { unified: 'error', raw: undefined }, usage: noUsage }
         const failed = [streamStart, ...thought, { type: 'reasoning-end', id: 'reasoning-0' }, upstream500, errorFinish]
         const errorsOf = (parts: any[]) => parts.filter(p => p.type === 'error')

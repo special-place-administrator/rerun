@@ -25,7 +25,6 @@ function isRetryableOpenError(error: unknown): boolean {
     return !APICallError.isInstance(error) || error.isRetryable
 }
 
-// A refusal the same request would get again: a spent plan, a rejected key, a blown context, a 4xx.
 function isLastingRefusal(error: unknown): boolean {
     const errorCode = classifyProviderError('openrouter', error)
     if (errorCode && errorCode !== RUN_ERROR_CODES.overloaded) return true
