@@ -152,6 +152,24 @@
         "note": "Switch a connection off and the factory never uses it. A job already running on it finishes.",
         "noteReadOnly": "Only the workspace owner can switch connections on or off for the factory"
     },
+    "feed": {
+        "title": "Activity",
+        "scope": "Latest workspace control request and recent dispatcher history. Issue activity is for the selected project.",
+        "unavailable": "Dispatcher history is unavailable.",
+        "stale": "The dispatcher report is stale.",
+        "empty": "No activity in the available history.",
+        "requested": "{detail, select, RUNNING {Start requested} PAUSED {Pause requested} DRAINING {Stop requested} STOPPED {Hard stop requested} SKIP {Skip requested} other {Control requested}}",
+        "applied": "Dispatcher applied: {state}",
+        "added": "Issue added",
+        "cancelled": "Work order cancelled",
+        "accepted": "Dispatcher accepted the work order",
+        "current": "Current issue on the work order",
+        "done": "Work order marks issue done",
+        "skipped": "Dispatcher reported issue skipped",
+        "held": "{detail, select, stopped {Held: factory stopped} paused {Held: factory paused} draining {Held: factory stopping} noWork {Held: no work available} failedJob {Held: job failed. Retry or skip to continue.} other {Dispatcher reported a hold}}",
+        "waiting": "{detail, select, issuePaused {Intake waiting: issue has the factory-paused label} issueShape {Intake waiting: issue body does not match the required format} other {Intake waiting}}",
+        "job": "Job: {state}"
+    },
     "floor": {
         "asOf": "as of {time}",
         "noData": "No data yet: {metrics}",

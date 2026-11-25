@@ -130,6 +130,24 @@
         "note": "Schalte eine Verbindung aus, und die Fabrik nutzt sie nie. Ein laufender Job darauf wird beendet.",
         "noteReadOnly": "Nur der Inhaber des Workspace kann Verbindungen für die Fabrik ein- oder ausschalten"
     },
+    "feed": {
+        "title": "Aktivität",
+        "scope": "Letzte Factory-Aktivität. Start- und Stoppanfragen gelten für den Arbeitsbereich. Vorgänge gelten für das ausgewählte Projekt.",
+        "unavailable": "Der Dispatcher-Verlauf ist nicht verfügbar.",
+        "stale": "Der Dispatcher-Bericht ist veraltet.",
+        "empty": "Keine Aktivität im verfügbaren Verlauf.",
+        "requested": "{detail, select, RUNNING {Start angefordert} PAUSED {Pause angefordert} DRAINING {Stopp angefordert} STOPPED {Sofortstopp angefordert} SKIP {Überspringen angefordert} other {Steuerung angefordert}}",
+        "applied": "Vom Dispatcher angewendet: {state}",
+        "added": "Vorgang hinzugefügt",
+        "cancelled": "Arbeitsauftrag abgebrochen",
+        "accepted": "Dispatcher hat den Arbeitsauftrag angenommen",
+        "current": "Aktueller Vorgang im Arbeitsauftrag",
+        "done": "Vorgang laut Arbeitsauftrag erledigt",
+        "skipped": "Dispatcher meldet Vorgang als übersprungen",
+        "held": "{detail, select, stopped {Angehalten: Factory gestoppt} paused {Angehalten: Factory pausiert} draining {Angehalten: Factory stoppt} noWork {Angehalten: keine Arbeit verfügbar} failedJob {Angehalten: Auftrag fehlgeschlagen. Erneut versuchen oder überspringen.} other {Dispatcher meldet eine Unterbrechung}}",
+        "waiting": "{detail, select, issuePaused {Aufnahme wartet: Vorgang hat das Label factory-paused} issueShape {Aufnahme wartet: Vorgang entspricht nicht dem erforderlichen Format} other {Aufnahme wartet}}",
+        "job": "Auftrag: {state}"
+    },
     "floor": {
         "asOf": "Stand {time}",
         "noData": "Noch keine Daten: {metrics}",

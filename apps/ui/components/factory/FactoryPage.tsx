@@ -29,6 +29,11 @@ const LOADER_PANEL_PX = 380
 type Answer = Awaited<ReturnType<typeof readFactorySnapshotAction>>
 
 export function FactoryPage() {
+    const session = useSession()
+    return <WorkspaceFactoryPage key={session.workspace?.id ?? 'sample'} session={session} />
+}
+
+function WorkspaceFactoryPage({ session }: { session: ReturnType<typeof useSession> }) {
     const { resolvedTheme } = useTheme()
     const [answer, setAnswer] = useState<Answer>(null)
 
@@ -49,7 +54,7 @@ export function FactoryPage() {
 
     const snapshot = answer?.snapshot
     const scene = useCallback((_: number, now: number) => sceneFromSnapshot(snapshot!, now), [snapshot])
-    const { workspace, user, loading } = useSession()
+    const { workspace, user, loading } = session
 
     const [selected, setSelected] = useState<number | null>(null)
     const [bucket, setBucket] = useState<Bucket | null>(null)
