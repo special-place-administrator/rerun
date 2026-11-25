@@ -264,6 +264,8 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
     const startedAt = Date.now()
     const run = runId ? { id: runId } : await startRun(baseAgent.id, sessionId)
     const controller = registerRunAbort(run.id, baseAgent.id, writer)
+    const attempt = new AbortController()
+    const attemptSignal = AbortSignal.any([controller.signal, attempt.signal])
     const author = trigger.source === 'chat' ? trigger.author : undefined
 
     let agent = baseAgent
@@ -320,6 +322,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
     const settle = async (settlement: Settlement): Promise<RunOutcome> => {
         if (settled) return settledPromise
         settled = true
+        if (settlement.kind === 'error') attempt.abort()
         live?.dispose()
 
         await appendP.catch(() => {})
@@ -443,7 +446,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
         const t0 = Date.now()
         const order = turnOrder(provider, await answeringModel(provider, model))
         const callableAgentIds = trigger.source === 'chat' ? trigger.callableAgentIds : undefined
-        const ctx: RunContext = { agent, sessionId, logger, provider, model, turnOrder: order, author, writer, abortSignal: controller.signal, callTargets: [], callableAgentIds, hostBreaker: new HostBreaker(), partialResults, delegated, skillProposals, taintedByUntrustedInput: startsTainted(trigger) }
+        const ctx: RunContext = { agent, sessionId, logger, provider, model, turnOrder: order, author, writer, abortSignal: attemptSignal, callTargets: [], callableAgentIds, hostBreaker: new HostBreaker(), partialResults, delegated, skillProposals, taintedByUntrustedInput: startsTainted(trigger) }
 
         ctx.runId = run.id
         const triggerSlug = 'slug' in trigger ? trigger.slug : null
@@ -542,7 +545,7 @@ async function runTurn(baseAgent: LoadedAgent, sessionId: string, userText: stri
             messages: cached.messages,
             providerOptions: mergeProviderOptions(mergeProviderOptions(cached.providerOptions, reasoningProviderOptions(provider, model, agent.config.thinkingLevel)), resumeThreadId ? { 'codex-app-server': { threadId: resumeThreadId } } : undefined),
             tools,
-            abortSignal: controller.signal,
+            abortSignal: attemptSignal,
             experimental_repairToolCall: repairToolCall,
             stopWhen: ({ steps }) => hitlTurnIsOver(steps, CLI_PROVIDERS.has(provider)),
             prepareStep: async ({ messages: stepMessages, steps }) => {
