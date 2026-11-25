@@ -127,7 +127,7 @@ export async function updateSession(request: NextRequest) {
 
     if (identity) {
         if (!identity.isAnonymous && request.nextUrl.pathname.startsWith(routes.auth) && request.nextUrl.pathname !== routes.authCallback && request.nextUrl.pathname !== DESKTOP_AUTH_PATH) {
-            return redirectKeepingSession(request, routes.board, supabaseResponse)
+            return redirectKeepingSession(request, routes.home, supabaseResponse)
         }
     } else if (request.nextUrl.pathname === routes.home || request.nextUrl.pathname === routes.board) {
         return redirectKeepingSession(request, routes.auth, supabaseResponse)
