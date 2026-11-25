@@ -48,10 +48,10 @@ describe('FactoryClearQueue', () => {
 
         await act(async () => render({ repo: 'acme/b', queue_clear: { id: 'qc-1', repo: 'acme/a', outcome: 'wrong_project', cleared: [], kept: [], at: '2026-11-25T19:00:00Z' } }, [9]))
         expect(status()).toBe('queueClearRefusedProject {"repo":"acme/a"}')
-        expect(button().disabled).toBe(false)
+        expect(button().getAttribute('aria-disabled')).toBeNull()
 
         await act(async () => render({ repo: 'acme/b', queue_clear: { id: 'qc-0', repo: 'acme/c', outcome: 'cleared', cleared: [1], kept: [], at: '2026-11-25T18:00:00Z' } }, [9]))
         expect(status()).toBe('')
-        expect(button().disabled).toBe(false)
+        expect(button().getAttribute('aria-disabled')).toBeNull()
     })
 })

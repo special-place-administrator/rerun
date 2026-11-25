@@ -35,6 +35,7 @@ export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: Fa
     const report = snapshot.queue_clear && (snapshot.queue_clear.repo === repo || snapshot.queue_clear.id === sent?.id) ? snapshot.queue_clear : undefined
     const unanswered = sent !== null && !sent.answered && report?.id !== sent.id
     const waiting = unanswered && !expired
+    const off = repo === null || issues.length === 0 || busy || waiting
     const status = unanswered ? t(waiting ? 'queueClearWaiting' : 'queueClearUnconfirmed', { repo: sent.repo })
         : report?.outcome === 'wrong_project' ? t('queueClearRefusedProject', { repo: report.repo })
         : report?.outcome === 'expired' ? t('queueClearExpired', { repo: report.repo })
@@ -63,8 +64,8 @@ export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: Fa
             <span role="status" aria-live="polite" className="text-xs text-muted-foreground">
                 {status}
             </span>
-            <Button ref={ref} type="button" size="xs" variant="ghost" className="text-destructive" data-clear-queue-button
-                disabled={repo === null || issues.length === 0 || busy || waiting} aria-busy={busy} onClick={() => { if (repo === null) return; setAsk({ repo, issues }); setConfirming(true) }}>
+            <Button ref={ref} type="button" size="xs" variant="ghost" className="text-destructive aria-disabled:cursor-not-allowed aria-disabled:opacity-50" data-clear-queue-button
+                aria-disabled={off || undefined} aria-busy={busy} onClick={() => { if (off || repo === null) return; setAsk({ repo, issues }); setConfirming(true) }}>
                 {t('clearQueue')}
             </Button>
             <ConfirmDialog
