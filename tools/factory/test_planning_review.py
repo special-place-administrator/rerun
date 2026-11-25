@@ -345,6 +345,15 @@ class Recheck(Station):
         row = self.store.get_all("recheck:7")
         self.assertEqual((row["state"], row["why"]), ("blocked", "plan: dev already does it"))
 
+    def test_a_done_elsewhere_recheck_is_kept_as_blocked(self):
+        self.build(review={}, extra={"recheck": {"tries": 2}}, issues=[])
+        self.waiting()
+        self.once()
+        self.w.finish(self.w.sends[-1][0], "BLOCKED: done elsewhere: 8fa9522")
+        self.once()
+        row = self.store.get_all("recheck:7")
+        self.assertEqual((row["state"], row["why"]), ("blocked", "done elsewhere: 8fa9522"))
+
     def test_without_recheck_settings_nothing_is_sent(self):
         self.build(review={}, issues=[])
         self.waiting()
