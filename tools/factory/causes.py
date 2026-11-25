@@ -32,6 +32,7 @@ FIELD = re.compile(r"^(GROUP|WHY|CULPRIT|CHANGE):[ \t]*(.*)$")
 QUOTE = re.compile(r'"[^"\n]{8,}"|`[^`\n]{8,}`')
 ISSUE = re.compile(r"^#(\d+)$")
 REVERT = "revert"
+INCONCLUSIVE = "inconclusive"
 DROPPED = "dropped"
 INSTR_DROPPED = ("rejected", "refused", "unreadable")
 REVERT_TITLE = "Revert of #%d: it did not lower `%s`"
@@ -291,6 +292,7 @@ class Station:
             after = changelog.rate(grouped(self.store), jobs, c["grp"])
             verdict = changelog.verdict(c["before"], after)
             fields = {"after": after, "verdict": verdict}
+            # A 0.0 baseline had nothing to lower: INCONCLUSIVE is stored, no revert is filed.
             if verdict == REVERT:
                 fields["revert"] = self.file_revert(c, after)
             self.store.set_change(c["id"], **fields)
