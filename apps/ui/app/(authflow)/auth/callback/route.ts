@@ -82,7 +82,7 @@ export async function GET(request: Request) {
         if (!error && data.session) {
             const pendingInvite = linking ? undefined : cookieStore.get(PENDING_INVITE_COOKIE)?.value
             const authReturn = linking ? undefined : readAuthReturnCookie(cookieStore.get(AUTH_RETURN_COOKIE)?.value)
-            const response = withSessionCookies(linking ? backToAccount(request) : NextResponse.redirect(publicUrl(request, internalPath(pendingInvite ?? authReturn, routes.board))))
+            const response = withSessionCookies(linking ? backToAccount(request) : NextResponse.redirect(publicUrl(request, internalPath(pendingInvite ?? authReturn, routes.home))))
 
             if (pendingInvite) {
                 response.cookies.delete(PENDING_INVITE_COOKIE)

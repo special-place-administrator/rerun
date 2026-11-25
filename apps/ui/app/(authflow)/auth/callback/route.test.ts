@@ -35,10 +35,18 @@ afterEach(() => {
 })
 
 describe('GET /auth/callback', () => {
-    it('sends a sign-in to the board', async () => {
+    it('sends a sign-in to the home page', async () => {
         const response = await callback('?code=abc')
 
-        expect(response.headers.get('location')).toBe('https://moldwright.robagentic.tech/board')
+        expect(response.headers.get('location')).toBe('https://moldwright.robagentic.tech/')
+    })
+
+    it('sends a sign-in that asked for a page back to it', async () => {
+        requestCookies.set('rr_auth_return', encodeURIComponent('/board?template=t1'))
+
+        const response = await callback('?code=abc')
+
+        expect(response.headers.get('location')).toBe('https://moldwright.robagentic.tech/board?template=t1')
     })
 
     it('sends a sign-in that came from an invitation back to it', async () => {
