@@ -27,6 +27,7 @@ const state = vi.hoisted(() => ({
     xdotool: [] as string[],
     png: Buffer.alloc(0),
     browserGate: null as Promise<void> | null,
+    controlGate: null as Promise<void> | null,
     captureGate: null as Promise<void> | null,
 }))
 
@@ -62,7 +63,10 @@ vi.mock('../../desktop/control.js', async () => {
     return {
         ...actual,
         ControlRefusal,
-        controlScreen: pick(actual.controlScreen, (async (agentId: string, signal?: AbortSignal) => ({ agentId, signal })) as typeof actual.controlScreen),
+        controlScreen: pick(actual.controlScreen, (async (agentId: string, signal?: AbortSignal) => {
+            await state.controlGate
+            return { agentId, signal }
+        }) as typeof actual.controlScreen),
         captureScreen: pick(actual.captureScreen, (async () => {
             const image = Buffer.from(`shot-${++state.captures}`)
             await state.captureGate
@@ -160,6 +164,7 @@ beforeEach(() => {
     state.xdotool.length = 0
     delete process.env.RERUN_SCREEN_PROFILE
     state.browserGate = null
+    state.controlGate = null
     state.captureGate = null
 })
 
@@ -423,6 +428,36 @@ describe('computer', () => {
         expect(agentsOnScreen()).toContain('a7')
         built.release()
         expect(agentsOnScreen()).not.toContain('a7')
+    })
+
+    it('does not act once its run let go of the screen while it took control', async () => {
+        let controlled!: () => void
+        state.controlGate = new Promise(r => (controlled = r))
+        const built = build(ctxWith())
+        const clicking = act(built, { action: 'left_click', coordinate: [1, 1] })
+        await new Promise(r => setImmediate(r))
+        built.release()
+        controlled()
+
+        expect(await clicking).toMatchObject({ status: 'refused', reason: expect.stringContaining('over') })
+        expect(state.calls).toEqual([])
+        expect(state.captures).toBe(0)
+    })
+
+    it('does not act once its run was stopped while it took control', async () => {
+        let controlled!: () => void
+        state.controlGate = new Promise(r => (controlled = r))
+        const controller = new AbortController()
+        const built = build(ctxWith('a1', {}, { abortSignal: controller.signal }))
+        const clicking = act(built, { action: 'left_click', coordinate: [1, 1] })
+        await new Promise(r => setImmediate(r))
+        controller.abort()
+        controlled()
+
+        await expect(clicking).rejects.toThrow()
+        expect(state.calls).toEqual([])
+        expect(state.captures).toBe(0)
+        built.release()
     })
 
     it('leaves codex no file once the run ended during the capture', async () => {

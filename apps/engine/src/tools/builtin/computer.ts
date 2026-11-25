@@ -210,6 +210,8 @@ export function computerTools(ctx: RunContext): { tools: ToolSet; release: () =>
             if (released) return refused(RUN_OVER)
             try {
                 const control = await controlScreen(id, signal, screenProfile())
+                signal?.throwIfAborted()
+                if (released) return refused(RUN_OVER)
                 await act(control, signal)
                 if (settleMs > 0) await sleep(settleMs, undefined, { signal })
                 const screenshot = await captureScreen(control)
