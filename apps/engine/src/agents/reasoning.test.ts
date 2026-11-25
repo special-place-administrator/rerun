@@ -63,3 +63,30 @@ describe('reasoning provider options with a thinking level', () => {
         expect(reasoningProviderOptions('opencode', 'go/claude-haiku-5-5', 'high')).toEqual(reasoningProviderOptions('anthropic', '', 'high'))
     })
 })
+
+// Claude 4.5 answers 400 to adaptive thinking (upstream #705); every later Claude model takes it.
+describe('reasoning provider options on Claude 4.5', () => {
+    it('asks a 4.5 model on OpenCode for no thinking, and every later one as before', () => {
+        for (const model of ['console/claude-haiku-4-5', 'console/claude-sonnet-4-5', 'console/claude-opus-4-5']) expect(reasoningProviderOptions('opencode', model)).toBeUndefined()
+        for (const model of ['console/claude-opus-4-6', 'console/claude-sonnet-4-6', 'console/claude-opus-5-5', 'go/qwen3.8-max']) expect(reasoningProviderOptions('opencode', model)).toEqual(reasoningProviderOptions('anthropic'))
+    })
+
+    it('asks a 4.5 model on an Anthropic key for no thinking, and every later one as before', () => {
+        for (const model of ['claude-haiku-4-5', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101']) expect(reasoningProviderOptions('anthropic', model)).toBeUndefined()
+        for (const model of ['claude-sonnet-4-6', 'claude-opus-4-8', 'claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-2']) expect(reasoningProviderOptions('anthropic', model)).toEqual({ anthropic: { thinking: { type: 'adaptive', display: 'summarized' } } })
+    })
+
+    it('sends neither thinking nor a level to a 4.5 model when the coworker sets one', () => {
+        for (const level of ['low', 'high', 'xhigh'] as const) {
+            expect(reasoningProviderOptions('anthropic', 'claude-haiku-4-5-20251001', level)).toBeUndefined()
+            expect(reasoningProviderOptions('opencode', 'console/claude-sonnet-4-5', level)).toBeUndefined()
+        }
+        expect(reasoningProviderOptions('anthropic', 'claude-sonnet-5-5', 'high')).toEqual({ anthropic: { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'high' } })
+    })
+
+    it('leaves the other providers as they were', () => {
+        expect(reasoningProviderOptions('openai', 'gpt-6-sol', 'high')).toEqual({ openai: { reasoningSummary: 'auto', reasoningEffort: 'high' } })
+        expect(reasoningProviderOptions('google', 'gemini-4-argon')).toEqual({ google: { thinkingConfig: { includeThoughts: true } } })
+        expect(reasoningProviderOptions('openrouter', 'anthropic/claude-sonnet-5.5', 'high')).toBeUndefined()
+    })
+})

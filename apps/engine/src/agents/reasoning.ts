@@ -3,7 +3,7 @@ import type { Provider } from '@moldwright/contracts'
 import { opencodeModel } from '../connections/opencode-catalog.js'
 import { logger } from '../lib/logger.js'
 import { behaviourOf } from './opencode.js'
-import { thinkingSettingsFor, type ThinkingLevel } from './thinking.js'
+import { takesAdaptiveThinking, thinkingSettingsFor, type ThinkingLevel } from './thinking.js'
 
 type ProviderOptions = NonNullable<Parameters<typeof streamText>[0]['providerOptions']>
 
@@ -18,6 +18,7 @@ const LEVEL_UNSUPPORTED = new Set<string>()
 export function reasoningProviderOptions(provider: Provider, model = '', level?: ThinkingLevel | null): ProviderOptions | undefined {
     const target = provider === 'opencode' ? behaviourOf(provider, model) : provider
     if (provider === 'opencode' && !opencodeModel(model)?.reasoning) return undefined
+    if (target === 'anthropic' && !takesAdaptiveThinking(model)) return undefined
     if (level && (target === 'anthropic' || target === 'openai' || target === 'google')) return thinkingSettingsFor(target, model, level).providerOptions
     if (level && target !== 'claude' && target !== 'rerun' && target !== 'openrouter' && !LEVEL_UNSUPPORTED.has(provider)) {
         LEVEL_UNSUPPORTED.add(provider)

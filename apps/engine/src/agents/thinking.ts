@@ -18,12 +18,19 @@ export function withoutXhigh(level: ThinkingLevel): Exclude<ThinkingLevel, 'xhig
 
 export const CLAUDE_DEFAULT_THINKING = { type: 'adaptive', display: 'summarized' } as const
 
+// Claude 4.5 answers 400 to adaptive thinking; every later Claude model takes it.
+export function takesAdaptiveThinking(model: string): boolean {
+    return !/claude-(?:haiku|sonnet|opus)-4-5/.test(model)
+}
+
 export function thinkingSettingsFor(provider: Provider, model: string, level: ThinkingLevel | null | undefined): ThinkingSettings {
     const base = (): ThinkingSettings => {
         if (provider === 'claude') return { claudeThinking: CLAUDE_DEFAULT_THINKING }
         if (provider === 'rerun' || provider === 'openrouter') return { openrouterReasoning: REASONING_REQUEST }
         return { providerOptions: reasoningProviderOptions(provider, model) }
     }
+    if (provider === 'claude' && !takesAdaptiveThinking(model)) return {}
+    if (provider === 'anthropic' && !takesAdaptiveThinking(model)) return { providerOptions: undefined }
     if (!level) return base()
     switch (provider) {
         case 'claude':
