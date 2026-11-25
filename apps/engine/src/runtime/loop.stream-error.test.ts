@@ -38,6 +38,7 @@ const { getRun } = await import('../db/repos/runs.js')
 const { createConnection } = await import('../connections/store.js')
 const { agentsOnScreen } = await import('../tools/builtin/computer.js')
 const { runAgent } = await import('./loop.js')
+const { allowAgent } = await import('../agents/everos-allowlist.js')
 
 const id = 'streamerroragent'
 const PAUSE = 'pause'
@@ -76,6 +77,7 @@ describe('a provider that fails in the middle of its stream', () => {
         connectionId = (await createConnection({ name: 'Flaky', provider: 'custom', baseUrl: `http://127.0.0.1:${port}/v1`, keys: {}, models: ['m'], extraModels: ['m'], vision: true })).id
         await mkdir(agentDir(id), { recursive: true })
         await writeAgentConfig(id, agentConfigSchema.parse({ name: 'flaky', connectionId, provider: 'custom', model: 'm', selfImprovement: { enabled: false } }))
+        await allowAgent(id, 'create')
     })
 
     afterAll(() => void server.close())
