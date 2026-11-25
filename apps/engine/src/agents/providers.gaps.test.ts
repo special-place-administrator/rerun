@@ -379,3 +379,28 @@ describe('resolveModel on the codex subscription', () => {
         await resolved.close()
     })
 })
+
+describe('the thinking the claude subscription asks for', () => {
+    const onClaude = (model: string, thinkingLevel?: 'high') => {
+        const agent = agentOn('claude', model, { CLAUDE_CODE_OAUTH_TOKEN: 't' })
+        return { ...agent, config: { ...agent.config, thinkingLevel } }
+    }
+    const thinkingOf = (settings: Record<string, unknown>) => ({ thinking: settings.thinking, effort: settings.effort })
+
+    it.each([undefined, 'high'] as const)('asks claude-haiku-4-5 for no thinking and no effort (level %s), on a run and on a side call', (level) => {
+        resolveModel(onClaude('claude-haiku-4-5', level))
+        modelFor(onClaude('claude-haiku-4-5', level))
+        expect(claudeCalls.map(call => thinkingOf(call.defaultSettings))).toEqual([{ thinking: undefined, effort: undefined }, { thinking: undefined, effort: undefined }])
+    })
+
+    it('keeps adaptive thinking and the level for a later model, on a run and on a side call', () => {
+        resolveModel(onClaude('claude-sonnet-5-5'))
+        resolveModel(onClaude('claude-sonnet-5-5', 'high'))
+        modelFor(onClaude('claude-sonnet-5-5', 'high'))
+        expect(claudeCalls.map(call => thinkingOf(call.defaultSettings))).toEqual([
+            { thinking: { type: 'adaptive', display: 'summarized' }, effort: undefined },
+            { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'high' },
+            { thinking: { type: 'adaptive', display: 'summarized' }, effort: 'high' },
+        ])
+    })
+})

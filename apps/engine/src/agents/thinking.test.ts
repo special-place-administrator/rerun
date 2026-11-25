@@ -69,3 +69,20 @@ describe('xhigh', () => {
         expect(JSON.parse(sent[0]).reasoning).toEqual({ enabled: true, effort: 'high' })
     })
 })
+
+describe('thinkingSettingsFor on Claude 4.5', () => {
+    it.each([null, ...LEVELS, 'xhigh'] as const)('asks claude-haiku-4-5 for no thinking at level %s, on the CLI and on a key', (level) => {
+        expect(thinkingSettingsFor('claude', 'claude-haiku-4-5', level)).toEqual({})
+        expect(thinkingSettingsFor('anthropic', 'claude-haiku-4-5-20251001', level)).toEqual({ providerOptions: undefined })
+    })
+
+    it('keeps adaptive thinking for every later model', () => {
+        expect(thinkingSettingsFor('claude', 'claude-sonnet-5-5', null)).toEqual({ claudeThinking: CLAUDE_DEFAULT_THINKING })
+        expect(thinkingSettingsFor('claude', 'claude-sonnet-4-6[1m]', 'high')).toEqual({ claudeThinking: { ...CLAUDE_DEFAULT_THINKING, effort: 'high' } })
+        expect(thinkingSettingsFor('anthropic', 'claude-opus-4-8', 'high')).toEqual({ providerOptions: { anthropic: { thinking: CLAUDE_DEFAULT_THINKING, effort: 'high' } } })
+    })
+
+    it('leaves the OpenRouter request alone, whose Claude ids are dotted', () => {
+        expect(thinkingSettingsFor('openrouter', 'anthropic/claude-sonnet-5.5', 'high')).toEqual({ openrouterReasoning: { ...REASONING_REQUEST, effort: 'high' } })
+    })
+})

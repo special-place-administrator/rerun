@@ -34,7 +34,7 @@ import { createQuickRepliesCapture, type QuickRepliesCapture } from './quick-rep
 import { createFakeToolCallGuard } from './fake-tool-call-stream.js'
 import { createCardTagGuard } from './card-tag-stream.js'
 import { cardTagStopHook } from './claude-card-nudge.js'
-import { CLAUDE_DEFAULT_THINKING, thinkingSettingsFor } from './thinking.js'
+import { thinkingSettingsFor } from './thinking.js'
 import { openrouterReasoningMiddleware, reasoningFetchFor } from './openrouter-reasoning.js'
 import { cacheBreakpointsFetch } from './openrouter-cache.js'
 import { openrouterStreamRetryMiddleware } from './openrouter-stream-retry.js'
@@ -272,10 +272,10 @@ export function withGoalStop(hooks: ClaudeHooks | undefined, goal: GoalOption | 
     return { ...hooks, Stop: [...stop, { hooks: [goal.hook ?? goalStopHook(goal.goal, goal.record)] }] }
 }
 
-function claudeProvider(agent: LoadedAgent, tools?: ToolSet, mcpServers: RunMcpServer[] = [], capture?: ClaudeContextCapture, options: CliModelOptions = {}) {
+function claudeProvider(agent: LoadedAgent, model: string, tools?: ToolSet, mcpServers: RunMcpServer[] = [], capture?: ClaudeContextCapture, options: CliModelOptions = {}) {
     const { mcpServers: servers, allowedTools, toolAliases } = claudeMcpConfig(tools, mcpServers, options.screenshots)
     const { cwd, env: agentEnv } = agentProcessEnv(agent, options.labels)
-    const thinking: NonNullable<ReturnType<typeof thinkingSettingsFor>['claudeThinking']> = thinkingSettingsFor('claude', '', agent.config.thinkingLevel).claudeThinking ?? CLAUDE_DEFAULT_THINKING
+    const thinking = thinkingSettingsFor('claude', model, agent.config.thinkingLevel).claudeThinking
     const auth = claudeAuthEnv(connectionEnv(agent))
     return createClaudeCode({
         defaultSettings: {
@@ -286,8 +286,8 @@ function claudeProvider(agent: LoadedAgent, tools?: ToolSet, mcpServers: RunMcpS
             strictMcpConfig: true,
             enableFileCheckpointing: false,
             cwd,
-            thinking: { type: thinking.type, display: thinking.display },
-            ...(thinking.effort ? { effort: thinking.effort } : {}),
+            ...(thinking ? { thinking: { type: thinking.type, display: thinking.display } } : {}),
+            ...(thinking?.effort ? { effort: thinking.effort } : {}),
             env: {
                 ...envOverlay(
                     childProcessEnv(agentEnv, {
@@ -383,12 +383,12 @@ function customOptions(agent: LoadedAgent): Parameters<typeof createOpenAI>[0] {
     }
 }
 
-function registryFor(agent: LoadedAgent, tools?: ToolSet, mcpServers?: McpServer[], options?: CliModelOptions) {
+function registryFor(agent: LoadedAgent, model: string, tools?: ToolSet, mcpServers?: McpServer[], options?: CliModelOptions) {
     const e = connectionEnv(agent)
     return createProviderRegistry({
         rerun: openaiChat(openrouterCompatibleOptions(agent, 'rerun')),
         anthropic: createAnthropic({ apiKey: e.ANTHROPIC_API_KEY }),
-        claude: claudeProvider(agent, tools, mcpServers, undefined, options),
+        claude: claudeProvider(agent, model, tools, mcpServers, undefined, options),
         codex: codexExecProvider(agent, options?.labels),
         openai: createOpenAI({ apiKey: e.OPENAI_API_KEY }),
         google: createGoogleGenerativeAI({ apiKey: e.GOOGLE_GENERATIVE_AI_API_KEY ?? e.GOOGLE_API_KEY }),
@@ -410,7 +410,7 @@ export function modelFor(agent: LoadedAgent, override?: ModelOverride, tools?: T
         const opencode = opencodeLanguageModel(agent.resolved.connection, model, oneShotSessionId(agent, options))
         return wrapLanguageModel({ model: opencode.model, middleware: opencode.middleware })
     }
-    return registryFor(agent, tools, mcpServers, options).languageModel(`${provider}:${model}`)
+    return registryFor(agent, model, tools, mcpServers, options).languageModel(`${provider}:${model}`)
 }
 
 export type ResolvedModel = { model: ReturnType<typeof wrapLanguageModel>; close: () => Promise<void>; contextUsage?: () => ContextOccupancy | undefined; quickReplies: () => QuickRepliesCapture | undefined }
@@ -428,7 +428,7 @@ export function resolveModel(agent: LoadedAgent, override?: ModelOverride, tools
     }
     if (provider === 'claude') {
         const capture = claudeContextCapture(agent.resolved.connection?.id, onCompact, handover)
-        const claude = claudeProvider(agent, tools, mcpServers, capture, { system, screenshots, labels, goal, compactAt, claudeTools: agent.config.tools.web ? CLAUDE_RUN_TOOLS : [] }).languageModel(model)
+        const claude = claudeProvider(agent, model, tools, mcpServers, capture, { system, screenshots, labels, goal, compactAt, claudeTools: agent.config.tools.web ? CLAUDE_RUN_TOOLS : [] }).languageModel(model)
         return { model: wrapLanguageModel({ model: claude, middleware: [claudeScreenshotMiddleware, replies.middleware, cardTags, guard] }), close: noClose, contextUsage: capture.read, quickReplies: replies.read }
     }
     if (provider === 'opencode') {
@@ -444,5 +444,5 @@ export function resolveModel(agent: LoadedAgent, override?: ModelOverride, tools
         return { model: wrapLanguageModel({ model: custom.languageModel(model), middleware: [openrouterStreamRetryMiddleware, opencodeChatReasoningMiddleware, replies.middleware, cardTags, guard] }), close: noClose, quickReplies: replies.read }
     }
     const middleware = provider === 'google' ? [googleToolSchemaMiddleware, replies.middleware, cardTags, guard] : [replies.middleware, cardTags, guard]
-    return { model: wrapLanguageModel({ model: registryFor(agent, tools, mcpServers).languageModel(`${provider}:${model}`), middleware }), close: noClose, quickReplies: replies.read }
+    return { model: wrapLanguageModel({ model: registryFor(agent, model, tools, mcpServers).languageModel(`${provider}:${model}`), middleware }), close: noClose, quickReplies: replies.read }
 }
