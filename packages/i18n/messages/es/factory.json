@@ -75,15 +75,15 @@
         "idleSentence": "En marcha, nada que hacer: {reason}",
         "wait": "{wait, select, project {ningún proyecto elegido} order {ninguna orden de trabajo} done {la orden de trabajo ha terminado} other {{text}}}",
         "clearQueue": "Vaciar cola",
-        "confirmClearQueueTitle": "{count, plural, one {¿Quitar # trabajo en cola?} other {¿Quitar # trabajos en cola?}}",
-        "confirmClearQueueBody": "Los trabajos en cola y en espera se cancelan y no se vuelven a tomar. Los trabajos en curso, las issues y el historial se mantienen.",
+        "confirmClearQueueTitle": "{count, plural, one {¿Quitar # trabajo en cola de {repo}?} other {¿Quitar # trabajos en cola de {repo}?}}",
+        "confirmClearQueueBody": "Solo se cancelan los trabajos en cola y en espera que aparecen aquí, y no se vuelven a tomar. Los trabajos que la lista no muestra siguen en cola. Los trabajos en curso, las issues y el historial se mantienen.",
         "confirmClearQueue": "Vaciar cola",
         "queueClearSent": "{count, plural, one {Quitando # trabajo} other {Quitando # trabajos}}",
-        "queueClearWaiting": "Esperando a que el despachador vacíe la cola",
-        "queueClearReport": "Último vaciado: {cleared} quitados, {kept} conservados",
-        "queueClearRefusedProject": "Último vaciado no aplicado: la fábrica está en otro proyecto",
-        "queueClearExpired": "Último vaciado no aplicado: llegó demasiado tarde al despachador. Inténtalo de nuevo",
-        "queueClearUnconfirmed": "El despachador no confirmó el vaciado. Inténtalo de nuevo"
+        "queueClearWaiting": "Esperando a que el despachador vacíe la cola de {repo}",
+        "queueClearReport": "Último vaciado en {repo}: {cleared} quitados, {kept} conservados",
+        "queueClearRefusedProject": "Último vaciado en {repo} no aplicado: la fábrica está en otro proyecto",
+        "queueClearExpired": "Último vaciado en {repo} no aplicado: llegó demasiado tarde al despachador. Inténtalo de nuevo",
+        "queueClearUnconfirmed": "El despachador no confirmó el vaciado en {repo}. Inténtalo de nuevo"
     },
     "orders": {
         "trigger": "Orden de trabajo",

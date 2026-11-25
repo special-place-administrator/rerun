@@ -10,9 +10,9 @@ vi.mock('@/app/api/_actions/factory.actions', () => ({ clearFactoryQueueAction: 
 vi.mock('./use-factory-controls', () => ({ thrown: () => ({ ok: false }) }))
 vi.mock('@/hooks/useErrorText', () => ({ useErrorText: () => () => 'error' }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }))
+vi.mock('next-intl', () => ({ useTranslations: () => (key: string, values?: object) => values ? `${key} ${JSON.stringify(values)}` : key }))
 vi.mock('@/components/dialogs/ConfirmDialog', () => ({
-    ConfirmDialog: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) => open ? createElement('button', { 'data-confirm': '', onClick: onConfirm }, 'confirm') : null,
+    ConfirmDialog: ({ open, title, onConfirm }: { open: boolean; title: string; onConfirm: () => void }) => open ? createElement('button', { 'data-confirm': '', onClick: onConfirm }, title) : null,
 }))
 
 let root: Root | null = null
@@ -25,23 +25,33 @@ afterEach(() => {
 })
 
 describe('FactoryClearQueue', () => {
-    it('shows a refused clear that the dispatcher filed under the requested project', async () => {
+    it('clears and reports the project it was asked for when the factory switches projects', async () => {
         mocks.clearFactoryQueueAction.mockResolvedValue({ ok: true, id: 'qc-1', count: 2 })
         const { FactoryClearQueue } = await import('./FactoryClearQueue')
         const controls = { view: { isOwner: true }, reload: vi.fn().mockResolvedValue(undefined) } as never
-        const render = (snapshot: object) => root!.render(createElement(FactoryClearQueue, { snapshot: snapshot as FactorySnapshot, controls, issues: [5, 6] }))
+        const render = (snapshot: object, issues: number[]) => root!.render(createElement(FactoryClearQueue, { snapshot: snapshot as FactorySnapshot, controls, issues }))
         container = document.createElement('div')
         document.body.appendChild(container)
         root = createRoot(container)
-        await act(async () => render({ repo: 'acme/app' }))
         const status = () => container!.querySelector('[role="status"]')!.textContent
+        const button = () => container!.querySelector<HTMLButtonElement>('[data-clear-queue-button]')!
 
-        await act(async () => container!.querySelector<HTMLButtonElement>('[data-clear-queue-button]')!.click())
-        await act(async () => container!.querySelector<HTMLButtonElement>('[data-confirm]')!.click())
-        expect(status()).toBe('queueClearWaiting')
+        await act(async () => render({ repo: 'acme/a' }, [5, 6]))
+        await act(async () => button().click())
+        await act(async () => render({ repo: 'acme/b' }, [9]))
+        const confirm = container!.querySelector<HTMLButtonElement>('[data-confirm]')!
+        expect(confirm.textContent).toContain('"repo":"acme/a"')
+        expect(confirm.textContent).toContain('"count":2')
+        await act(async () => confirm.click())
+        expect(mocks.clearFactoryQueueAction).toHaveBeenCalledWith('acme/a', [5, 6])
+        expect(status()).toBe('queueClearWaiting {"repo":"acme/a"}')
 
-        await act(async () => render({ repo: 'acme/app', queue_clear: { id: 'qc-1', repo: 'acme/other', outcome: 'wrong_project', cleared: [], kept: [], at: '2026-11-25T19:00:00Z' } }))
-        expect(status()).toBe('queueClearRefusedProject')
-        expect(container!.querySelector<HTMLButtonElement>('[data-clear-queue-button]')!.disabled).toBe(false)
+        await act(async () => render({ repo: 'acme/b', queue_clear: { id: 'qc-1', repo: 'acme/a', outcome: 'wrong_project', cleared: [], kept: [], at: '2026-11-25T19:00:00Z' } }, [9]))
+        expect(status()).toBe('queueClearRefusedProject {"repo":"acme/a"}')
+        expect(button().disabled).toBe(false)
+
+        await act(async () => render({ repo: 'acme/b', queue_clear: { id: 'qc-0', repo: 'acme/c', outcome: 'cleared', cleared: [1], kept: [], at: '2026-11-25T18:00:00Z' } }, [9]))
+        expect(status()).toBe('')
+        expect(button().disabled).toBe(false)
     })
 })

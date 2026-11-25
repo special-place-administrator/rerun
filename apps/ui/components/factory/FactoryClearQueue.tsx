@@ -10,12 +10,15 @@ import { Button } from '@/components/ui/button'
 import { useErrorText } from '@/hooks/useErrorText'
 import { thrown, type FactoryControlsState } from './use-factory-controls'
 
+type Ask = { repo: string; issues: number[] }
+
 export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: FactorySnapshot; controls: FactoryControlsState; issues: number[] }) {
     const t = useTranslations('factory.controls')
     const errorText = useErrorText()
     const [confirming, setConfirming] = useState(false)
+    const [ask, setAsk] = useState<Ask>({ repo: '', issues: [] })
     const [busy, setBusy] = useState(false)
-    const [sent, setSent] = useState<string | null>(null)
+    const [sent, setSent] = useState<{ id: string; repo: string; answered: boolean } | null>(null)
     const [expired, setExpired] = useState(false)
     const ref = useRef<HTMLButtonElement>(null)
 
@@ -25,30 +28,30 @@ export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: Fa
         return () => clearTimeout(timer)
     }, [sent])
 
+    if (sent !== null && !sent.answered && snapshot.queue_clear?.id === sent.id) setSent({ ...sent, answered: true })
+
     if (controls.view?.isOwner !== true) return null
     const repo = snapshot.repo
-    const report = snapshot.queue_clear && (snapshot.queue_clear.repo === repo || snapshot.queue_clear.id === sent) ? snapshot.queue_clear : undefined
-    const unanswered = sent !== null && report?.id !== sent
+    const report = snapshot.queue_clear && (snapshot.queue_clear.repo === repo || snapshot.queue_clear.id === sent?.id) ? snapshot.queue_clear : undefined
+    const unanswered = sent !== null && !sent.answered && report?.id !== sent.id
     const waiting = unanswered && !expired
-    const status = waiting ? t('queueClearWaiting')
-        : unanswered ? t('queueClearUnconfirmed')
-        : report?.outcome === 'wrong_project' ? t('queueClearRefusedProject')
-        : report?.outcome === 'expired' ? t('queueClearExpired')
-        : report ? t('queueClearReport', { cleared: report.cleared.length, kept: report.kept.length }) : null
+    const status = unanswered ? t(waiting ? 'queueClearWaiting' : 'queueClearUnconfirmed', { repo: sent.repo })
+        : report?.outcome === 'wrong_project' ? t('queueClearRefusedProject', { repo: report.repo })
+        : report?.outcome === 'expired' ? t('queueClearExpired', { repo: report.repo })
+        : report ? t('queueClearReport', { repo: report.repo, cleared: report.cleared.length, kept: report.kept.length }) : null
 
     const closeConfirm = (keep: boolean) => {
         if (keep) return
         setConfirming(false)
         requestAnimationFrame(() => ref.current?.focus())
     }
-    const clear = async () => {
-        if (repo === null) return
+    const clear = async (frozen: Ask) => {
         setBusy(true)
-        const res = await clearFactoryQueueAction(repo, issues).catch(thrown)
+        const res = await clearFactoryQueueAction(frozen.repo, frozen.issues).catch(thrown)
         if (!res.ok) toast.error(errorText(res))
         else {
             setExpired(false)
-            setSent(res.id)
+            setSent({ id: res.id, repo: frozen.repo, answered: false })
             toast.success(t('queueClearSent', { count: res.count }))
             await controls.reload()
         }
@@ -61,17 +64,17 @@ export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: Fa
                 {status}
             </span>
             <Button ref={ref} type="button" size="xs" variant="ghost" className="text-destructive" data-clear-queue-button
-                disabled={repo === null || issues.length === 0 || busy || waiting} aria-busy={busy} onClick={() => setConfirming(true)}>
+                disabled={repo === null || issues.length === 0 || busy || waiting} aria-busy={busy} onClick={() => { if (repo === null) return; setAsk({ repo, issues }); setConfirming(true) }}>
                 {t('clearQueue')}
             </Button>
             <ConfirmDialog
                 open={confirming}
                 onOpenChange={closeConfirm}
-                title={t('confirmClearQueueTitle', { count: issues.length })}
+                title={t('confirmClearQueueTitle', { count: ask.issues.length, repo: ask.repo })}
                 description={t('confirmClearQueueBody')}
                 confirmLabel={t('confirmClearQueue')}
                 confirmVariant="destructive"
-                onConfirm={() => { closeConfirm(false); void clear() }}
+                onConfirm={() => { closeConfirm(false); void clear(ask) }}
             />
         </div>
     )

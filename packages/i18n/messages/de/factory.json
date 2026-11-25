@@ -75,15 +75,15 @@
         "idleSentence": "Läuft, nichts zu tun: {reason}",
         "wait": "{wait, select, project {kein Projekt gewählt} order {kein Arbeitsauftrag} done {der Arbeitsauftrag ist erledigt} other {{text}}}",
         "clearQueue": "Warteschlange leeren",
-        "confirmClearQueueTitle": "{count, plural, one {# wartenden Job entfernen?} other {# wartende Jobs entfernen?}}",
-        "confirmClearQueueBody": "Eingereihte und wartende Jobs werden abgebrochen und nicht erneut aufgenommen. Laufende Jobs, Issues und Verlauf bleiben.",
+        "confirmClearQueueTitle": "{count, plural, one {# wartenden Job in {repo} entfernen?} other {# wartende Jobs in {repo} entfernen?}}",
+        "confirmClearQueueBody": "Nur die hier aufgeführten eingereihten und wartenden Jobs werden abgebrochen und nicht erneut aufgenommen. Jobs, die die Liste nicht zeigt, bleiben eingereiht. Laufende Jobs, Issues und Verlauf bleiben.",
         "confirmClearQueue": "Warteschlange leeren",
         "queueClearSent": "{count, plural, one {# Job wird entfernt} other {# Jobs werden entfernt}}",
-        "queueClearWaiting": "Warte, bis der Dispatcher die Warteschlange leert",
-        "queueClearReport": "Zuletzt geleert: {cleared} entfernt, {kept} behalten",
-        "queueClearRefusedProject": "Letztes Leeren nicht übernommen: Die Fabrik arbeitet an einem anderen Projekt",
-        "queueClearExpired": "Letztes Leeren nicht übernommen: Es kam zu spät beim Dispatcher an. Versuche es erneut",
-        "queueClearUnconfirmed": "Der Dispatcher hat das Leeren nicht bestätigt. Versuche es erneut"
+        "queueClearWaiting": "Warte, bis der Dispatcher die Warteschlange von {repo} leert",
+        "queueClearReport": "Zuletzt geleert in {repo}: {cleared} entfernt, {kept} behalten",
+        "queueClearRefusedProject": "Letztes Leeren in {repo} nicht übernommen: Die Fabrik arbeitet an einem anderen Projekt",
+        "queueClearExpired": "Letztes Leeren in {repo} nicht übernommen: Es kam zu spät beim Dispatcher an. Versuche es erneut",
+        "queueClearUnconfirmed": "Der Dispatcher hat das Leeren in {repo} nicht bestätigt. Versuche es erneut"
     },
     "orders": {
         "trigger": "Arbeitsauftrag",
