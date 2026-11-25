@@ -8,7 +8,7 @@ vi.mock('../../runtime/run-control.js', () => ({
     },
 }))
 
-const { followSubRun, snapshotSubRun, beginSubRun, abortSubRun, registerSubRunStop, unregisterSubRunStop, renderSubRunOutcome, summarizeToolInput, isFailureResult, SUB_RUN_IDLE_TIMEOUT_MS, SUB_RUN_STOPPED_BY_USER } = await import('./sub-run-watch.js')
+const { followSubRun, snapshotSubRun, beginSubRun, abortSubRun, registerSubRunStop, unregisterSubRunStop, renderSubRunOutcome, summarizeToolInput, isFailureResult, SUB_RUN_IDLE_TIMEOUT_MS, SUB_RUN_STOPPED_BY_USER, SUB_RUN_STOPPED_WITH_CALLER, endSubRun } = await import('./sub-run-watch.js')
 const { BLOCKED_SOURCE_PREFIX } = await import('../host-breaker.js')
 type SubRunProgress = import('./sub-run-watch.js').SubRunProgress
 
@@ -225,6 +225,20 @@ describe('followSubRun', () => {
             end()
         })
         await expect(followSubRun(run, freshProgress(), { onChange: () => {} })).resolves.toEqual({ text: '', stopReason: '401 unauthorized' })
+    })
+})
+
+describe('endSubRun', () => {
+    it.each([
+        [undefined, 'done'],
+        [SUB_RUN_STOPPED_BY_USER, 'stopped'],
+        [SUB_RUN_STOPPED_WITH_CALLER, 'stopped'],
+        ['401 unauthorized', 'error'],
+        ['no activity for 15 min, sub-coworker stopped', 'error'],
+    ])('ends a run with reason %s as %s', (reason, status) => {
+        const progress = freshProgress()
+        endSubRun(progress, reason)
+        expect(progress.status).toBe(status)
     })
 })
 

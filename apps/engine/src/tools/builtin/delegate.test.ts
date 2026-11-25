@@ -46,8 +46,9 @@ const { listAgentIndex } = await import('../../db/repos/agents.js')
 const { agentConfigSchema } = await import('../../agents/types.js')
 const { agentDir } = await import('../../config/paths.js')
 const { delegateTools } = await import('./delegate.js')
+const { abortSubRun } = await import('./sub-run-watch.js')
 
-type Written = { type: string; id: string; data: { tasks: Array<{ status: string; title: string }> } }
+type Written = { type: string; id: string; data: { tasks: Array<{ id: string; status: string; title: string }> } }
 
 function ctxWith(extra: Record<string, unknown> = {}) {
     const writes: Written[] = []
@@ -177,11 +178,52 @@ describe('delegate_tasks', () => {
     it('starts nothing when the calling run is already stopped', async () => {
         const parent = new AbortController()
         parent.abort()
-        const { ctx } = ctxWith({ abortSignal: parent.signal })
+        const { ctx, writes } = ctxWith({ abortSignal: parent.signal })
         expect(await delegate(ctx, [{ task: 'a' }, { task: 'b' }])).toBe(
             '## Task 1 — a\n(not started: the calling run was stopped)\n\n## Task 2 — b\n(not started: the calling run was stopped)',
         )
         expect(runs.started).toHaveLength(0)
+        expect(writes.at(-1)?.data.tasks.map(t => t.status)).toEqual(['stopped', 'stopped'])
+    })
+
+    it('shows every task as stopped when the calling run is stopped, started or not', async () => {
+        const gate = new Promise<void>(() => {})
+        runs.script = () => ({ text: 'ok', gate })
+        const parent = new AbortController()
+        const { ctx, writes } = ctxWith({ abortSignal: parent.signal })
+        const pending = delegate(ctx, Array.from({ length: 15 }, (_, i) => ({ task: `task ${i}` })))
+        await vi.waitFor(() => expect(runs.started).toHaveLength(4), { timeout: START_WAIT_MS })
+        parent.abort()
+        await pending
+        expect(runs.started).toHaveLength(4)
+        expect(writes.at(-1)?.data.tasks.map(t => t.status)).toEqual(new Array(15).fill('stopped'))
+    })
+
+    it('keeps a task that failed on its own as an error when the calling run is stopped', async () => {
+        const gate = new Promise<void>(() => {})
+        runs.script = prompt => (prompt === 'bad' ? { throws: 'model exploded' } : { text: 'ok', gate })
+        const parent = new AbortController()
+        const { ctx, writes } = ctxWith({ abortSignal: parent.signal })
+        const pending = delegate(ctx, [{ task: 'bad' }, { task: 'long' }])
+        await vi.waitFor(() => expect(writes.at(-1)?.data.tasks.map(t => t.status)).toEqual(['error', 'running']), { timeout: START_WAIT_MS })
+        parent.abort()
+        await pending
+        expect(writes.at(-1)?.data.tasks.map(t => t.status)).toEqual(['error', 'stopped'])
+    })
+
+    it('shows a task stopped by hand as stopped and lets its sibling finish', async () => {
+        let release!: () => void
+        const sibling = new Promise<void>(resolve => (release = resolve))
+        runs.script = prompt => (prompt === 'stop me' ? { text: 'never', gate: new Promise<void>(() => {}) } : { text: 'sibling done', gate: sibling })
+        const { ctx, writes } = ctxWith()
+        const pending = delegate(ctx, [{ task: 'stop me' }, { task: 'keep going' }])
+        await vi.waitFor(() => expect(runs.started).toHaveLength(2), { timeout: START_WAIT_MS })
+        expect(abortSubRun(writes.at(-1)!.data.tasks[0].id)).toBe(true)
+        release()
+        const out = await pending
+        expect(out).toContain('stopped by the user')
+        expect(out).toContain('sibling done')
+        expect(writes.at(-1)?.data.tasks.map(t => t.status)).toEqual(['stopped', 'done'])
     })
 
     it('falls back on the tool call signal when the run has none', async () => {
