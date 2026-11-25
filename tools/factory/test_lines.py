@@ -778,6 +778,21 @@ class OrderRules(Pair):
         self.assertEqual({k: self.w.reports[-1]["queue_clear"][k] for k in ("cleared", "kept")}, {"cleared": [6, 7], "kept": [5, 8, 9]})
         self.assertEqual((self.w.reports[-1]["work_order"]["skipped"], len(self.w.sends) - sends), ([6, 7], 0))
         self.assertEqual(len(self.lines_said("queue cleared in o/r")), 1)
+        report = lambda: {k: self.w.reports[-1]["queue_clear"][k] for k in ("id", "outcome", "cleared", "kept")}
+        self.assertEqual(report(), {"id": "qc-1", "outcome": "cleared", "cleared": [6, 7], "kept": [5, 8, 9]})
+        self.w.clock += 1
+        self.answer["queue_clear"] = {"id": "qc-2", "repo": "o/x", "issues": [8], "by": "rob", "at": D.iso(self.w.clock)}
+        self.tick(2)
+        self.assertEqual(report(), {"id": "qc-2", "outcome": "wrong_project", "cleared": [], "kept": []})
+        self.w.clock += 1
+        self.answer["queue_clear"] = {"id": "qc-3", "repo": "o/r", "issues": [8], "by": "rob", "at": D.iso(self.w.clock)}
+        self.w.clock += 91
+        self.tick(2)
+        self.assertEqual(report(), {"id": "qc-3", "outcome": "expired", "cleared": [], "kept": []})
+        jobs = self.order_jobs()
+        self.answer["queue_clear"] = {"id": "qc-4", "repo": "o/r", "issues": [8], "by": "rob", "at": D.iso(self.w.clock - 100)}
+        self.tick(2)
+        self.assertEqual((report()["id"], self.order_jobs()), ("qc-3", jobs))
 
 class Seats(unittest.TestCase):
     def test_the_pool_caps_all_stations_together_and_each_station_stays_within_its_seats(self):

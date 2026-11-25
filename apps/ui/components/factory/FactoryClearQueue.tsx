@@ -1,9 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import type { FactorySnapshot } from '@moldwright/contracts'
+import { FACTORY_QUEUE_CLEAR_WAIT_S, type FactorySnapshot } from '@moldwright/contracts'
 import { clearFactoryQueueAction } from '@/app/api/_actions/factory.actions'
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog'
 import { Button } from '@/components/ui/button'
@@ -16,12 +16,25 @@ export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: Fa
     const [confirming, setConfirming] = useState(false)
     const [busy, setBusy] = useState(false)
     const [sent, setSent] = useState<string | null>(null)
+    const [expired, setExpired] = useState(false)
     const ref = useRef<HTMLButtonElement>(null)
+
+    useEffect(() => {
+        if (sent === null) return
+        const timer = setTimeout(() => setExpired(true), FACTORY_QUEUE_CLEAR_WAIT_S * 1000)
+        return () => clearTimeout(timer)
+    }, [sent])
 
     if (controls.view?.isOwner !== true) return null
     const repo = snapshot.repo
     const report = snapshot.queue_clear?.repo === repo ? snapshot.queue_clear : undefined
-    const waiting = sent !== null && report?.id !== sent
+    const unanswered = sent !== null && report?.id !== sent
+    const waiting = unanswered && !expired
+    const status = waiting ? t('queueClearWaiting')
+        : unanswered ? t('queueClearUnconfirmed')
+        : report?.outcome === 'wrong_project' ? t('queueClearRefusedProject')
+        : report?.outcome === 'expired' ? t('queueClearExpired')
+        : report ? t('queueClearReport', { cleared: report.cleared.length, kept: report.kept.length }) : null
 
     const closeConfirm = (keep: boolean) => {
         if (keep) return
@@ -34,6 +47,7 @@ export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: Fa
         const res = await clearFactoryQueueAction(repo, issues).catch(thrown)
         if (!res.ok) toast.error(errorText(res))
         else {
+            setExpired(false)
             setSent(res.id)
             toast.success(t('queueClearSent', { count: res.count }))
             await controls.reload()
@@ -44,10 +58,10 @@ export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: Fa
     return (
         <div data-clear-queue className="flex items-center justify-between gap-2">
             <span role="status" aria-live="polite" className="text-xs text-muted-foreground">
-                {waiting ? t('queueClearWaiting') : report ? t('queueClearReport', { cleared: report.cleared.length, kept: report.kept.length }) : null}
+                {status}
             </span>
             <Button ref={ref} type="button" size="xs" variant="ghost" className="text-destructive" data-clear-queue-button
-                disabled={repo === null || issues.length === 0 || busy} aria-busy={busy} onClick={() => setConfirming(true)}>
+                disabled={repo === null || issues.length === 0 || busy || waiting} aria-busy={busy} onClick={() => setConfirming(true)}>
                 {t('clearQueue')}
             </Button>
             <ConfirmDialog

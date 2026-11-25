@@ -80,7 +80,10 @@
         "confirmClearQueue": "Vaciar cola",
         "queueClearSent": "{count, plural, one {Quitando # trabajo} other {Quitando # trabajos}}",
         "queueClearWaiting": "Esperando a que el despachador vacíe la cola",
-        "queueClearReport": "Último vaciado: {cleared} quitados, {kept} conservados"
+        "queueClearReport": "Último vaciado: {cleared} quitados, {kept} conservados",
+        "queueClearRefusedProject": "Último vaciado no aplicado: la fábrica está en otro proyecto",
+        "queueClearExpired": "Último vaciado no aplicado: llegó demasiado tarde al despachador. Inténtalo de nuevo",
+        "queueClearUnconfirmed": "El despachador no confirmó el vaciado. Inténtalo de nuevo"
     },
     "orders": {
         "trigger": "Orden de trabajo",

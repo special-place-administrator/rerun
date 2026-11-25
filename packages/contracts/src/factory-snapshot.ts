@@ -233,6 +233,7 @@ export const FACTORY_ORDER_KINDS = ['issue', 'all_issues', 'feature', 'bug'] as 
 export const FACTORY_ORDER_ISSUES_MAX = 200
 export const FACTORY_ORDER_TEXT_MAX = 4000
 export const FACTORY_QUEUE_CLEAR_MAX = 500
+export const FACTORY_QUEUE_CLEAR_WAIT_S = 180
 export const FACTORY_MAX_GHOSTS_FALLBACK = 32
 export const FACTORY_POOL_DEFAULT = 1
 export const FACTORY_SEATS_DEFAULT = 1
@@ -286,6 +287,7 @@ export const factoryWorkOrderReportSchema = z.object({
 export const factoryQueueClearReportSchema = z.object({
     id: z.string().max(64),
     repo: z.string().max(201),
+    outcome: z.enum(['cleared', 'wrong_project', 'expired']),
     cleared: z.array(issueNumber).max(FACTORY_QUEUE_CLEAR_MAX),
     kept: z.array(issueNumber).max(FACTORY_QUEUE_CLEAR_MAX),
     at: wireText,

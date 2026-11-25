@@ -80,7 +80,10 @@
         "confirmClearQueue": "Warteschlange leeren",
         "queueClearSent": "{count, plural, one {# Job wird entfernt} other {# Jobs werden entfernt}}",
         "queueClearWaiting": "Warte, bis der Dispatcher die Warteschlange leert",
-        "queueClearReport": "Zuletzt geleert: {cleared} entfernt, {kept} behalten"
+        "queueClearReport": "Zuletzt geleert: {cleared} entfernt, {kept} behalten",
+        "queueClearRefusedProject": "Letztes Leeren nicht übernommen: Die Fabrik arbeitet an einem anderen Projekt",
+        "queueClearExpired": "Letztes Leeren nicht übernommen: Es kam zu spät beim Dispatcher an. Versuche es erneut",
+        "queueClearUnconfirmed": "Der Dispatcher hat das Leeren nicht bestätigt. Versuche es erneut"
     },
     "orders": {
         "trigger": "Arbeitsauftrag",

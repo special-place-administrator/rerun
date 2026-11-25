@@ -80,7 +80,10 @@
         "confirmClearQueue": "Limpar fila",
         "queueClearSent": "{count, plural, one {Removendo # trabalho} other {Removendo # trabalhos}}",
         "queueClearWaiting": "Aguardando o despachante limpar a fila",
-        "queueClearReport": "Última limpeza: {cleared} removidos, {kept} mantidos"
+        "queueClearReport": "Última limpeza: {cleared} removidos, {kept} mantidos",
+        "queueClearRefusedProject": "Última limpeza não aplicada: a fábrica está em outro projeto",
+        "queueClearExpired": "Última limpeza não aplicada: chegou tarde demais ao despachante. Tente novamente",
+        "queueClearUnconfirmed": "O despachante não confirmou a limpeza. Tente novamente"
     },
     "orders": {
         "trigger": "Ordem de trabalho",

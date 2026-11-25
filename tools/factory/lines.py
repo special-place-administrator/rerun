@@ -39,6 +39,7 @@ ORDER_ISSUES_MAX = 200
 ORDER_TEXT_MAX = 4000
 ORDER_ACTIONS = ("retry", "skip")
 QUEUE_CLEAR_MAX = 500
+QUEUE_CLEAR_TTL_S = 90
 FAILED = ("blocked", "failed")
 DEPENDENCY_ENDED = re.compile(r"^dependency #[0-9]+ ended [a-z_]+$")
 GHOSTS_CEILING = 32
@@ -326,16 +327,18 @@ class Lines:
         last = stamp(self.read("queue_clear", {}).get("asked_at"))
         if last is not None and at <= last:
             return
-        if ask["repo"] != self.active:
-            return self.problem("queue clear for %s not taken: the factory is on %s" % (ask["repo"], self.active))
-        cleared, kept = self.lines[self.active].clear_pending(issues)
         by, now = printable(ask.get("by")), self.mod.iso(self.now())
+        refused = "expired" if self.now() - at > QUEUE_CLEAR_TTL_S else "wrong_project" if ask["repo"] != self.active else None
+        if refused:
+            return self.change("queue_clear", {"id": ask["id"], "repo": ask["repo"], "outcome": refused, "cleared": [], "kept": [], "by": by, "at": now, "asked_at": str(ask.get("at"))[:64]},
+                               "queue clear for %s not taken: %s, the factory is on %s" % (ask["repo"], refused.replace("_", " "), self.active))
+        cleared, kept = self.lines[self.active].clear_pending(issues)
         order, ordered = self.order(), self.work().get("order") or []
         skip = [n for n in cleared if n in ordered and n not in (order or {}).get("skipped", [])]
         if skip:
             self.change("work_order", dict(order, skipped=order.get("skipped", []) + skip, by=by, at=now),
                         "work order %s: skip %s, cleared from the queue" % (order["id"], ", ".join("#%d" % n for n in skip)))
-        self.change("queue_clear", {"id": ask["id"], "repo": ask["repo"], "cleared": cleared, "kept": kept, "by": by, "at": now, "asked_at": str(ask.get("at"))[:64]},
+        self.change("queue_clear", {"id": ask["id"], "repo": ask["repo"], "outcome": "cleared", "cleared": cleared, "kept": kept, "by": by, "at": now, "asked_at": str(ask.get("at"))[:64]},
                     "queue cleared in %s: %d cleared, %d kept" % (ask["repo"], len(cleared), len(kept)))
 
     def learn_order(self, ask):
@@ -439,7 +442,7 @@ class Lines:
                            "stations": {s: {"max": pool["seats"][s], "running": sum(1 for a, _ in ghosts if a in m)} for s, m in sorted(pool["members"].items())}}
         cleared = self.read("queue_clear", {})
         if cleared.get("id"):
-            out["queue_clear"] = {k: cleared.get(k) for k in ("id", "repo", "cleared", "kept", "at")}
+            out["queue_clear"] = {k: cleared.get(k) for k in ("id", "repo", "outcome", "cleared", "kept", "at")}
         if self.last:
             out["switch"] = self.last
         owners = [o for o in self.owners() if isinstance(o, str) and len(o) <= OWNER_MAX][:OWNERS_SHOWN]

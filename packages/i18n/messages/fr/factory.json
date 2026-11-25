@@ -80,7 +80,10 @@
         "confirmClearQueue": "Vider la file",
         "queueClearSent": "{count, plural, one {Retrait de # tâche} other {Retrait de # tâches}}",
         "queueClearWaiting": "En attente du répartiteur pour vider la file",
-        "queueClearReport": "Dernier vidage : {cleared} retirées, {kept} conservées"
+        "queueClearReport": "Dernier vidage : {cleared} retirées, {kept} conservées",
+        "queueClearRefusedProject": "Dernier vidage non pris en compte : l'usine est sur un autre projet",
+        "queueClearExpired": "Dernier vidage non pris en compte : il est arrivé trop tard au répartiteur. Réessayez",
+        "queueClearUnconfirmed": "Le répartiteur n'a pas confirmé le vidage. Réessayez"
     },
     "orders": {
         "trigger": "Ordre de travail",

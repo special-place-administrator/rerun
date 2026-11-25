@@ -8,6 +8,7 @@ import {
     FACTORY_ORDER_TEXT_MAX,
     FACTORY_POOL_DEFAULT,
     FACTORY_QUEUE_CLEAR_MAX,
+    FACTORY_QUEUE_CLEAR_WAIT_S,
     FACTORY_WIRE_ID_PATTERN,
     factoryControlStateSchema,
     factoryGhostCeiling,
@@ -26,6 +27,7 @@ import { createServiceRoleClient } from '@/supabase/serviceRole'
 import { selectMany, selectMaybeSingle } from '@/supabase/supabase-helpers'
 
 type ControlsInsert = Database['public']['Tables']['factory_controls']['Insert']
+type ControlsUpdate = Database['public']['Tables']['factory_controls']['Update']
 type OrderInsert = Database['public']['Tables']['factory_work_orders']['Insert']
 type OrderUpdate = Database['public']['Tables']['factory_work_orders']['Update']
 
@@ -231,10 +233,23 @@ export async function clearFactoryQueue(workspaceId: number, userId: string, inp
     const issues = Array.isArray(input?.issues) ? input.issues : []
     if (typeof input?.repo !== 'string' || !validQueueIssues(issues)) throw new AppError('factoryInputInvalid')
     await assertActiveProject(workspaceId, input.repo)
+    const row = await controlsRow(workspaceId)
+    const pending = (row?.queue_clear as { id?: unknown } | null | undefined)?.id
+    if (typeof pending === 'string' && row?.queue_clear_at && now - Date.parse(row.queue_clear_at) < FACTORY_QUEUE_CLEAR_WAIT_S * 1000
+        && getFactorySnapshot(workspaceId)?.snapshot.queue_clear?.id !== pending) throw new AppError('factoryQueueClearBusy')
     const id = randomUUID()
-    const { error } = await createServiceRoleClient().from('factory_controls')
-        .upsert<ControlsInsert>({ workspace_id: workspaceId, queue_clear: { id, repo: input.repo, issues }, queue_clear_by: userId, queue_clear_at: wireTime(now) }, { onConflict: 'workspace_id' })
+    const ask = { queue_clear: { id, repo: input.repo, issues }, queue_clear_by: userId, queue_clear_at: wireTime(now) }
+    const table = createServiceRoleClient().from('factory_controls')
+    if (!row) {
+        const { error } = await table.insert<ControlsInsert>({ workspace_id: workspaceId, ...ask })
+        if (error?.code === '23505') throw new AppError('factoryQueueClearBusy')
+        if (error) throw new AppError('generic')
+        return { id, count: issues.length }
+    }
+    const update = table.update<ControlsUpdate>(ask).eq('workspace_id', workspaceId)
+    const { data, error } = await (row.queue_clear_at ? update.eq('queue_clear_at', row.queue_clear_at) : update.is('queue_clear_at', null)).select('workspace_id')
     if (error) throw new AppError('generic')
+    if (!data?.length) throw new AppError('factoryQueueClearBusy')
     return { id, count: issues.length }
 }
 

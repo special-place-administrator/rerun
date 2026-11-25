@@ -102,7 +102,10 @@
         "confirmClearQueue": "Clear queue",
         "queueClearSent": "{count, plural, one {Clearing # job} other {Clearing # jobs}}",
         "queueClearWaiting": "Waiting for the dispatcher to clear the queue",
-        "queueClearReport": "Last clear: {cleared} cleared, {kept} kept"
+        "queueClearReport": "Last clear: {cleared} cleared, {kept} kept",
+        "queueClearRefusedProject": "Last clear not taken: the factory is on another project",
+        "queueClearExpired": "Last clear not taken: it reached the dispatcher too late. Try again",
+        "queueClearUnconfirmed": "The dispatcher did not confirm the clear. Try again"
     },
     "orders": {
         "trigger": "Work order",
