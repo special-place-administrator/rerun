@@ -10,8 +10,6 @@ import { Button } from '@/components/ui/button'
 import { useErrorText } from '@/hooks/useErrorText'
 import { thrown, type FactoryControlsState } from './use-factory-controls'
 
-// MW-QUEUE-CLEAR: the owner clears the pending jobs this queue shows. The dispatcher cancels only those
-// still unclaimed and reports cleared/kept under the request id; until that report lands the line says so.
 export function FactoryClearQueue({ snapshot, controls, issues }: { snapshot: FactorySnapshot; controls: FactoryControlsState; issues: number[] }) {
     const t = useTranslations('factory.controls')
     const errorText = useErrorText()
