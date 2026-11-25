@@ -41,6 +41,14 @@ class BuildAsks(unittest.TestCase):
         )
         self.assertNotIn("end with `BLOCKED: plan: ask <n>", b)
 
+    def test_an_ask_outside_the_files_ends_the_job_blocked_plan(self):
+        b = self.brief()
+        self.assertIn(
+            "An ask that asks for a change you cannot make inside the Files ends the job with "
+            "`BLOCKED: plan: ask <n> <why>` instead of pointing it at an unrelated line.",
+            b,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
