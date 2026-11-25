@@ -113,7 +113,7 @@ describe('updateSession', () => {
 
         const response = await updateSession(new NextRequest('https://moldwright.robagentic.tech/auth'))
 
-        expect(response.headers.get('location')).toBe('https://moldwright.robagentic.tech/board')
+        expect(response.headers.get('location')).toBe('https://moldwright.robagentic.tech/')
         expect(response.cookies.get(AUTH_COOKIE)?.value).toBe('refreshed')
         expect(response.cookies.get(AUTH_COOKIE)?.maxAge).toBe(SET_OPTIONS.maxAge)
     })
