@@ -1,5 +1,6 @@
 import json, os, sys, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dispatch import MAX_TAKES
 import holds
 import pools
 import problems
@@ -42,17 +43,24 @@ class Waiters(Base):
         self.assertNotIn("file_wait", j)
         self.assertNotIn(9, j.get("waiting") or [])
 
-    def test_a_waiter_on_a_rejected_dependency_ends_blocked_in_one_beat_with_one_comment(self):
-        self.w.issues = [issue(5, "#7")]
+    def test_a_waiter_parks_on_an_open_rejected_dependency_without_a_dead_end_comment(self):
+        self.w.issues = [issue(5, "#7"), issue(7)]
+        self.w.open_numbers = {5, 7}
+        self.w.unlabelled.add(7)
         self.d = self.new()
-        self.ended(7, "rejected")
+        blocker = self.w.issue(7)
+        self.d.store.put_job("7", "rejected", {"issue": 7, "title": blocker["title"], "body": blocker["body"],
+                                             "state": "rejected", "take": 1, "relabelled": True, "commented": True})
         self.d.work = {"wait": None, "issues": [5], "order": [5]}
         self.tick()
-        j = self.job(5)
-        self.assertEqual((j["state"], j.get("reason")),("blocked", "dependency #7 ended rejected"))
-        self.tick(2)
-        self.assertEqual(len(self.w.issue(5)["comments"]), 1)
-        self.assertEqual(self.job(5)["state"], "blocked")
+        self.assertEqual(self.job(5)["order_blockers"], [7])
+        self.assertEqual(self.d.work["issues"], [])
+        for _ in range(2):
+            self.tick()
+            j = self.job(5)
+            self.assertEqual((j["state"], j["waiting"]), ("waiting", [7]))
+        self.assertEqual(self.w.issue(5)["comments"], [])
+        self.assertEqual(self.w.sends, [])
 
     def test_a_queued_row_outside_the_window_leaves_the_room_to_the_window(self):
         self.cfg.update(types={"coder": {"coworkers": [{"id": "b1", "name": "B1"}], "max_jobs": 1}})
@@ -100,25 +108,72 @@ class Window(Pair):
         self.assertIn(16, got["issues"])
         self.assertEqual([n for n in got["issues"] if n < 16], [])
 
-    def test_a_waiter_ended_by_a_rejected_dependency_is_skipped_and_shown_as_a_problem(self):
-        self.w.issues = [issue(5, "#7"), issue(6)]
+    def rejected_dependency_order(self, takes):
+        self.w.issues = [
+            dict(issue(5, "#7"), title="Use the shared validation rule"),
+            dict(issue(6), title="Refresh unrelated settings", body=ready().replace("a/", "settings/")),
+            dict(issue(7), title="Fix the shared validation rule", body=ready().replace("a/", "validation/")),
+        ]
         self.w.open_numbers = {5, 6, 7}
+        self.w.unlabelled.add(7)
         self.order([5, 6], 1)
         self.d = self.new()
         self.d.kv.set("-", "control", json.dumps({"state": "RUNNING", "by": "test", "at": "2026-11-23T00:00:00Z"}))
         line = self.d.lines["o/r"]
-        line.store.put_job("7", "rejected", {"issue": 7, "title": "t7", "state": "rejected", "relabelled": True, "commented": True})
+        blocker = self.w.issue(7)
+        line.store.put_job("7", "rejected", {"issue": 7, "title": blocker["title"], "body": blocker["body"],
+                                            "state": "rejected", "reason": "boundary case missing from validation",
+                                            "take": takes, "takes": takes, "relabelled": True, "commented": True})
+        return line
+
+    def test_a_rejected_blocker_gets_the_only_seat_then_its_waiter_resumes_automatically(self):
+        line = self.rejected_dependency_order(MAX_TAKES - 1)
+        self.tick()
+        got = self.d.work()
+        self.assertEqual((got["order"], got["issues"], got["done"], got["wait"]), ([7, 5, 6], [7], [], None))
+        self.tick(3)
+        blocker = line.store.get_job("7")
+        self.assertEqual((blocker["state"], blocker["take"], blocker["takes"]), ("building", MAX_TAKES, MAX_TAKES))
+        waiter = line.store.get_job("5")
+        self.assertEqual((waiter["state"], waiter["waiting"], waiter["order_blockers"]), ("waiting", [7], [7]))
+        self.assertEqual(self.w.issue(5)["comments"], [])
+        self.assertIsNone(line.store.get_job("6"))
+        self.assertEqual(len(self.w.sends), 1)
+
+        self.w.open_numbers.remove(7)
+        self.w.issue(7)["state"] = "CLOSED"
+        line.store.put_job("7", "merged", dict(blocker, state="merged", pr=99, relabelled=True, commented=True))
+        self.tick(3)
+        waiter = line.store.get_job("5")
+        self.assertEqual(waiter["state"], "building")
+        self.assertNotIn("order_blockers", waiter)
+        self.assertFalse(waiter.get("waiting"))
+        moves = [(t["from_state"], t["to_state"]) for t in line.store.transitions_of("5")]
+        self.assertIn(("waiting", "queued"), moves)
+        self.assertIsNone(line.store.get_job("6"))
+        self.assertEqual(len(self.w.sends), 2)
+
+    def test_an_unchanged_blocker_past_the_take_cap_surfaces_as_a_dependency_problem(self):
+        line = self.rejected_dependency_order(MAX_TAKES)
+        self.tick()
+        self.assertEqual(self.d.work()["issues"], [7])
         self.tick(4)
-        j = line.store.get_job("5")
-        self.assertEqual((j["state"], j.get("reason")), ("blocked", "dependency #7 ended rejected"))
+        blocker = line.store.get_job("7")
+        reason = "taken %d times with this text" % MAX_TAKES
+        self.assertEqual((blocker["state"], blocker["reason"], blocker["takes"]), ("unsolvable", reason, MAX_TAKES))
+        self.assertEqual(len(self.w.issue(7)["comments"]), 1)
+        self.assertIn(reason, self.w.issue(7)["comments"][0])
+        waiter = line.store.get_job("5")
+        self.assertEqual((waiter["state"], waiter["reason"]), ("blocked", "dependency #7 ended unsolvable"))
         got = self.d.work()
         self.assertNotIn("halted", got)
         self.assertIn(5, got["done"])
-        self.assertIn(6, got["issues"])
-        self.assertIn(line.store.get_job("6")["state"], ("queued", "building"))
+        self.assertEqual(got["issues"], [6])
+        self.assertEqual(line.store.get_job("6")["state"], "building")
+        self.assertEqual(len(self.w.sends), 1)
         self.assertEqual(len(self.w.issue(5)["comments"]), 1)
-        found = problems.Watch().find(line.store.jobs(), {}, {5, 6}, "", 0, [])
-        self.assertIn("dependency #7 ended rejected", found["ended #5"])
+        found = problems.Watch().find(line.store.jobs(), {}, self.w.open_numbers, "", 0, [])
+        self.assertIn("dependency #7 ended unsolvable", found["ended #5"])
 
     def test_a_retried_blocked_dependency_still_releases_its_waiter(self):
         self.w.issues = [issue(5, "#7")]
@@ -155,12 +210,18 @@ class Window(Pair):
         self.tick(3)
         return line
 
-    def test_a_picked_job_ahead_of_a_failed_job_still_dispatches(self):
+    def test_a_promoted_blocker_dispatches_alongside_the_earlier_job_before_later_work(self):
         line = self.halted_order([5, 8, 6, 7])
-        self.assertEqual(self.d.work()["wait"], "job #6 failed: retry or skip")
-        self.assertNotEqual(line.store.get_job("5")["state"], "queued")
-        self.assertEqual(line.store.get_job("7")["state"], "queued")
-        self.assertNotIn((line.store.get_job("8") or {}).get("state"), ("building", "review_wait", "reviewing"))
+        got = self.d.work()
+        self.assertIsNone(got["wait"])
+        self.assertEqual(got["issues"][0], 6)
+        waiter = line.store.get_job("8")
+        self.assertEqual((waiter["state"], waiter["waiting"]), ("waiting", [6]))
+        self.assertEqual({n: line.store.get_job(str(n))["state"] for n in (5, 6, 7)},
+                         {5: "building", 6: "building", 7: "queued"})
+        starts = line.store.db.execute("SELECT job FROM transitions WHERE from_state='queued' AND to_state='building' ORDER BY id")
+        self.assertEqual([job for job, in starts], ["6", "5"])
+        self.assertEqual(line.store.get_job("6")["take"], 2)
 
     def test_a_failed_job_with_nothing_picked_ahead_still_holds(self):
         line = self.halted_order([6, 7])
