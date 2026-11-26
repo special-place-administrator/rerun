@@ -269,14 +269,16 @@ class Lines:
         for n in issues:
             j, kv = store.get_job(str(n)) or {}, store.get_all(str(n))
             recover = n in priority and j.get("state") in ("failed", "blocked", "returned", "rejected")
-            if n in skipped or (j.get("state") in (None, "cancelled") and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")) or (
-                    not recover and j.get("state") == "blocked" and DEPENDENCY_ENDED.match(j.get("reason") or "")):
+            returned_closed = j.get("state") == "returned" and kv.get("returned_closed_order") == order["id"]
+            if (returned_closed or n in skipped or (j.get("state") in (None, "cancelled") and kv.get("closed_unstarted"))
+                    or (order["kind"] == "all_issues" and kv.get("order_paused"))
+                    or (not recover and j.get("state") == "blocked" and DEPENDENCY_ENDED.match(j.get("reason") or ""))):
                 done.append(n)
                 continue
 
             if j.get("state") in FAILED and not recover and retried.get(str(n)) != j.get("take", 1):
                 return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n, "skipped": skipped}
-            if j.get("state") in states.END and not recover and j.get("state") not in FAILED + ("cancelled",) and not self.fresh_return(order, j, kv):
+            if j.get("state") in states.END and not recover and j.get("state") not in FAILED + ("cancelled",) and not self.fresh_return(order, j):
                 done.append(n)
                 continue
             if j.get("state") == "waiting" and n not in priority:
@@ -296,8 +298,8 @@ class Lines:
             return {"wait": None, "issues": picked, "order": issues, "done": done, "skipped": skipped}
         return {"wait": "the work order is done", "issues": [], "order": issues, "done": done, "skipped": skipped}
 
-    def fresh_return(self, order, job, kv):
-        if job["state"] != "returned" or not job.get("relabelled") or kv.get("returned_closed_order") == order["id"]:
+    def fresh_return(self, order, job):
+        if job["state"] != "returned" or not job.get("relabelled"):
             return False
         if job.get("reason") != self.lines[self.active].withdrawal_reason():
             return False
