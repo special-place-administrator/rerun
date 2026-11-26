@@ -14,6 +14,7 @@ export function useFactoryControls(reloadOn?: string): FactoryControlsState {
     const [view, setView] = useState<FactoryControlsView | null>(null)
     const [loadError, setLoadError] = useState<string | null>(null)
     const alive = useRef(true)
+    const latestRead = useRef(0)
     useEffect(() => {
         alive.current = true
         return () => { alive.current = false }
@@ -25,7 +26,11 @@ export function useFactoryControls(reloadOn?: string): FactoryControlsState {
         setLoadError(null)
         setView(res.controls)
     }, [errorText])
-    const reload = useCallback(() => readFactoryControlsAction().catch(thrown).then(apply), [apply])
-    useEffect(() => { readFactoryControlsAction().catch(thrown).then(apply) }, [apply, reloadOn])
+    const reload = useCallback(async () => {
+        const read = ++latestRead.current
+        const result = await readFactoryControlsAction().catch(thrown)
+        if (read === latestRead.current) apply(result)
+    }, [apply])
+    useEffect(() => { void reload() }, [reload, reloadOn])
     return { view, loadError, reload }
 }

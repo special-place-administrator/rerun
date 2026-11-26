@@ -249,6 +249,7 @@ export const factoryControlSchema = z.object({
     state: factoryControlStateSchema,
     by: wireText,
     at: wireText,
+    applied_request_id: z.string().datetime({ offset: true }).nullish().catch(null),
 })
 
 export const factoryProvidersSchema = z.object({
