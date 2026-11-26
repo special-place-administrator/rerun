@@ -756,6 +756,21 @@ class Dispatcher:
         elif self.run_state == "DRAINING":
             self.clear_queue()
 
+    def dependency_order(self, roots, skipped):
+        rows = self.store.db.execute("SELECT job, data FROM jobs WHERE state='waiting'")
+        edges = {int(n): deps for n, data in rows if (deps := json.loads(data).get("order_blockers"))}
+        priority, seen = [], set(skipped)
+        stack = [(n, False) for n in reversed(roots) if n in edges]
+        while stack:
+            n, emit = stack.pop()
+            if emit:
+                priority.append(n)
+            elif n not in seen:
+                seen.add(n)
+                stack.append((n, True))
+                stack.extend((d, False) for d in reversed(edges.get(n, ())))
+        return priority
+
     def order_issues(self, issues):
         listed, mine = {i["number"]: i for i in issues}, []
         for n in self.work["issues"]:
@@ -779,6 +794,8 @@ class Dispatcher:
                 continue
             if kv.get("order_paused"):
                 self.store.set(str(n), "order_paused", "")
+            if "author" in i and not authors.trusted_author(i):
+                continue
             if not kv.get("order_consent"):
                 self.store.set(str(n), "order_consent", "1")
             mine.append(i)
@@ -1040,7 +1057,8 @@ class Dispatcher:
         if any(cutshape.parse(i)["deps"] for i in issues):
             open_numbers = {o["number"] for o in json.loads(self.gh(
                 ["issue", "list", "-R", self.repo, "--state", "open", "--json", "number", "--limit", "1000"]))}
-        for i in sorted(issues, key=lambda i: i["number"]):
+        priority = {n: idx for idx, n in enumerate((self.work or {}).get("issues", ()))}
+        for i in sorted(issues, key=lambda i: (priority.get(i["number"], len(priority)), i["number"])):
             try:
                 old = self.store.get_job(str(i["number"]))
                 waiting = bool(old) and old["state"] == "waiting"
@@ -1088,12 +1106,17 @@ class Dispatcher:
                         ret = [d for d in unmet if got[d] == "returned"]
                         dead = [[d, got[d]] for d in unmet if got[d] not in ("live", "not a factory job") and not self.re_plannable(d, got[d])]
                         line = "waits on " + ", ".join(DEP_TEXT.get(got[d], "dead #%d (" + got[d] + ")") % d for d in unmet)
-                        if not old or old["state"] != "waiting" or old.get("wait_line") != line:
+                        work = self.work or {}
+                        promote = [d for d in unmet if got[d] in ("live", "not a factory job", "blocked", "failed", "returned")
+                                   and d not in work.get("skipped", ())] if i["number"] in work.get("order", ()) else []
+                        if not old or old["state"] != "waiting" or old.get("wait_line") != line or old.get("order_blockers", []) != promote:
                             data = {"issue": i["number"], "title": i["title"], "body": i.get("body") or "", "state": "waiting",
                                     "round": 1, "waiting": unmet, "worker": parsed["worker"], "paths": parsed["paths"],
                                     "test": parsed["test"], "plan_dev": parsed["dev"], "wait_line": line}
                             if ret:
                                 data["waits_on_returned"] = ret
+                            if promote:
+                                data["order_blockers"] = promote
                             if dead:
                                 data["dead"] = dead
                             if take:
@@ -1105,8 +1128,11 @@ class Dispatcher:
                                 data["rechecks"] = old["rechecks"]
                             self.save(data, line)
                             log(i["number"], line)
+                            if promote and promote != (old or {}).get("order_blockers", []):
+                                self.work = dict(work, issues=[])
+                                return
                         digest =hashlib.sha256(json.dumps(dead).encode()).hexdigest()[:16] if dead else ""
-                        ended = [d for d in unmet if got[d] in states.PROBLEM and not self.re_plannable(d, got[d])
+                        ended = [d for d in unmet if d not in promote and got[d] in states.PROBLEM and not self.re_plannable(d, got[d])
                                  and (got[d] not in ("blocked", "failed") or d in (self.work or {}).get("skipped", ()))]
                         if ended:
                             said = self.store.get_all(str(i["number"])).get("dead_deps", "") == digest
@@ -1115,8 +1141,8 @@ class Dispatcher:
                                      commented=said, relabelled=False)
                             continue
                         if self.store.get_all(str(i["number"])).get("dead_deps", "") != digest:
-                            if dead:
-                                self.gh(["issue", "comment", str(i["number"]), "-R", self.repo, "--body", dead_comment(dead)])
+                            if unresolved := [pair for pair in dead if pair[0] not in promote]:
+                                self.gh(["issue", "comment", str(i["number"]), "-R", self.repo, "--body", dead_comment(unresolved)])
                             self.store.set(str(i["number"]), "dead_deps", digest)
                         continue
                 free = rooms.get(parsed["worker"], 0) > 0 and i["number"] not in refresh_only
@@ -1143,7 +1169,7 @@ class Dispatcher:
                     free = seen.get("state") == "OPEN" and PAUSED not in {x.get("name") if isinstance(x, dict) else x for x in seen.get("labels") or []}
                 if not free:
                     if old.get("waiting") or old.get("file_wait") or old.get("wait_line"):
-                        kept = {k: v for k, v in old.items() if k not in ("file_wait", "wait_line", "dead", "waits_on_returned")}
+                        kept = {k: v for k, v in old.items() if k not in ("file_wait", "wait_line", "dead", "waits_on_returned", "order_blockers")}
                         self.save(dict(kept, waiting=[]), "wait cleared")
                         log(i["number"], "wait cleared: nothing it waited on is left")
                     continue
