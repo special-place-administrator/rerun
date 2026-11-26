@@ -17,14 +17,22 @@ export type LoaderView = {
 export function loaderView(snapshot: FactorySnapshot, now: number): LoaderView {
     const ageMs = now - Date.parse(snapshot.madeAt)
     const stateOf = new Map(snapshot.jobs.map(j => [j.issue, j.state]))
+    const isUnmet = (issue: number) => stateOf.get(issue) !== 'merged' && stateOf.get(issue) !== 'superseded'
+    const prefix = 'waits on '
     return {
         alive: { beat: snapshot.beat, lastBeatAt: snapshot.madeAt, ageMs, answering: isAnswering(snapshot.madeAt, now) },
         waiting: snapshot.jobs
             .filter(j => j.state === 'waiting')
             .map(j => {
-                const deps = j.waitingOn ?? j.dependsOn.filter(d => stateOf.get(d) !== 'merged' && stateOf.get(d) !== 'superseded')
-                const reason = j.waitingOn === undefined && deps.length === 0 && j.dependsOn.length > 0 && j.reason?.startsWith('waits on ')
-                    ? null : j.reason
+                const deps = j.waitingOn ?? j.dependsOn.filter(isUnmet)
+                let reason: string | null = j.reason
+                if (j.waitingOn === undefined && reason?.startsWith(prefix)) {
+                    const parts = reason.slice(prefix.length).split(', ').filter(part => {
+                        const issue = part.match(/#(\d+)/)
+                        return issue === null || isUnmet(Number(issue[1]))
+                    })
+                    reason = parts.length ? prefix + parts.join(', ') : null
+                }
                 return {
                     issue: j.issue,
                     title: j.title,
