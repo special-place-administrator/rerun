@@ -992,10 +992,17 @@ class Dispatcher:
         except Exception as e:
             log(j["issue"], "failures: %s" % type(e).__name__)
 
-    def file_holder(self, issue, paths):
+    def file_holder(self, issue, paths, *, resuming=False):
+        window = (self.work or {}).get("issues", ())
+        ahead = set(window[:window.index(issue)]) if issue in window else None
         for j in self.jobs():
             if j["issue"] == issue or j["state"] in END + ("waiting",):
                 continue
+            if j["state"] in states.QUEUE and not j.get("sending"):
+                if ahead is not None and j["issue"] not in ahead:
+                    continue
+                if self.work is None and resuming and j["issue"] > issue:
+                    continue
             shared = [p for p in paths if p in (j.get("paths") or [])]
             if shared:
                 return (j["issue"], shared[0])
@@ -1820,6 +1827,8 @@ class Dispatcher:
         if st in states.QUEUE and self.work is not None and j["issue"] not in self.work["issues"]:
             return
         if st == "queued" and (not self.taking or j["issue"] in self.deferred_starts):
+            return
+        if st in states.QUEUE and self.cfg.get("one_file_one_job") and self.file_holder(j["issue"], j.get("paths") or [], resuming=True):
             return
         if st == "queued" and proven_line(j.get("body")):
             if self.take(j):

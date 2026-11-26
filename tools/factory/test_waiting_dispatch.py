@@ -153,6 +153,30 @@ class Window(Pair):
         self.assertIsNone(line.store.get_job("6"))
         self.assertEqual(len(self.w.sends), 2)
 
+    def test_parked_job_yields_shared_file_to_blocker_and_reacquires_it_on_resume(self):
+        self.cfg["one_file_one_job"] = True
+        line = self.rejected_dependency_order(1)
+        path = "validation/b.py"
+        parked = self.w.issue(6)
+        parked["body"] = self.w.issue(7)["body"]
+        line.store.put_job("6", "queued", dict(issue=6, title=parked["title"], body=parked["body"], state="queued",
+                                             worker="coder", round=1, paths=[path], test="validation/test_b.py"))
+        self.assertEqual(line.file_holder(7, [path]), (6, path))
+        self.tick()
+        self.assertEqual(self.d.work()["issues"], [7])
+        self.tick()
+        self.assertEqual((self.state(7), self.state(6), len(self.w.sends)), ("building", "queued", 1))
+        self.assertEqual(line.file_holder(6, [path]), (7, path))
+        for n in (7, 5):
+            self.assertEqual(self.state(n), "building")
+            self.assertEqual(self.state(6), "queued")
+            self.w.open_numbers.remove(n)
+            self.w.issue(n)["state"] = "CLOSED"
+            line.store.put_job(str(n), "merged", dict(line.store.get_job(str(n)), state="merged", relabelled=True, commented=True))
+            self.tick(2)
+        self.assertEqual((self.state(6), len(self.w.sends)), ("building", 3))
+        self.assertEqual(line.file_holder(7, [path]), (6, path))
+
     def test_an_unchanged_blocker_past_the_take_cap_surfaces_as_a_dependency_problem(self):
         line = self.rejected_dependency_order(MAX_TAKES)
         self.tick()
