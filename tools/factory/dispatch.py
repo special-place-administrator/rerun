@@ -1727,6 +1727,10 @@ class Dispatcher:
             return True
         if row.get("state") == "blocked":
             why = row.get("why") or "-"
+            done = re.match(r"^done elsewhere:\s*(#\d+|[0-9a-f]{7,40})\b", why)
+            if done:
+                j["done_by"] = done.group(1)
+                return self.end(j, "superseded", "done elsewhere: %s" % j["done_by"])
             self.end(j, "returned", why)
         return False
 

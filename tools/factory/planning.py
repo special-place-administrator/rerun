@@ -195,7 +195,8 @@ In a throwaway checkout of dev at {head}:
 2. Check each fact the issue states against {head}: the Files still cover the change, the names in Change still exist and still mean the same, and every number the done-test asserts still holds. Run each Run line once from the repository root: it must fail now for the reason the issue gives, not because it cannot run.
 3. Everything holds: change only the PLAN READY line so it names `dev {short}`, and end `FRESH: dev {short}`.
 4. Something no longer holds and the job still makes sense: add a `**Corrections**` block with one bullet per correction, fix Files and the Run block in place, run each changed Run line once, set the PLAN READY line to `dev {short}`, and end `CORRECTED: dev {short}`.
-5. The job no longer makes sense (dev already does it, or the plan cannot hold): change nothing and end `BLOCKED: plan: <one sentence>`.
+5. Dev already does what the issue asks: change nothing and end `BLOCKED: done elsewhere: <commit sha or #pr that did it>`.
+6. The plan cannot hold on today's dev and the job still has work to do: change nothing and end `BLOCKED: plan: <one sentence>`.
 
 Before you save a new body, run `python3 -I tools/factory/issuecheck.py <file>` in the checkout and save only when it prints OK. Do not label or unlabel anything."""
 
@@ -781,7 +782,7 @@ class Station:
             self.recheck_result(job, "fresh", "the recheck gave no FRESH:, CORRECTED: or BLOCKED: line: the job builds on what it has")
             return
         kind, rest = found[-1]
-        if kind == "BLOCKED" and not rest.strip().lower().startswith("plan:"):
+        if kind == "BLOCKED" and not rest.strip().lower().startswith(("plan:", "done elsewhere:")):
             self.recheck_result(job, "fresh", "the recheck stopped (%s): the job builds on what it has" % gist(rest, 150))
             return
         self.recheck_result(job, kind.lower(), gist(rest, 200))
