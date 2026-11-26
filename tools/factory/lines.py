@@ -293,8 +293,6 @@ class Lines:
         return {"wait": "the work order is done", "issues": [], "order": issues, "done": done, "skipped": skipped}
 
     def fresh_return(self, order, job, kv):
-        # A later order may take back a withdrawn dependency job. Intake checks
-        # today's issue and dependency states; a plan return is not a withdrawal.
         if job["state"] != "returned" or not job.get("relabelled") or kv.get("returned_closed_order") == order["id"]:
             return False
         if job.get("reason") != self.lines[self.active].withdrawal_reason():

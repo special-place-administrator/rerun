@@ -706,7 +706,15 @@ class OrderRules(Pair):
                                           ended_at=D.iso(self.w.clock), relabelled=True, commented=True))
         self.w.open_numbers.remove(7)
         self.tick(2)
-        self.assertEqual(self.state(), "returned")  # The original order does not retry itself.
+        self.assertEqual(self.state(), "returned")
+        self.w.unlabelled.add(5)
+        self.w.issue(5)["state"] = "CLOSED"
+        self.w.clock += 1
+        self.order("issue", [5])
+        self.tick(3)
+        self.assertEqual(self.w.reports[-1]["work_order"]["done"], [5])
+        self.w.issue(5)["state"] = "OPEN"
+        self.w.open_numbers.add(5)
         self.w.clock += 1
         self.order("issue", [5])
         self.tick(4)

@@ -788,8 +788,9 @@ class Dispatcher:
         return mine
 
     def order_view(self, n):
-        at, seen = self.order_views.get(n, (None, None))
-        if at is not None and self.now() - at < ORDER_VIEW_S:
+        order_id = (self.work or {}).get("id")
+        cached_order, at, seen = self.order_views.get(n, (None, None, None))
+        if cached_order == order_id and at is not None and self.now() - at < ORDER_VIEW_S:
             return seen
         try:
             seen = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "number,title,labels,body,author,state"]) or "{}")
@@ -797,7 +798,7 @@ class Dispatcher:
             log(n, "work order: issue not read: %s" % e)
             return None
         self.order_views = {k: v for k, v in self.order_views.items() if k in self.work["issues"]}
-        self.order_views[n] = (self.now(), seen)
+        self.order_views[n] = (order_id, self.now(), seen)
         return seen
 
     def open_pr_for(self, n):
