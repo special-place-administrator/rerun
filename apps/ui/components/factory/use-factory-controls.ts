@@ -4,15 +4,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { readFactoryControlsAction } from '@/app/api/_actions/factory.actions'
 import type { FactoryControlsView } from '@/app/api/_services/factory-controls.service'
 import { useErrorText } from '@/hooks/useErrorText'
-import { useSession } from '@/supabase/session/SessionProvider'
+import type { SessionContextValue } from '@/supabase/session/SessionProvider'
 
 export const thrown = (err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : '' })
 
 export type FactoryControlsState = { view: FactoryControlsView | null; loadError: string | null; reload: () => Promise<void> }
 
-export function useFactoryControls(reloadOn?: string): FactoryControlsState {
+export function useFactoryControls({ workspace, user, role }: Pick<SessionContextValue, 'workspace' | 'user' | 'role'>, reloadOn?: string): FactoryControlsState {
     const errorText = useErrorText()
-    const { workspace, user, role } = useSession()
     const workspaceId = workspace?.id
     const userId = user?.id
     const scope = useMemo(() => ({ workspaceId, userId, role }), [workspaceId, userId, role])
@@ -27,20 +26,21 @@ export function useFactoryControls(reloadOn?: string): FactoryControlsState {
         const active = lifetime.current
         if (active?.scope !== scope || scope.workspaceId === undefined) return
         const read = ++active.started
-        const result: Awaited<ReturnType<typeof readFactoryControlsAction>> = await readFactoryControlsAction().catch(thrown)
-        if (lifetime.current !== active || read < active.accepted) return
+        await readFactoryControlsAction().catch(thrown).then((result: Awaited<ReturnType<typeof readFactoryControlsAction>>) => {
+            if (lifetime.current !== active || read < active.accepted) return
 
-        if (result.ok) {
-            active.accepted = read
-            setLoaded({ scope, view: result.controls, loadError: null })
-            return
-        }
-        const denied = result.code === 'notAuthenticated' || result.code === 'notAuthorized' || result.code === 'notMember' || result.code === 'factoryOwnerOnly'
-        if (denied) active.accepted = read
-        else if (read < active.failed) return
-        active.failed = Math.max(active.failed, read)
-        const loadError = errorText(result)
-        setLoaded(previous => ({ scope, view: !denied && previous?.scope === scope ? previous.view : null, loadError }))
+            if (result.ok) {
+                active.accepted = read
+                setLoaded({ scope, view: result.controls, loadError: null })
+                return
+            }
+            const denied = result.code === 'notAuthenticated' || result.code === 'notAuthorized' || result.code === 'notMember' || result.code === 'factoryOwnerOnly'
+            if (denied) active.accepted = read
+            else if (read < active.failed) return
+            active.failed = Math.max(active.failed, read)
+            const loadError = errorText(result)
+            setLoaded(previous => ({ scope, view: !denied && previous?.scope === scope ? previous.view : null, loadError }))
+        })
     }, [errorText, scope])
     useEffect(() => { void reload() }, [reload, reloadOn])
     const current = loaded?.scope === scope ? loaded : null
