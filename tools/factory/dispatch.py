@@ -602,6 +602,7 @@ class Dispatcher:
         self.runs_on, self.runs_on_at, self.failover = {}, None, {}
         self.runs_on_unknown, self.off_why = set(), {}
         self.run_state, self.off_connections, self.work, self.order_views = "RUNNING", frozenset(), None, {}
+        self.deferred_starts = set()
         self.pace = 1.0
         self.draining = False
         self.report_logged = set()
@@ -1009,15 +1010,23 @@ class Dispatcher:
             return self.work is not None and old["issue"] in self.work["issues"]
         return old["state"] in END and bool(old.get("relabelled"))
 
+    def work_rank(self, rows, key):
+        ranks = {n: pos for pos, n in enumerate((self.work or {}).get("issues", ()))}
+        return sorted(rows, key=lambda row: (ranks.get(row[key], len(ranks)), row[key]))
+
     def intake(self):
         if self.run_state in ("DRAINING", "STOPPED"):
             return
-        parked = set() if self.work is None else {j["issue"] for j in self.jobs() if j["state"] in states.QUEUE and j["issue"] not in self.work["issues"]}
-        open_jobs = [j for j in self.jobs() if j["state"] not in END + ("waiting",) and j["issue"] not in parked]
+        jobs = self.jobs()
+        parked = set() if self.work is None else {j["issue"] for j in jobs if j["state"] in states.QUEUE and j["issue"] not in self.work["issues"]}
+        queued = {j["issue"]: j.get("worker", "coder") for j in jobs if self.work is not None and j["state"] == "queued"
+                  and not j.get("sending") and j["issue"] not in parked}
+        self.deferred_starts = set(queued)
+        open_jobs = [j for j in jobs if j["state"] not in END + ("waiting",) and j["issue"] not in parked and j["issue"] not in queued]
         pool = self.cfg.get("pool")
         rooms = {t: (v["max_jobs"] if v["max_jobs"] is not None and not pool else pools.seats(self.cfg, t)) - len([j for j in open_jobs if j.get("worker", "coder") == t])
                  for t, v in pools.types(self.cfg).items()}
-        waiters = {j["issue"]: j for j in self.jobs() if j["state"] == "waiting"}
+        waiters = {j["issue"]: j for j in jobs if j["state"] == "waiting"}
         if all(r <= 0 for r in rooms.values()) and not waiters:
             return
         found = json.loads(self.gh(["issue", "list", "-R", self.repo, "--label", self.label, "--state", "open",
@@ -1061,9 +1070,14 @@ class Dispatcher:
         if any(cutshape.parse(i)["deps"] for i in issues):
             open_numbers = {o["number"] for o in json.loads(self.gh(
                 ["issue", "list", "-R", self.repo, "--state", "open", "--json", "number", "--limit", "1000"]))}
-        priority = {n: idx for idx, n in enumerate((self.work or {}).get("issues", ()))}
-        for i in sorted(issues, key=lambda i: (priority.get(i["number"], len(priority)), i["number"])):
+        for i in self.work_rank(issues, "number"):
             try:
+                worker = queued.get(i["number"])
+                if worker is not None:
+                    if rooms.get(worker, 0) > 0:
+                        rooms[worker] -= 1
+                        self.deferred_starts.discard(i["number"])
+                    continue
                 old = self.store.get_job(str(i["number"]))
                 waiting = bool(old) and old["state"] == "waiting"
                 if not waiting and all(r <= 0 for r in rooms.values()):
@@ -1812,7 +1826,7 @@ class Dispatcher:
             return
         if st in states.QUEUE and self.work is not None and j["issue"] not in self.work["issues"]:
             return
-        if st == "queued" and not self.taking:
+        if st == "queued" and (not self.taking or j["issue"] in self.deferred_starts):
             return
         if st == "queued" and proven_line(j.get("body")):
             if self.take(j):
@@ -2475,7 +2489,7 @@ class Dispatcher:
             log("-", "replans: %s" % (e if isinstance(e, Error) else type(e).__name__))
         stepped = 0
         raised = []
-        for j in self.jobs():
+        for j in self.work_rank(self.jobs(), "issue"):
             did_step = j["state"] not in END
             prev = {k: j[k] for k in ("errors", "failing_since", "last_error") if k in j}
             try:
