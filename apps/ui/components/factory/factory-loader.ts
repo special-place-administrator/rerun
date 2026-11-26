@@ -21,12 +21,17 @@ export function loaderView(snapshot: FactorySnapshot, now: number): LoaderView {
         alive: { beat: snapshot.beat, lastBeatAt: snapshot.madeAt, ageMs, answering: isAnswering(snapshot.madeAt, now) },
         waiting: snapshot.jobs
             .filter(j => j.state === 'waiting')
-            .map(j => ({
-                issue: j.issue,
-                title: j.title,
-                waitsOn: j.dependsOn.map(d => ({ issue: d, state: stateOf.get(d) ?? null })),
-                reason: j.reason,
-            })),
+            .map(j => {
+                const deps = j.waitingOn ?? j.dependsOn.filter(d => stateOf.get(d) !== 'merged' && stateOf.get(d) !== 'superseded')
+                const reason = j.waitingOn === undefined && deps.length === 0 && j.dependsOn.length > 0 && j.reason?.startsWith('waits on ')
+                    ? null : j.reason
+                return {
+                    issue: j.issue,
+                    title: j.title,
+                    waitsOn: deps.map(d => ({ issue: d, state: stateOf.get(d) ?? null })),
+                    reason,
+                }
+            }),
         queued: snapshot.jobs
             .filter(j => j.state === 'queued')
             .map((j, i) => ({ position: i + 1, issue: j.issue, title: j.title })),
