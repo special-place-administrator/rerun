@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="780" viewBox="0 0 1600 780" role="img" aria-labelledby="title desc"><title id="title">The MoldWright delivery loop</title><desc id="desc">Planning creates scoped child issues. Eligible work is queued for building, reviewed, checked by CI and independent proof, and merged against the reviewed commit. Findings return work to build or planning. Parent acceptance rechecks the original goal after child work lands.</desc>
+<rect width="1600" height="780" fill="#F4F1E9"/>
+<defs><marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M2 2 L10 6 L2 10" fill="none" stroke="#56616B" stroke-width="1.6" stroke-linecap="square"/></marker><marker id="return" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto"><path d="M2 2 L10 6 L2 10" fill="none" stroke="#A85513" stroke-width="1.6"/></marker></defs>
+<path d="M64 63 H98" stroke="#A85513" stroke-width="4"/>
+<text x="116" y="70" fill="#56616B" font-family="DejaVu Sans Mono,monospace" font-size="20" font-weight="400" letter-spacing="1.5">MOLDWRIGHT / THE DELIVERY LOOP</text>
+<text x="64" y="136" fill="#20272D" font-family="DejaVu Sans,Arial,sans-serif" font-size="48" font-weight="600" >From intent to accepted change.</text>
+<text x="64" y="179" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="25" font-weight="400" >Dependency-aware scheduling. Separate review. Evidence before merge.</text>
+<rect x="64.0" y="229" width="270" height="226" rx="5" fill="#FFFDFA" stroke="#C9CEC9" stroke-width="1.5"/>
+<path d="M65.0 230H333.0" stroke="#A85513" stroke-width="3"/>
+<g transform="translate(92.0 259)" stroke="#A85513" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"><rect x="2" y="0" width="31" height="40" rx="1"/><path d="M10 11H25 M10 19H25 M10 27H20"/></g>
+<text x="281.0" y="279" fill="#56616B" font-family="DejaVu Sans Mono,monospace" font-size="20" font-weight="400" >01</text>
+<text x="92.0" y="346" fill="#20272D" font-family="DejaVu Sans,Arial,sans-serif" font-size="31" font-weight="600" letter-spacing="1">PLAN</text>
+<text x="92.0" y="388" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Scope the work.</text>
+<text x="92.0" y="419" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Create child issues.</text>
+<path d="M340.0 339H358.0" stroke="#56616B" stroke-width="1.7" marker-end="url(#arrow)"/>
+<rect x="364.5" y="229" width="270" height="226" rx="5" fill="#FFFDFA" stroke="#C9CEC9" stroke-width="1.5"/>
+<path d="M365.5 230H633.5" stroke="#A85513" stroke-width="3"/>
+<g transform="translate(392.5 259)" stroke="#A85513" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M0 11L17 2L34 11L17 20Z M0 11V31L17 40L34 31V11 M17 20V40"/></g>
+<text x="581.5" y="279" fill="#56616B" font-family="DejaVu Sans Mono,monospace" font-size="20" font-weight="400" >02</text>
+<text x="392.5" y="346" fill="#20272D" font-family="DejaVu Sans,Arial,sans-serif" font-size="31" font-weight="600" letter-spacing="1">BUILD</text>
+<text x="392.5" y="388" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Implement the task.</text>
+<text x="392.5" y="419" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Scoped workspaces.</text>
+<path d="M640.5 339H658.5" stroke="#56616B" stroke-width="1.7" marker-end="url(#arrow)"/>
+<rect x="665.0" y="229" width="270" height="226" rx="5" fill="#FFFDFA" stroke="#C9CEC9" stroke-width="1.5"/>
+<path d="M666.0 230H934.0" stroke="#A85513" stroke-width="3"/>
+<g transform="translate(693.0 259)" stroke="#A85513" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"><circle cx="15" cy="15" r="13"/><path d="M25 25L38 38 M8 15L13 20L22 10"/></g>
+<text x="882.0" y="279" fill="#56616B" font-family="DejaVu Sans Mono,monospace" font-size="20" font-weight="400" >03</text>
+<text x="693.0" y="346" fill="#20272D" font-family="DejaVu Sans,Arial,sans-serif" font-size="31" font-weight="600" letter-spacing="1">REVIEW</text>
+<text x="693.0" y="388" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Inspect the change.</text>
+<text x="693.0" y="419" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Independent review.</text>
+<path d="M941.0 339H959.0" stroke="#56616B" stroke-width="1.7" marker-end="url(#arrow)"/>
+<rect x="965.5" y="229" width="270" height="226" rx="5" fill="#FFFDFA" stroke="#C9CEC9" stroke-width="1.5"/>
+<path d="M966.5 230H1234.5" stroke="#A85513" stroke-width="3"/>
+<g transform="translate(993.5 259)" stroke="#A85513" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M17 1L33 7V22C33 31 26 36 17 41C8 36 1 31 1 22V7Z M9 21L15 27L26 15"/></g>
+<text x="1182.5" y="279" fill="#56616B" font-family="DejaVu Sans Mono,monospace" font-size="20" font-weight="400" >04</text>
+<text x="993.5" y="346" fill="#20272D" font-family="DejaVu Sans,Arial,sans-serif" font-size="31" font-weight="600" letter-spacing="1">PROVE</text>
+<text x="993.5" y="388" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Required CI.</text>
+<text x="993.5" y="419" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Independent proof.</text>
+<path d="M1241.5 339H1259.5" stroke="#56616B" stroke-width="1.7" marker-end="url(#arrow)"/>
+<rect x="1266.0" y="229" width="270" height="226" rx="5" fill="#FFFDFA" stroke="#C9CEC9" stroke-width="1.5"/>
+<path d="M1267.0 230H1535.0" stroke="#A85513" stroke-width="3"/>
+<g transform="translate(1294.0 259)" stroke="#A85513" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"><circle cx="6" cy="6" r="4"/><circle cx="6" cy="35" r="4"/><circle cx="31" cy="6" r="4"/><path d="M6 10V31 M31 10C31 27 6 18 6 31"/></g>
+<text x="1483.0" y="279" fill="#56616B" font-family="DejaVu Sans Mono,monospace" font-size="20" font-weight="400" >05</text>
+<text x="1294.0" y="346" fill="#20272D" font-family="DejaVu Sans,Arial,sans-serif" font-size="31" font-weight="600" letter-spacing="1">MERGE</text>
+<text x="1294.0" y="388" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >Match the reviewed</text>
+<text x="1294.0" y="419" fill="#56616B" font-family="DejaVu Sans,Arial,sans-serif" font-size="21" font-weight="400" >commit before merge.</text>
+<g fill="none" stroke="#A85513" stroke-width="1.5" stroke-dasharray="6 5"><path d="M1100.5 455V515H199V467" marker-end="url(#return)"/><path d="M800 455V515"/><path d="M499.5 515V467" marker-end="url(#return)"/></g>
+<text x="64" y="563" fill="#A85513" font-family="DejaVu Sans Mono,monospace" font-size="19" font-weight="400" letter-spacing="0.7">FINDINGS RETURN WORK TO BUILD OR PLANNING</text>
+<path d="M1401 455V594" fill="none" stroke="#56616B" stroke-width="1.7" marker-end="url(#arrow)"/>
+<rect x="64" y="608" width="1472" height="112" rx="5" fill="#E9EEE6" stroke="#C9CEC9"/>
+<g transform="translate(96 643)" fill="none" stroke="#32735D" stroke-width="2.4"><circle cx="19" cy="19" r="19"/><path d="M9 19L16 26L30 11"/></g>
+<text x="155" y="653" fill="#32735D" font-family="DejaVu Sans,Arial,sans-serif" font-size="24" font-weight="600" letter-spacing="0.4">ACCEPT THE PARENT GOAL</text>
+<text x="155" y="691" fill="#20272D" font-family="DejaVu Sans,Arial,sans-serif" font-size="24" font-weight="400" >Recheck the original request after child work lands.</text>
+</svg>
