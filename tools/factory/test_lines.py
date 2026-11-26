@@ -424,11 +424,14 @@ class Controls(Pair):
         self.assertEqual(self.state(), "building")
         self.waiting_job()
         self.control("DRAINING")
-        self.tick(2)
-        self.assertEqual(self.jobs_by_state(), [(5, "building"), (6, "cancelled")])
-        self.assertEqual((len(self.w.sends), self.d.read("control", {})["state"]), (1, "DRAINING"))
+        for _ in range(2):
+            self.tick()
+            self.assertEqual(self.jobs_by_state(), [(5, "building"), (6, "cancelled")])
+            self.assertEqual((len(self.w.sends), self.d.read("control", {})["state"]), (1, "DRAINING"))
         self.w.finish("b1", PR_LINE)
-        self.tick(3)
+        self.tick()
+        self.assertEqual((self.d.read("control", {})["state"], self.w.reports[-1]["control"]["state"]), ("STOPPED", "STOPPED"))
+        self.tick(2)
         self.assertEqual((self.jobs_by_state(), len(self.w.sends), self.w.cancels), ([(5, "cancelled"), (6, "cancelled")], 1, []))
         self.assertEqual(self.w.rows("SELECT status FROM fires"), [("done",)])
         self.assertEqual(self.d.read("control", {})["state"], "STOPPED")
@@ -438,6 +441,14 @@ class Controls(Pair):
         self.control("RUNNING")
         self.tick(3)
         self.assertEqual((self.jobs_by_state(), len(self.w.sends)), ([(5, "cancelled"), (6, "cancelled")], 1))
+
+    def test_an_idle_drain_is_reported_stopped_in_the_beat_it_is_learnt(self):
+        self.d = self.new()
+        self.waiting_job()
+        self.control("DRAINING")
+        self.tick()
+        self.assertEqual((self.jobs_by_state(), self.w.sends), ([(5, "cancelled"), (6, "cancelled")], []))
+        self.assertEqual((self.d.read("control", {})["state"], self.w.reports[-1]["control"]["state"]), ("STOPPED", "STOPPED"))
 
     def test_a_hard_stop_leaves_nothing_in_flight_and_nothing_queued_without_an_error(self):
         self.d = self.new()
@@ -700,6 +711,32 @@ class OrderRules(Pair):
         self.clicks = getattr(self, "clicks", 0) + 1
         self.answer["control"] = {"state": state, "by": "rob", "at": D.iso(self.w.clock + self.clicks)}
 
+    def stop_readd_start(self, stop, stage):
+        self.ready_order("all_issues", [5])
+        self.tick(2)
+        self.control(stop)
+        self.tick(2)
+        if stop == "DRAINING":
+            self.w.finish("b1", PR_LINE)
+            self.tick()
+        self.assertEqual((self.order_jobs(), self.d.read("control", {})["state"]), ([(5, "cancelled")], "STOPPED"))
+        churn = lambda: (len(self.lines_said("#5 queued")), len(self.lines_said("#5 cancelled: the factory was stopped")))
+        before, sends = churn(), len(self.w.sends)
+        self.order("all_issues", [5])
+        self.tick(3)
+        self.assertEqual((churn(), len(self.w.sends), self.order_jobs()), (before, sends, [(5, "cancelled")]))
+        self.control("RUNNING")
+        self.tick(4)
+        wo = self.w.reports[-1]["work_order"]
+        self.assertEqual((wo["current"], wo["done"], wo["wait"]), (5, [], None))
+        self.assertEqual((len(self.w.sends), self.order_jobs(), self.d.lines["o/r"].store.get_job("5")["takes"]), (sends + 1, [(5, stage)], 1))
+
+    def test_after_a_hard_stop_a_re_added_issue_is_taken_once_on_start(self):
+        self.stop_readd_start("STOPPED", "building")
+
+    def test_after_a_normal_stop_a_re_added_issue_is_taken_once_on_start(self):
+        self.stop_readd_start("DRAINING", "reviewing")
+
     def test_a_failed_job_halts_the_sequence_until_the_owner_retries_or_skips_it(self):
         self.w.issues.append(issue(6, "Six"))
         self.w.open_numbers.add(6)
@@ -760,6 +797,39 @@ class OrderRules(Pair):
             self.w.clock += 30
             line.order_issues([])
         self.assertEqual((first, views() - first), (3, 0))
+
+    def test_clearing_the_queue_cancels_only_pending_jobs_and_they_stay_out_of_the_next_intake(self):
+        for n in (6, 7, 8):
+            self.w.issues.append(issue(n, "N%d" % n))
+            self.w.open_numbers.add(n)
+        self.ready_order("all_issues", [5, 6, 7])
+        self.tick(3)
+        line = self.d.lines["o/r"]
+        five = line.store.get_job("5")
+        for n, state, extra in ((6, "queued", {}), (7, "waiting", {}), (8, "queued", {"sending": "build"})):
+            line.store.put_job(str(n), state, dict(five, issue=n, title="N%d" % n, state=state, run=None, agent=None, **dict({"sending": None}, **extra)))
+        self.answer["queue_clear"] = {"id": "qc-1", "repo": "o/r", "issues": [5, 6, 7, 8, 9], "by": "rob", "at": D.iso(self.w.clock)}
+        sends = len(self.w.sends)
+        self.tick(4)
+        self.assertEqual(self.order_jobs(), [(5, "building"), (6, "cancelled"), (7, "cancelled"), (8, "queued")])
+        self.assertEqual({k: self.w.reports[-1]["queue_clear"][k] for k in ("cleared", "kept")}, {"cleared": [6, 7], "kept": [5, 8, 9]})
+        self.assertEqual((self.w.reports[-1]["work_order"]["skipped"], len(self.w.sends) - sends), ([6, 7], 0))
+        self.assertEqual(len(self.lines_said("queue cleared in o/r")), 1)
+        report = lambda: {k: self.w.reports[-1]["queue_clear"][k] for k in ("id", "outcome", "cleared", "kept")}
+        self.assertEqual(report(), {"id": "qc-1", "outcome": "cleared", "cleared": [6, 7], "kept": [5, 8, 9]})
+        self.w.clock += 1
+        self.answer["queue_clear"] = {"id": "qc-2", "repo": "o/x", "issues": [8], "by": "rob", "at": D.iso(self.w.clock)}
+        self.tick(2)
+        self.assertEqual(report(), {"id": "qc-2", "outcome": "wrong_project", "cleared": [], "kept": []})
+        self.w.clock += 1
+        self.answer["queue_clear"] = {"id": "qc-3", "repo": "o/r", "issues": [8], "by": "rob", "at": D.iso(self.w.clock)}
+        self.w.clock += 91
+        self.tick(2)
+        self.assertEqual(report(), {"id": "qc-3", "outcome": "expired", "cleared": [], "kept": []})
+        jobs = self.order_jobs()
+        self.answer["queue_clear"] = {"id": "qc-4", "repo": "o/r", "issues": [8], "by": "rob", "at": D.iso(self.w.clock - 100)}
+        self.tick(2)
+        self.assertEqual((report()["id"], self.order_jobs()), ("qc-3", jobs))
 
 class Seats(unittest.TestCase):
     def test_the_pool_caps_all_stations_together_and_each_station_stays_within_its_seats(self):

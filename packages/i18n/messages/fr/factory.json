@@ -73,7 +73,17 @@
         "idleShort": "{wait, select, project {Sans projet} order {Sans ordre} done {Tout est fait} other {Sans travail}}",
         "idleLong": "Sans travail · {reason}",
         "idleSentence": "En marche, rien à faire : {reason}",
-        "wait": "{wait, select, project {aucun projet choisi} order {aucun ordre de travail} done {l’ordre de travail est terminé} other {{text}}}"
+        "wait": "{wait, select, project {aucun projet choisi} order {aucun ordre de travail} done {l’ordre de travail est terminé} other {{text}}}",
+        "clearQueue": "Vider la file",
+        "confirmClearQueueTitle": "{count, plural, one {Retirer # tâche en file de {repo} ?} other {Retirer # tâches en file de {repo} ?}}",
+        "confirmClearQueueBody": "Seules les tâches en file et en attente listées ici sont annulées et ne sont pas reprises. Les tâches que la liste n'affiche pas restent en file. Les tâches en cours, les issues et l'historique restent.",
+        "confirmClearQueue": "Vider la file",
+        "queueClearSent": "{count, plural, one {Retrait de # tâche} other {Retrait de # tâches}}",
+        "queueClearWaiting": "En attente du répartiteur pour vider la file de {repo}",
+        "queueClearReport": "Dernier vidage dans {repo} : {cleared} retirées, {kept} conservées",
+        "queueClearRefusedProject": "Dernier vidage dans {repo} non pris en compte : l'usine est sur un autre projet",
+        "queueClearExpired": "Dernier vidage dans {repo} non pris en compte : il est arrivé trop tard au répartiteur. Réessayez",
+        "queueClearUnconfirmed": "Le répartiteur n'a pas confirmé le vidage dans {repo}. Réessayez"
     },
     "orders": {
         "trigger": "Ordre de travail",
@@ -119,6 +129,24 @@
         "offBadge": "Coupé pour l'usine",
         "note": "Coupe une connexion et l'usine ne l'utilise jamais. Une tâche déjà en cours dessus se termine.",
         "noteReadOnly": "Seul le propriétaire du workspace peut activer ou couper des connexions pour l'usine"
+    },
+    "feed": {
+        "title": "Activité",
+        "scope": "Historique récent de la fabrique. Les demandes de démarrage et d’arrêt concernent l’espace de travail. Les tickets concernent le projet sélectionné.",
+        "unavailable": "L’historique du répartiteur est indisponible.",
+        "stale": "Le rapport du répartiteur est périmé.",
+        "empty": "Aucune activité dans l’historique disponible.",
+        "requested": "{detail, select, RUNNING {Démarrage demandé} PAUSED {Pause demandée} DRAINING {Arrêt demandé} STOPPED {Arrêt immédiat demandé} SKIP {Saut demandé} other {Commande demandée}}",
+        "applied": "Appliqué par le répartiteur : {state}",
+        "added": "Ticket ajouté",
+        "cancelled": "Ordre de travail annulé",
+        "accepted": "Le répartiteur a accepté l’ordre",
+        "current": "Ticket en cours dans l’ordre",
+        "done": "L’ordre indique que le ticket est terminé",
+        "skipped": "Le répartiteur indique que le ticket a été passé",
+        "held": "{detail, select, stopped {En attente : fabrique arrêtée} paused {En attente : fabrique en pause} draining {En attente : fabrique en cours d’arrêt} noWork {En attente : aucun travail disponible} failedJob {En attente : échec du travail. Relancez-le ou passez-le.} other {Le répartiteur signale une mise en attente}}",
+        "waiting": "{detail, select, issuePaused {Admission en attente : le ticket a le libellé factory-paused} issueShape {Admission en attente : le ticket ne respecte pas le format requis} other {Admission en attente}}",
+        "job": "Travail : {state}"
     },
     "floor": {
         "asOf": "à {time}",

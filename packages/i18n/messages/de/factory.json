@@ -73,7 +73,17 @@
         "idleShort": "{wait, select, project {Kein Projekt} order {Kein Auftrag} done {Alles erledigt} other {Keine Arbeit}}",
         "idleLong": "Keine Arbeit · {reason}",
         "idleSentence": "Läuft, nichts zu tun: {reason}",
-        "wait": "{wait, select, project {kein Projekt gewählt} order {kein Arbeitsauftrag} done {der Arbeitsauftrag ist erledigt} other {{text}}}"
+        "wait": "{wait, select, project {kein Projekt gewählt} order {kein Arbeitsauftrag} done {der Arbeitsauftrag ist erledigt} other {{text}}}",
+        "clearQueue": "Warteschlange leeren",
+        "confirmClearQueueTitle": "{count, plural, one {# wartenden Job in {repo} entfernen?} other {# wartende Jobs in {repo} entfernen?}}",
+        "confirmClearQueueBody": "Nur die hier aufgeführten eingereihten und wartenden Jobs werden abgebrochen und nicht erneut aufgenommen. Jobs, die die Liste nicht zeigt, bleiben eingereiht. Laufende Jobs, Issues und Verlauf bleiben.",
+        "confirmClearQueue": "Warteschlange leeren",
+        "queueClearSent": "{count, plural, one {# Job wird entfernt} other {# Jobs werden entfernt}}",
+        "queueClearWaiting": "Warte, bis der Dispatcher die Warteschlange von {repo} leert",
+        "queueClearReport": "Zuletzt geleert in {repo}: {cleared} entfernt, {kept} behalten",
+        "queueClearRefusedProject": "Letztes Leeren in {repo} nicht übernommen: Die Fabrik arbeitet an einem anderen Projekt",
+        "queueClearExpired": "Letztes Leeren in {repo} nicht übernommen: Es kam zu spät beim Dispatcher an. Versuche es erneut",
+        "queueClearUnconfirmed": "Der Dispatcher hat das Leeren in {repo} nicht bestätigt. Versuche es erneut"
     },
     "orders": {
         "trigger": "Arbeitsauftrag",
@@ -119,6 +129,24 @@
         "offBadge": "Aus für die Fabrik",
         "note": "Schalte eine Verbindung aus, und die Fabrik nutzt sie nie. Ein laufender Job darauf wird beendet.",
         "noteReadOnly": "Nur der Inhaber des Workspace kann Verbindungen für die Fabrik ein- oder ausschalten"
+    },
+    "feed": {
+        "title": "Aktivität",
+        "scope": "Letzte Factory-Aktivität. Start- und Stoppanfragen gelten für den Arbeitsbereich. Vorgänge gelten für das ausgewählte Projekt.",
+        "unavailable": "Der Dispatcher-Verlauf ist nicht verfügbar.",
+        "stale": "Der Dispatcher-Bericht ist veraltet.",
+        "empty": "Keine Aktivität im verfügbaren Verlauf.",
+        "requested": "{detail, select, RUNNING {Start angefordert} PAUSED {Pause angefordert} DRAINING {Stopp angefordert} STOPPED {Sofortstopp angefordert} SKIP {Überspringen angefordert} other {Steuerung angefordert}}",
+        "applied": "Vom Dispatcher angewendet: {state}",
+        "added": "Vorgang hinzugefügt",
+        "cancelled": "Arbeitsauftrag abgebrochen",
+        "accepted": "Dispatcher hat den Arbeitsauftrag angenommen",
+        "current": "Aktueller Vorgang im Arbeitsauftrag",
+        "done": "Vorgang laut Arbeitsauftrag erledigt",
+        "skipped": "Dispatcher meldet Vorgang als übersprungen",
+        "held": "{detail, select, stopped {Angehalten: Factory gestoppt} paused {Angehalten: Factory pausiert} draining {Angehalten: Factory stoppt} noWork {Angehalten: keine Arbeit verfügbar} failedJob {Angehalten: Auftrag fehlgeschlagen. Erneut versuchen oder überspringen.} other {Dispatcher meldet eine Unterbrechung}}",
+        "waiting": "{detail, select, issuePaused {Aufnahme wartet: Vorgang hat das Label factory-paused} issueShape {Aufnahme wartet: Vorgang entspricht nicht dem erforderlichen Format} other {Aufnahme wartet}}",
+        "job": "Auftrag: {state}"
     },
     "floor": {
         "asOf": "Stand {time}",

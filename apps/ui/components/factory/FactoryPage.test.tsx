@@ -2,9 +2,20 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FactoryControlsView, WorkOrderInput } from '@/app/api/_services/factory-controls.service'
 
 const mocks = vi.hoisted(() => ({
     answer: null as unknown,
+    controls: null as FactoryControlsView | null,
+    createOrder: vi.fn(async (input: WorkOrderInput) => {
+        const order = { ...input, id: 'test-order', status: 'active' as const, action: null, created_at: new Date(Date.now() - 1000).toISOString(), cancelled_at: null }
+        mocks.controls = { ...mocks.controls!, orders: [order] }
+        return { ok: true as const, order }
+    }),
+    setState: vi.fn(async (state: FactoryControlsView['state']) => {
+        mocks.controls = { ...mocks.controls!, state, stateAt: new Date().toISOString() }
+        return { ok: true as const }
+    }),
     world: { current: null as null | Record<string, unknown> },
     board: {
         agents: [] as { id: string; name: string; handle?: string }[],
@@ -17,7 +28,19 @@ const mocks = vi.hoisted(() => ({
     theme: 'dark' as string | undefined,
 }))
 
-vi.mock('@/app/api/_actions/factory.actions', () => ({ readFactorySnapshotAction: () => Promise.resolve(mocks.answer), listFactoryProjectsAction: () => Promise.resolve({ ok: true, projects: [], isOwner: false }), readFactoryControlsAction: () => Promise.resolve({ ok: true, controls: { isOwner: false, activeRepo: null, state: null, providersOff: [], throttle: null, orders: [] } }), setFactoryPoolAction: vi.fn(), setFactorySeatsAction: vi.fn() }))
+const memberControls: FactoryControlsView = {
+    isOwner: false, activeRepo: null, state: null, stateAt: null, providersOff: [], throttle: null, projectLimits: null, orders: [],
+}
+
+vi.mock('@/app/api/_actions/factory.actions', () => ({
+    readFactorySnapshotAction: () => Promise.resolve(mocks.answer),
+    listFactoryProjectsAction: () => Promise.resolve({ ok: true, projects: [], isOwner: false }),
+    readFactoryControlsAction: () => Promise.resolve({ ok: true, controls: structuredClone(mocks.controls ?? memberControls) }),
+    createFactoryWorkOrderAction: mocks.createOrder,
+    setFactoryStateAction: mocks.setState,
+    setFactoryPoolAction: vi.fn(),
+    setFactorySeatsAction: vi.fn(),
+}))
 vi.mock('@/components/factory/FactoryWorld', () => ({
     FactoryWorld: (props: Record<string, unknown>) => {
         mocks.world.current = props
@@ -65,6 +88,9 @@ beforeEach(() => {
     root = createRoot(host)
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
     mocks.answer = null
+    mocks.controls = null
+    mocks.createOrder.mockClear()
+    mocks.setState.mockClear()
     mocks.world.current = null
     mocks.workspace = { id: 7 }
     mocks.theme = 'dark'
@@ -78,6 +104,70 @@ afterEach(() => {
 })
 
 describe('factory page', () => {
+    it('shows issue intake, the Start request and dispatcher hold after a reload', async () => {
+        let reportAt = Date.now() - 2000
+        const appliedAt = iso(reportAt - 1000)
+        const base = snapshotWith([])
+        mocks.answer = {
+            ...base,
+            snapshot: {
+                ...base.snapshot, madeAt: iso(reportAt),
+                control: { state: 'STOPPED', at: appliedAt, by: 'private actor' },
+                holds: [{ kind: 'stopped', until: iso(reportAt + 60_000) }],
+            },
+        }
+        mocks.controls = { isOwner: true, activeRepo: 'o/r', state: null, stateAt: null, providersOff: [], throttle: null, projectLimits: null, orders: [] }
+        await mount()
+
+        click(host.querySelector('[data-order-trigger="ask"]')!)
+        click(document.querySelector('[data-order-kind="issue"]')!)
+        const input = document.querySelector<HTMLInputElement>('#factory-order-issue')!
+        act(() => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '42')
+            input.dispatchEvent(new Event('input', { bubbles: true }))
+        })
+        const submit = input.closest('form')!.querySelector<HTMLButtonElement>('[type="submit"]')!
+        expect(submit.disabled).toBe(false)
+        await act(async () => { submit.click() })
+        expect(mocks.createOrder).toHaveBeenCalledWith({ repo: 'o/r', kind: 'issue', issues: [42], text: '' })
+        act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+
+        const start = host.querySelector<HTMLButtonElement>('[data-state-button="RUNNING"]')!
+        expect(start.getAttribute('aria-disabled')).toBeNull()
+        await act(async () => { start.click() })
+        expect(mocks.setState).toHaveBeenCalledWith('RUNNING')
+        const requestAt = mocks.controls.stateAt!
+        click(host.querySelector('[data-activity]')!)
+        const feed = () => document.querySelector<HTMLElement>('section[aria-label="Activity"]')!
+        expect(feed().textContent).toContain('Issue added#42')
+        expect(feed().textContent).toContain('Start requested')
+        expect(feed().textContent).toContain('Dispatcher applied: Stopped')
+        expect(feed().textContent).toContain('Held: factory stopped')
+        expect(feed().textContent).not.toContain('private actor')
+        expect(feed().querySelector(`time[datetime="${requestAt}"]`)).not.toBeNull()
+        expect(feed().querySelector(`time[datetime="${appliedAt}"]`)).not.toBeNull()
+        expect(feed().textContent).not.toContain('Dispatcher applied: Running')
+
+        reportAt = Date.parse(requestAt) + 1000
+        const completed = (mocks.answer as typeof base).snapshot
+        mocks.answer = {
+            ...base,
+            snapshot: {
+                ...completed, madeAt: iso(reportAt),
+                jobs: [job(42, { state: 'queued', enteredAt: iso(reportAt) })],
+                work_order: { ...mocks.controls.orders[0], at: iso(reportAt), current: 42, done: [], skipped: [], halted: null, wait: null },
+            },
+        }
+        await remount()
+        click(host.querySelector('[data-activity]')!)
+        expect(feed().textContent).toContain('Issue added#42')
+        expect(feed().textContent).toContain('Start requested')
+        expect(feed().textContent).toContain('Dispatcher accepted the work order')
+        expect(feed().textContent).toContain('Held: factory stopped')
+        click(feed().querySelector('button')!)
+        expect(world().selectedIssue).toBe(42)
+    })
+
     it('mounts the coworker panel', async () => {
         await mount()
         expect(host.querySelector('[data-agent-panel]')).not.toBeNull()

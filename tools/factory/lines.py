@@ -38,6 +38,8 @@ ORDER_KINDS = ("feature", "bug", "issue", "all_issues")
 ORDER_ISSUES_MAX = 200
 ORDER_TEXT_MAX = 4000
 ORDER_ACTIONS = ("retry", "skip")
+QUEUE_CLEAR_MAX = 500
+QUEUE_CLEAR_TTL_S = 90
 FAILED = ("blocked", "failed")
 DEPENDENCY_ENDED = re.compile(r"^dependency #[0-9]+ ended [a-z_]+$")
 GHOSTS_CEILING = 32
@@ -263,13 +265,13 @@ class Lines:
         most = max(1, min(self.throttle()["max_ghosts"], ceiling()))
         for n in issues:
             j, kv = store.get_job(str(n)) or {}, store.get_all(str(n))
-            if n in skipped or (not j and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")) or (
+            if n in skipped or (j.get("state") in (None, "cancelled") and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")) or (
                     j.get("state") == "blocked" and DEPENDENCY_ENDED.match(j.get("reason") or "")):
                 done.append(n)
                 continue
             if j.get("state") in FAILED and retried.get(str(n)) != j.get("take", 1):
                 return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n, "skipped": skipped}
-            if j.get("state") in states.END and j.get("state") not in FAILED:
+            if j.get("state") in states.END and j.get("state") not in FAILED + ("cancelled",):
                 done.append(n)
                 continue
             if j.get("state") == "waiting":
@@ -308,6 +310,36 @@ class Lines:
         else:
             order = dict(order, skipped=order.get("skipped", []) + [n])
         self.change("work_order", dict(order, by=printable(ask.get("by")), at=self.mod.iso(self.now())), "work order %s: %s #%d" % (order["id"], action, n))
+
+    def learn_clear(self, ask):
+        if ask is None:
+            return
+        fingerprint = json.dumps(ask, sort_keys=True, default=str)[:8000]
+        if self.read("queue_clear_asked", {}).get("raw") == fingerprint:
+            return
+        self.kv.set("-", "queue_clear_asked", json.dumps({"raw": fingerprint}))
+        ask = ask if isinstance(ask, dict) else {}
+        issues, at = ask.get("issues"), stamp(str(ask.get("at"))[:64])
+        if (not isinstance(ask.get("id"), str) or not CONNECTION_ID.match(ask["id"]) or not isinstance(ask.get("repo"), str) or not REPO.match(ask["repo"])
+                or not isinstance(issues, list) or not 0 < len(issues) <= QUEUE_CLEAR_MAX or len(set(issues)) != len(issues)
+                or not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in issues) or at is None):
+            return self.problem("queue clear not understood: nothing is cleared")
+        last = stamp(self.read("queue_clear", {}).get("asked_at"))
+        if last is not None and at <= last:
+            return
+        by, now = printable(ask.get("by")), self.mod.iso(self.now())
+        refused = "expired" if self.now() - at > QUEUE_CLEAR_TTL_S else "wrong_project" if ask["repo"] != self.active else None
+        if refused:
+            return self.change("queue_clear", {"id": ask["id"], "repo": ask["repo"], "outcome": refused, "cleared": [], "kept": [], "by": by, "at": now, "asked_at": str(ask.get("at"))[:64]},
+                               "queue clear for %s not taken: %s, the factory is on %s" % (ask["repo"], refused.replace("_", " "), self.active))
+        cleared, kept = self.lines[self.active].clear_pending(issues)
+        order, ordered = self.order(), self.work().get("order") or []
+        skip = [n for n in cleared if n in ordered and n not in (order or {}).get("skipped", [])]
+        if skip:
+            self.change("work_order", dict(order, skipped=order.get("skipped", []) + skip, by=by, at=now),
+                        "work order %s: skip %s, cleared from the queue" % (order["id"], ", ".join("#%d" % n for n in skip)))
+        self.change("queue_clear", {"id": ask["id"], "repo": ask["repo"], "outcome": "cleared", "cleared": cleared, "kept": kept, "by": by, "at": now, "asked_at": str(ask.get("at"))[:64]},
+                    "queue cleared in %s: %d cleared, %d kept" % (ask["repo"], len(cleared), len(kept)))
 
     def learn_order(self, ask):
         if ask is None:
@@ -408,6 +440,9 @@ class Lines:
         pool, ghosts, wanted = self.lines[self.active].cfg.get("pool") or self.pool(self.lines[self.active]), self.ghosts(), self.throttle()
         out["throttle"] = {"max_ghosts": pool["max"], "ghosts_running": len(ghosts), "max_ghosts_ceiling": ceiling(), "by": wanted["by"], "at": wanted["at"],
                            "stations": {s: {"max": pool["seats"][s], "running": sum(1 for a, _ in ghosts if a in m)} for s, m in sorted(pool["members"].items())}}
+        cleared = self.read("queue_clear", {})
+        if cleared.get("id"):
+            out["queue_clear"] = {k: cleared.get(k) for k in ("id", "repo", "outcome", "cleared", "kept", "at")}
         if self.last:
             out["switch"] = self.last
         owners = [o for o in self.owners() if isinstance(o, str) and len(o) <= OWNER_MAX][:OWNERS_SHOWN]
@@ -753,18 +788,27 @@ class Lines:
             elif repo != self.home:
                 self.lines.pop(repo).close()
         self.kv.set("-", "finishing", json.dumps([r for r, _ in self.finishing()]))
+        before = self.control()
         self.learn(self.lines[self.active].answer)
+        self.apply_controls()
+        if self.control() == "DRAINING":
+            for d in self.lines.values():
+                d.clear_queue()
         self.drained()
         self.apply_controls()
         if self.control() == "STOPPED":
             for d in self.lines.values():
                 d.stop_running()
+        if self.control() != before and self.lines[self.active].reporting:
+            self.lines[self.active].report_line()
+            self.learn(self.lines[self.active].answer)
 
     def learn(self, answer):
         if isinstance(answer, dict):
             self.learn_providers(answer.get("providers"))
             self.learn_order(answer.get("work_order"))
             self.learn_action(answer.get("work_order_action"))
+            self.learn_clear(answer.get("queue_clear"))
             self.learn_throttle(answer.get("throttle"))
             self.learn_control(answer.get("control"))
             self.check(answer.get("check"))

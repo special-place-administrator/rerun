@@ -7,9 +7,9 @@ import type { FactoryDepartment, FactorySnapshot } from '@moldwright/contracts'
 import { formatDate } from '@moldwright/i18n/format'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { TooltipLabeled } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { BAR_TIERS } from './factory-bar-tiers'
+import { FactoryActivity } from './FactoryActivity'
 import { FactoryBucket } from './FactoryBucket'
 import { FactoryInspector } from './FactoryInspector'
 import { FactoryLedger } from './FactoryLedger'
@@ -76,6 +76,7 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
 }) {
     const t = useTranslations('factory.floor')
     const locale = useLocale()
+    const tActivity = useTranslations('factory.feed')
     const [now, setNow] = useState(() => Date.now())
     useEffect(() => {
         const id = setInterval(() => setNow(Date.now()), 1000)
@@ -119,13 +120,38 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
         setFilter(cur => (sameFilter(cur, f) ? null : f))
     }
 
+    const activity = (compactChips?: ReactNode) => (
+        <Popover open={activityOpen} onOpenChange={setActivityOpen}>
+            <PopoverTrigger asChild>
+                <button ref={activityRef} type="button" data-activity aria-label={tActivity('title')} title={tActivity('title')}
+                    className={cn(CHIP, 'justify-center border-border/60 text-muted-foreground', BAR_TIERS.t3.square)}>
+                    <span aria-hidden className="relative">
+                        <Activity className="size-4" />
+                        {counts.problems > 0 && <span className="absolute -right-1 -top-1 size-2 rounded-full bg-destructive" />}
+                    </span>
+                    <span aria-hidden className={BAR_TIERS.t2.hide}>{tActivity('title')}</span>
+                </button>
+            </PopoverTrigger>
+            <PopoverContent container={root} side="bottom" align="end" sideOffset={8}
+                className="w-[min(24rem,calc(100vw-1.5rem))] gap-3 p-3">
+                {compactChips && <div className={cn('hidden flex-wrap gap-1', BAR_TIERS.t3.show)}>{compactChips}</div>}
+                <FactoryActivity controls={controls} snapshot={snapshot} now={now} onSelect={issue => {
+                    setActivityOpen(false)
+                    onBucket?.(null)
+                    onSelect(issue)
+                }} />
+            </PopoverContent>
+        </Popover>
+    )
+
     const actionZone = action && <div data-zone="action" className={cn(ZONE, DIVIDED, 'ml-auto', BAR_TIERS.t3.undivided)}>{action}</div>
     if (!snapshot) {
         return (
-            <div data-topbar className={ROW}>
+            <div ref={setRoot} data-topbar className={ROW}>
                 {context && <div data-zone="context" className={ZONE}>{context}</div>}
                 <div data-zone="status" className={cn(ZONE, 'min-w-0 shrink', context && DIVIDED)}>
                     <span className="truncate text-xs text-muted-foreground">{SAMPLE_TEXT}</span>
+                    {activity()}
                 </div>
                 {actionZone}
             </div>
@@ -142,7 +168,6 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
     const noteOf = (key: MainChip) => (key === 'waiting' && inOrder !== null ? t('waitingOutside', { count: counts.waiting - inOrder }) : undefined)
     const folded = MAIN_CHIPS.filter(c => FOLDING_CHIPS.includes(c.key))
     const problemsDot = counts.problems > 0 ? { color: 'var(--destructive)' } : {}
-    const activityText = t('activity', { running, pool, problems: counts.problems })
     const repo = controls.view?.activeRepo ?? null
     const orderActive = repo !== null && (controls.view?.orders ?? []).some(o => o.repo === repo && o.status === 'active')
     const moreControls = () => root?.querySelector<HTMLElement>('[data-more-controls]')
@@ -200,25 +225,10 @@ export function FactoryTopBar({ snapshot, controls, selected, onSelect, names, o
                         ))}
                     </PopoverContent>
                 </Popover>
-                <Popover open={activityOpen} onOpenChange={setActivityOpen}>
-                    <TooltipLabeled label={activityText}>
-                        <PopoverTrigger asChild>
-                            <button ref={activityRef} type="button" data-activity aria-label={t('activityName', { problems: counts.problems })}
-                                className={cn(CHIP, 'hidden justify-center border-border/60 text-muted-foreground', BAR_TIERS.t3.show, BAR_TIERS.t3.square)}>
-                                <span aria-hidden className="relative">
-                                    <Activity className="size-4" />
-                                    {counts.problems > 0 && <span className="absolute -right-1 -top-1 size-2 rounded-full" style={{ background: 'var(--destructive)' }} />}
-                                </span>
-                            </button>
-                        </PopoverTrigger>
-                    </TooltipLabeled>
-                    <PopoverContent container={root} side="bottom" align="start" sideOffset={8} className="w-auto gap-1 p-2">
-                        {MAIN_CHIPS.map(c => (
-                            <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} note={noteOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)}
-                                onPress={f => { setActivityOpen(false); press(f, activityRef.current) }} {...(c.key === 'problems' ? problemsDot : {})} />
-                        ))}
-                    </PopoverContent>
-                </Popover>
+                {activity(MAIN_CHIPS.map(c => (
+                    <Chip key={c.key} name={c.key} label={c.label} count={countOf(c.key)} note={noteOf(c.key)} filter={c.key} active={sameFilter(filter, c.key)}
+                        onPress={f => { setActivityOpen(false); press(f, activityRef.current) }} {...(c.key === 'problems' ? problemsDot : {})} />
+                )))}
             </div>
             {actionZone}
             <Popover open={open} onOpenChange={next => { if (!next) close() }}>
