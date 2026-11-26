@@ -721,6 +721,35 @@ class OrderRules(Pair):
         self.assertEqual((self.state(), store.get_job("5").get("take", 1), len(self.w.sends)), ("building", 2, 1))
         self.assertTrue(any(t["from_state"] == "returned" and t["to_state"] == "queued" for t in store.transitions_of("5")))
 
+    def test_same_order_does_not_retake_a_reopened_returned_blocker(self):
+        self.w.issue(5)["body"] = ready(deps="#9")
+        self.w.issues.append(issue(9, deps="#10"))
+        self.w.open_numbers.add(9)
+        self.w.unlabelled.add(9)
+        self.ready_order("issue", [5])
+        self.tick(2)
+        line = self.d.lines["o/r"]
+        store = line.store
+        self.assertEqual(store.get_job("5")["order_blockers"], [9])
+        store.put_job("9", "returned", dict(issue=9, title="Dependency", body=self.w.issue(9)["body"],
+                                            state="returned", take=1, round=1, worker="coder", relabelled=True,
+                                            commented=True, reason=line.withdrawal_reason(), ended_at=D.iso(self.w.clock)))
+        self.w.issue(9)["state"] = "CLOSED"
+        self.w.open_numbers.remove(9)
+        self.d.apply_controls()
+        self.assertEqual(line.work["issues"], [9])
+        self.assertEqual(line.order_issues([]), [])
+        order_id = self.d.order()["id"]
+        self.assertEqual(store.get_all("9")["returned_closed_order"], order_id)
+
+        self.w.issue(9)["state"] = "OPEN"
+        self.w.open_numbers.add(9)
+        self.w.clock += D.ORDER_VIEW_S
+        self.tick(3)
+        self.assertEqual(self.d.order()["id"], order_id)
+        self.assertEqual((self.state(9), store.get_job("9").get("take", 1), len(self.w.sends)), ("returned", 1, 0))
+        self.assertEqual(self.state(5), "waiting")
+
     def test_both_stops_cancel_the_work_order(self):
         self.ready_order("all_issues", [5])
         self.tick(2)
@@ -762,6 +791,30 @@ class OrderRules(Pair):
 
     def test_after_a_normal_stop_a_re_added_issue_is_taken_once_on_start(self):
         self.stop_readd_start("DRAINING", "reviewing")
+
+    def test_order_parks_waiter_runs_dead_dependencies_first_and_resumes(self):
+        self.w.issue(5)["body"] = ready(deps="#9")
+        self.w.issues.extend([issue(4), issue(9, deps="#10"), issue(10)])
+        self.w.open_numbers.update([4, 5, 9, 10])
+        self.w.unlabelled.update([9, 10])
+        self.ready_order("all_issues", [5, 4])
+        line = self.d.lines["o/r"]
+        for n, state, why in ((9, "blocked", "dependency #10 ended rejected"), (10, "rejected", "review failed")):
+            line.store.put_job(str(n), state, dict(issue=n, title="Dependency", body=self.w.issue(n)["body"],
+                                                  state=state, round=1, worker="coder", reason=why, relabelled=True))
+        for n in (10, 9):
+            self.tick(5)
+            self.assertEqual((self.state(5), self.state(n), self.d.work()["issues"]), ("waiting", "building", [n]))
+            self.assertIsNone(line.store.get_job("4"))
+            self.assertEqual(line.store.get_job(str(n))["take"], 2)
+            self.w.open_numbers.remove(n)
+            self.w.issue(n)["state"] = "CLOSED"
+            blocker = line.store.get_job(str(n))
+            line.store.put_job(str(n), "merged", dict(blocker, state="merged", relabelled=True, commented=True))
+        self.tick(3)
+        self.assertEqual(self.state(5), "building")
+        self.assertIsNone(line.store.get_job("4"))
+        self.assertTrue(any(t["from_state"] == "waiting" and t["to_state"] == "queued" for t in line.store.transitions_of("5")))
 
     def test_a_failed_job_halts_the_sequence_until_the_owner_retries_or_skips_it(self):
         self.w.issues.append(issue(6, "Six"))

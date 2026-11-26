@@ -602,6 +602,7 @@ class Dispatcher:
         self.runs_on, self.runs_on_at, self.failover = {}, None, {}
         self.runs_on_unknown, self.off_why = set(), {}
         self.run_state, self.off_connections, self.work, self.order_views = "RUNNING", frozenset(), None, {}
+        self.deferred_starts = set()
         self.pace = 1.0
         self.draining = False
         self.report_logged = set()
@@ -756,6 +757,21 @@ class Dispatcher:
         elif self.run_state == "DRAINING":
             self.clear_queue()
 
+    def dependency_order(self, roots, skipped):
+        rows = self.store.db.execute("SELECT job, data FROM jobs WHERE state='waiting'")
+        edges = {int(n): deps for n, data in rows if (deps := json.loads(data).get("order_blockers"))}
+        priority, seen = [], set(skipped)
+        stack = [(n, False) for n in reversed(roots) if n in edges]
+        while stack:
+            n, emit = stack.pop()
+            if emit:
+                priority.append(n)
+            elif n not in seen:
+                seen.add(n)
+                stack.append((n, True))
+                stack.extend((d, False) for d in reversed(edges.get(n, ())))
+        return priority
+
     def order_issues(self, issues):
         listed, mine = {i["number"]: i for i in issues}, []
         for n in self.work["issues"]:
@@ -782,6 +798,8 @@ class Dispatcher:
                 continue
             if kv.get("order_paused"):
                 self.store.set(str(n), "order_paused", "")
+            if "author" in i and not authors.trusted_author(i):
+                continue
             if not kv.get("order_consent"):
                 self.store.set(str(n), "order_consent", "1")
             mine.append(i)
@@ -978,10 +996,21 @@ class Dispatcher:
         except Exception as e:
             log(j["issue"], "failures: %s" % type(e).__name__)
 
-    def file_holder(self, issue, paths):
+    def file_holder(self, issue, paths, *, stage=None):
+        if not paths:
+            return None
+        window = {n: i for i, n in enumerate((self.work or {}).get("issues", ()))}
+        rank = (stage in (None, "queued"), window.get(issue, issue))
         for j in self.jobs():
             if j["issue"] == issue or j["state"] in END + ("waiting",):
                 continue
+            if j["state"] in states.QUEUE and not j.get("sending"):
+                n = j["issue"]
+                if issue in window and (n not in window or (j["state"] == "queued" and n in self.deferred_starts)):
+                    continue
+                if issue in window or (self.work is None and stage is not None):
+                    if (j["state"] == "queued", window.get(n, n)) > rank:
+                        continue
             shared = [p for p in paths if p in (j.get("paths") or [])]
             if shared:
                 return (j["issue"], shared[0])
@@ -992,15 +1021,23 @@ class Dispatcher:
             return self.work is not None and old["issue"] in self.work["issues"]
         return old["state"] in END and bool(old.get("relabelled"))
 
+    def work_rank(self, rows, key):
+        ranks = {n: pos for pos, n in enumerate((self.work or {}).get("issues", ()))}
+        return sorted(rows, key=lambda row: (ranks.get(row[key], len(ranks)), row[key]))
+
     def intake(self):
         if self.run_state in ("DRAINING", "STOPPED"):
             return
-        parked = set() if self.work is None else {j["issue"] for j in self.jobs() if j["state"] in states.QUEUE and j["issue"] not in self.work["issues"]}
-        open_jobs = [j for j in self.jobs() if j["state"] not in END + ("waiting",) and j["issue"] not in parked]
+        jobs = self.jobs()
+        parked = set() if self.work is None else {j["issue"] for j in jobs if j["state"] in states.QUEUE and j["issue"] not in self.work["issues"]}
+        queued = {j["issue"]: j.get("worker", "coder") for j in jobs if self.work is not None and j["state"] == "queued"
+                  and not j.get("sending") and j["issue"] not in parked}
+        self.deferred_starts = set(queued)
+        open_jobs = [j for j in jobs if j["state"] not in END + ("waiting",) and j["issue"] not in parked and j["issue"] not in queued]
         pool = self.cfg.get("pool")
         rooms = {t: (v["max_jobs"] if v["max_jobs"] is not None and not pool else pools.seats(self.cfg, t)) - len([j for j in open_jobs if j.get("worker", "coder") == t])
                  for t, v in pools.types(self.cfg).items()}
-        waiters = {j["issue"]: j for j in self.jobs() if j["state"] == "waiting"}
+        waiters = {j["issue"]: j for j in jobs if j["state"] == "waiting"}
         if all(r <= 0 for r in rooms.values()) and not waiters:
             return
         found = json.loads(self.gh(["issue", "list", "-R", self.repo, "--label", self.label, "--state", "open",
@@ -1044,8 +1081,14 @@ class Dispatcher:
         if any(cutshape.parse(i)["deps"] for i in issues):
             open_numbers = {o["number"] for o in json.loads(self.gh(
                 ["issue", "list", "-R", self.repo, "--state", "open", "--json", "number", "--limit", "1000"]))}
-        for i in sorted(issues, key=lambda i: i["number"]):
+        for i in self.work_rank(issues, "number"):
             try:
+                worker = queued.get(i["number"])
+                if worker is not None:
+                    if rooms.get(worker, 0) > 0:
+                        rooms[worker] -= 1
+                        self.deferred_starts.discard(i["number"])
+                    continue
                 old = self.store.get_job(str(i["number"]))
                 waiting = bool(old) and old["state"] == "waiting"
                 if not waiting and all(r <= 0 for r in rooms.values()):
@@ -1092,12 +1135,17 @@ class Dispatcher:
                         ret = [d for d in unmet if got[d] == "returned"]
                         dead = [[d, got[d]] for d in unmet if got[d] not in ("live", "not a factory job") and not self.re_plannable(d, got[d])]
                         line = "waits on " + ", ".join(DEP_TEXT.get(got[d], "dead #%d (" + got[d] + ")") % d for d in unmet)
-                        if not old or old["state"] != "waiting" or old.get("wait_line") != line:
+                        work = self.work or {}
+                        promote = [d for d in unmet if got[d] in ("live", "not a factory job", "blocked", "failed", "returned", "rejected")
+                                   and d not in work.get("skipped", ())] if i["number"] in work.get("order", ()) else []
+                        if not old or old["state"] != "waiting" or old.get("wait_line") != line or old.get("order_blockers", []) != promote:
                             data = {"issue": i["number"], "title": i["title"], "body": i.get("body") or "", "state": "waiting",
                                     "round": 1, "waiting": unmet, "worker": parsed["worker"], "paths": parsed["paths"],
                                     "test": parsed["test"], "plan_dev": parsed["dev"], "wait_line": line}
                             if ret:
                                 data["waits_on_returned"] = ret
+                            if promote:
+                                data["order_blockers"] = promote
                             if dead:
                                 data["dead"] = dead
                             if take:
@@ -1109,8 +1157,11 @@ class Dispatcher:
                                 data["rechecks"] = old["rechecks"]
                             self.save(data, line)
                             log(i["number"], line)
+                            if promote and promote != (old or {}).get("order_blockers", []):
+                                self.work = dict(work, issues=[])
+                                return
                         digest =hashlib.sha256(json.dumps(dead).encode()).hexdigest()[:16] if dead else ""
-                        ended = [d for d in unmet if got[d] in states.PROBLEM and not self.re_plannable(d, got[d])
+                        ended = [d for d in unmet if d not in promote and got[d] in states.PROBLEM and not self.re_plannable(d, got[d])
                                  and (got[d] not in ("blocked", "failed") or d in (self.work or {}).get("skipped", ()))]
                         if ended:
                             said = self.store.get_all(str(i["number"])).get("dead_deps", "") == digest
@@ -1119,8 +1170,8 @@ class Dispatcher:
                                      commented=said, relabelled=False)
                             continue
                         if self.store.get_all(str(i["number"])).get("dead_deps", "") != digest:
-                            if dead:
-                                self.gh(["issue", "comment", str(i["number"]), "-R", self.repo, "--body", dead_comment(dead)])
+                            if unresolved := [pair for pair in dead if pair[0] not in promote]:
+                                self.gh(["issue", "comment", str(i["number"]), "-R", self.repo, "--body", dead_comment(unresolved)])
                             self.store.set(str(i["number"]), "dead_deps", digest)
                         continue
                 free = rooms.get(parsed["worker"], 0) > 0 and i["number"] not in refresh_only
@@ -1147,7 +1198,7 @@ class Dispatcher:
                     free = seen.get("state") == "OPEN" and PAUSED not in {x.get("name") if isinstance(x, dict) else x for x in seen.get("labels") or []}
                 if not free:
                     if old.get("waiting") or old.get("file_wait") or old.get("wait_line"):
-                        kept = {k: v for k, v in old.items() if k not in ("file_wait", "wait_line", "dead", "waits_on_returned")}
+                        kept = {k: v for k, v in old.items() if k not in ("file_wait", "wait_line", "dead", "waits_on_returned", "order_blockers")}
                         self.save(dict(kept, waiting=[]), "wait cleared")
                         log(i["number"], "wait cleared: nothing it waited on is left")
                     continue
@@ -1786,7 +1837,9 @@ class Dispatcher:
             return
         if st in states.QUEUE and self.work is not None and j["issue"] not in self.work["issues"]:
             return
-        if st == "queued" and not self.taking:
+        if st == "queued" and (not self.taking or j["issue"] in self.deferred_starts):
+            return
+        if st in states.QUEUE and self.cfg.get("one_file_one_job") and self.file_holder(j["issue"], j.get("paths") or [], stage=st):
             return
         if st == "queued" and proven_line(j.get("body")):
             if self.take(j):
@@ -2449,7 +2502,7 @@ class Dispatcher:
             log("-", "replans: %s" % (e if isinstance(e, Error) else type(e).__name__))
         stepped = 0
         raised = []
-        for j in self.jobs():
+        for j in self.work_rank(self.jobs(), "issue"):
             did_step = j["state"] not in END
             prev = {k: j[k] for k in ("errors", "failing_since", "last_error") if k in j}
             try:
