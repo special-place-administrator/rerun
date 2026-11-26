@@ -765,7 +765,10 @@ class Dispatcher:
                 if i is None:
                     continue
                 if i.get("state") == "CLOSED":
-                    if (self.store.get_job(str(n)) or {}).get("state") in (None, "cancelled"):
+                    state = (self.store.get_job(str(n)) or {}).get("state")
+                    if state == "returned" and self.work.get("id"):
+                        self.store.set(str(n), "returned_closed_order", self.work["id"])
+                    elif state in (None, "cancelled"):
                         self.store.set(str(n), "closed_unstarted", "1")
                         log(n, "work order: issue closed before it started, skipped")
                     continue
@@ -1226,6 +1229,9 @@ class Dispatcher:
             return False
         return "closed_seen" not in self.store.get_all(str(d))
 
+    def withdrawal_reason(self):
+        return "issue closed or the %s label removed" % self.label
+
     def stop_lost(self):
         live = [j for j in self.jobs() if j["state"] not in END]
         if not live:
@@ -1245,7 +1251,7 @@ class Dispatcher:
                     j["pr"] = number
                     state, why = "merged", "merged outside the delegator (#%s)" % number
                 if state is None and j["issue"] not in labelled and not self.store.get_all(str(j["issue"])).get("order_consent"):
-                    state, why = "returned", "issue closed or the %s label removed" % self.label
+                    state, why = "returned", self.withdrawal_reason()
                 if state is None:
                     continue
                 if j["state"] in RUNNING and j.get("run") and not j.get("sending"):

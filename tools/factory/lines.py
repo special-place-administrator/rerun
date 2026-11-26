@@ -8,6 +8,7 @@ import time
 import urllib.parse
 
 import authors
+import cutshape
 import factory
 import limits
 import mirror
@@ -165,7 +166,7 @@ class Lines:
         for d in self.lines.values():
             d.run_state, d.off_connections, d.work = state, off, None
             d.cfg["pool"] = self.pool(d)
-        self.lines[self.active].work = self.work()
+        self.lines[self.active].work = dict(self.work(), id=(self.order() or {}).get("id"))
 
     def throttle(self):
         saved = self.read("throttle", {})
@@ -271,7 +272,7 @@ class Lines:
                 continue
             if j.get("state") in FAILED and retried.get(str(n)) != j.get("take", 1):
                 return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n, "skipped": skipped}
-            if j.get("state") in states.END and j.get("state") not in FAILED + ("cancelled",):
+            if j.get("state") in states.END and j.get("state") not in FAILED + ("cancelled",) and not self.fresh_return(order, j, kv):
                 done.append(n)
                 continue
             if j.get("state") == "waiting":
@@ -290,6 +291,17 @@ class Lines:
         if picked or waiting:
             return {"wait": None, "issues": picked, "order": issues, "done": done, "skipped": skipped}
         return {"wait": "the work order is done", "issues": [], "order": issues, "done": done, "skipped": skipped}
+
+    def fresh_return(self, order, job, kv):
+        # A later order may take back a withdrawn dependency job. Intake checks
+        # today's issue and dependency states; a plan return is not a withdrawal.
+        if job["state"] != "returned" or not job.get("relabelled") or kv.get("returned_closed_order") == order["id"]:
+            return False
+        if job.get("reason") != self.lines[self.active].withdrawal_reason():
+            return False
+        ended, asked = stamp(job.get("ended_at")), stamp(order.get("asked_at"))
+        return (ended is not None and asked is not None and ended < asked
+                and bool(cutshape.parse({"number": job["issue"], "body": job.get("body")})["deps"]))
 
     def learn_action(self, ask):
         if ask is None:

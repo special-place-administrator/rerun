@@ -695,6 +695,24 @@ class OrderRules(Pair):
         self.tick(3)
         self.assertEqual(self.order_jobs(), [(5, "building")])
 
+    def test_new_order_retakes_returned_dependency_job_after_its_blocker_completes(self):
+        self.w.issue(5)["body"] = ready(deps="#7")
+        self.ready_order("issue", [5])
+        self.tick(3)
+        store = self.d.lines["o/r"].store
+        old = store.get_job("5")
+        self.assertEqual((old["state"], old["waiting"]), ("waiting", [7]))
+        store.put_job("5", "returned", dict(old, state="returned", reason="issue closed or the factory label removed",
+                                          ended_at=D.iso(self.w.clock), relabelled=True, commented=True))
+        self.w.open_numbers.remove(7)
+        self.tick(2)
+        self.assertEqual(self.state(), "returned")  # The original order does not retry itself.
+        self.w.clock += 1
+        self.order("issue", [5])
+        self.tick(4)
+        self.assertEqual((self.state(), store.get_job("5").get("take", 1), len(self.w.sends)), ("building", 2, 1))
+        self.assertTrue(any(t["from_state"] == "returned" and t["to_state"] == "queued" for t in store.transitions_of("5")))
+
     def test_both_stops_cancel_the_work_order(self):
         self.ready_order("all_issues", [5])
         self.tick(2)
