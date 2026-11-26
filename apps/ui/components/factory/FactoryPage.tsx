@@ -39,9 +39,16 @@ function WorkspaceFactoryPage({ session }: { session: ReturnType<typeof useSessi
 
     useEffect(() => {
         let alive = true
+        let started = 0
+        let applied = 0
         const read = () => {
+            const poll = ++started
             readFactorySnapshotAction()
-                .then(next => { if (alive && next) setAnswer(next) })
+                .then(next => {
+                    if (!alive || !next || poll <= applied) return
+                    applied = poll
+                    setAnswer(next)
+                })
                 .catch(() => {})
         }
         read()
