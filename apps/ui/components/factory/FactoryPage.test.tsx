@@ -33,7 +33,7 @@ const memberControls: FactoryControlsView = {
 }
 
 vi.mock('@/app/api/_actions/factory.actions', () => ({
-    readFactorySnapshotAction: () => Promise.resolve(mocks.answer),
+    readFactorySnapshotAction: vi.fn(() => Promise.resolve(mocks.answer)),
     listFactoryProjectsAction: () => Promise.resolve({ ok: true, projects: [], isOwner: false }),
     readFactoryControlsAction: vi.fn(async () => ({ ok: true, controls: structuredClone(mocks.controls ?? memberControls) })),
     createFactoryWorkOrderAction: mocks.createOrder,
@@ -57,7 +57,7 @@ vi.mock('@/stores/board.store', () => ({
 vi.mock('@/supabase/session/SessionProvider', () => ({ useSession: () => ({ workspace: mocks.workspace }) }))
 
 import { toast } from 'sonner'
-import { readFactoryControlsAction } from '@/app/api/_actions/factory.actions'
+import { readFactoryControlsAction, readFactorySnapshotAction } from '@/app/api/_actions/factory.actions'
 import { FACTORY_OVERLAY_BELOW, SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
 import { FactoryPage } from './FactoryPage'
 
@@ -74,6 +74,10 @@ const snapshotWith = (jobs: unknown[], coworkers: unknown[] = [{ name: 'code', i
     },
     receivedAt: NOW, ageMs: 0,
 })
+const controlReport = (state: NonNullable<FactoryControlsView['state']>, at: number) => {
+    const base = snapshotWith([])
+    return { ...base, receivedAt: at, snapshot: { ...base.snapshot, control: { state, at: iso(at), applied_request_id: iso(at), by: 'owner' } } }
+}
 
 let host: HTMLDivElement
 let root: Root
@@ -90,6 +94,7 @@ beforeEach(() => {
     root = createRoot(host)
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
     mocks.answer = null
+    vi.mocked(readFactorySnapshotAction).mockReset()
     mocks.controls = null
     mocks.createOrder.mockClear()
     mocks.setState.mockClear()
@@ -208,6 +213,65 @@ describe('factory page', () => {
             await act(async () => { fail() })
             expect(pill().dataset.statePill).toBe('STOPPED')
             expect(pill().querySelector('.animate-pulse')).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('keeps the acknowledged Stop in the pill when an older Pause poll finishes last', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const pause = controlReport('PAUSED', NOW - 1000)
+            const stop = controlReport('STOPPED', NOW)
+            const oldPoll = Promise.withResolvers<typeof pause>()
+            const newPoll = Promise.withResolvers<typeof stop>()
+            mocks.answer = controlReport('RUNNING', NOW - 60_000)
+            mocks.controls = { ...memberControls, state: 'RUNNING', stateAt: iso(NOW - 60_000) }
+            await mount()
+            const pill = () => host.querySelector<HTMLElement>('[data-state-pill]')!
+            expect(pill().dataset.statePill).toBe('RUNNING')
+
+            const read = vi.mocked(readFactorySnapshotAction)
+            read.mockImplementationOnce(() => oldPoll.promise)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            mocks.controls = { ...mocks.controls, state: 'STOPPED', stateAt: iso(NOW) }
+            read.mockImplementationOnce(() => newPoll.promise)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            await act(async () => { newPoll.resolve(stop) })
+            expect(pill().dataset.statePill).toBe('STOPPED')
+            expect(pill().querySelector('.animate-pulse')).toBeNull()
+
+            await act(async () => { oldPoll.resolve(pause) })
+            expect(pill().dataset.statePill).toBe('STOPPED')
+            expect(pill().querySelector('.animate-pulse')).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('accepts a successful overlapping snapshot despite an empty or failed poll', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const stop = controlReport('STOPPED', NOW)
+            const successful = Promise.withResolvers<typeof stop>()
+            const failed = Promise.withResolvers<null>()
+            mocks.answer = controlReport('RUNNING', NOW - 60_000)
+            await mount()
+            const pill = () => host.querySelector<HTMLElement>('[data-state-pill]')!
+            const read = vi.mocked(readFactorySnapshotAction)
+            read.mockImplementationOnce(() => successful.promise).mockImplementationOnce(() => failed.promise)
+            await act(async () => { vi.advanceTimersByTime(60_000) })
+            await act(async () => { failed.reject(new Error('offline')) })
+            expect(pill().dataset.statePill).toBe('RUNNING')
+
+            read.mockResolvedValueOnce(null)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            await act(async () => { successful.resolve(stop) })
+            expect(pill().dataset.statePill).toBe('STOPPED')
+
+            read.mockRejectedValueOnce(new Error('offline'))
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            expect(pill().dataset.statePill).toBe('STOPPED')
         } finally {
             vi.useRealTimers()
         }
