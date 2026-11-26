@@ -39,9 +39,16 @@ function WorkspaceFactoryPage({ session }: { session: ReturnType<typeof useSessi
 
     useEffect(() => {
         let alive = true
+        let started = 0
+        let applied = 0
         const read = () => {
+            const poll = ++started
             readFactorySnapshotAction()
-                .then(next => { if (alive && next) setAnswer(next) })
+                .then(next => {
+                    if (!alive || !next || poll <= applied) return
+                    applied = poll
+                    setAnswer(next)
+                })
                 .catch(() => {})
         }
         read()
@@ -86,7 +93,7 @@ function WorkspaceFactoryPage({ session }: { session: ReturnType<typeof useSessi
         return () => window.removeEventListener('keydown', onKey)
     }, [])
 
-    const controls = useFactoryControls(snapshot?.repo)
+    const controls = useFactoryControls(session, `${snapshot?.repo}|${snapshot?.control?.at}|${snapshot?.control?.applied_request_id}`)
     const coworkers = useMemo(() => snapshot?.pools.flatMap(p => p.coworkers) ?? [], [snapshot])
     const names = useMemo(() => Object.fromEntries(coworkers.flatMap(c => (c.id ? [[c.id, c.name]] : []))), [coworkers])
     const openCoworker = useCallback((id: string) => {

@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
         focusAgentOnBoard: vi.fn(),
     },
     workspace: { id: 7 } as { id: number } | null,
+    user: { id: 'owner' },
+    role: 'admin',
     theme: 'dark' as string | undefined,
 }))
 
@@ -33,9 +35,9 @@ const memberControls: FactoryControlsView = {
 }
 
 vi.mock('@/app/api/_actions/factory.actions', () => ({
-    readFactorySnapshotAction: () => Promise.resolve(mocks.answer),
+    readFactorySnapshotAction: vi.fn(() => Promise.resolve(mocks.answer)),
     listFactoryProjectsAction: () => Promise.resolve({ ok: true, projects: [], isOwner: false }),
-    readFactoryControlsAction: () => Promise.resolve({ ok: true, controls: structuredClone(mocks.controls ?? memberControls) }),
+    readFactoryControlsAction: vi.fn(async () => ({ ok: true, controls: structuredClone(mocks.controls ?? memberControls) })),
     createFactoryWorkOrderAction: mocks.createOrder,
     setFactoryStateAction: mocks.setState,
     setFactoryPoolAction: vi.fn(),
@@ -54,8 +56,10 @@ vi.mock('next-themes', () => ({ useTheme: () => ({ resolvedTheme: mocks.theme })
 vi.mock('@/stores/board.store', () => ({
     useBoardStore: Object.assign((select: (s: typeof mocks.board) => unknown) => select(mocks.board), { getState: () => mocks.board }),
 }))
-vi.mock('@/supabase/session/SessionProvider', () => ({ useSession: () => ({ workspace: mocks.workspace }) }))
+vi.mock('@/supabase/session/SessionProvider', () => ({ useSession: () => ({ workspace: mocks.workspace, user: mocks.user, role: mocks.role }) }))
 
+import { toast } from 'sonner'
+import { readFactoryControlsAction, readFactorySnapshotAction } from '@/app/api/_actions/factory.actions'
 import { FACTORY_OVERLAY_BELOW, SIDE_PANEL_GAP, loadSidePanelWidth } from '@/lib/side-panel-width'
 import { FactoryPage } from './FactoryPage'
 
@@ -71,6 +75,14 @@ const snapshotWith = (jobs: unknown[], coworkers: unknown[] = [{ name: 'code', i
         endedToday: { merged: 0, rejected: 0, blocked: 0, failed: 0, returned: 0 },
     },
     receivedAt: NOW, ageMs: 0,
+})
+const controlReport = (state: NonNullable<FactoryControlsView['state']>, at: number): NonNullable<Awaited<ReturnType<typeof readFactorySnapshotAction>>> => ({
+    snapshot: {
+        version: 1, madeAt: iso(at), beat: 1, repo: 'o/r', jobs: [], pools: [], holds: [],
+        endedToday: { merged: 0, rejected: 0, blocked: 0, failed: 0, returned: 0 },
+        control: { state, at: iso(at), applied_request_id: iso(at), by: 'owner' },
+    },
+    receivedAt: at, ageMs: 0,
 })
 
 let host: HTMLDivElement
@@ -88,11 +100,15 @@ beforeEach(() => {
     root = createRoot(host)
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
     mocks.answer = null
+    vi.mocked(readFactorySnapshotAction).mockReset()
+    vi.mocked(readFactoryControlsAction).mockReset()
     mocks.controls = null
     mocks.createOrder.mockClear()
     mocks.setState.mockClear()
     mocks.world.current = null
     mocks.workspace = { id: 7 }
+    mocks.user = { id: 'owner' }
+    mocks.role = 'admin'
     mocks.theme = 'dark'
     Object.assign(mocks.board, { agents: [], hydrated: false, selectedAgentId: null })
     mocks.board.hydrate.mockReset()
@@ -166,6 +182,271 @@ describe('factory page', () => {
         expect(feed().textContent).toContain('Held: factory stopped')
         click(feed().querySelector('button')!)
         expect(world().selectedIssue).toBe(42)
+    })
+
+    it('a state change made elsewhere is re-read when the factory reports it, so the pill shows no stale ask', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const base = snapshotWith([])
+            const reported = (state: string, at: string) => ({ ...base, snapshot: { ...base.snapshot, control: { state, at, by: 'owner' } } })
+            mocks.answer = reported('RUNNING', iso(NOW - 60_000))
+            mocks.controls = { isOwner: true, activeRepo: 'o/r', state: 'RUNNING', stateAt: iso(NOW - 61_000), providersOff: [], throttle: null, projectLimits: null, orders: [] }
+            await mount()
+            const pill = () => host.querySelector<HTMLElement>('[data-state-pill]')!
+            expect(pill().dataset.statePill).toBe('RUNNING')
+
+            mocks.controls = { ...mocks.controls, state: 'STOPPED', stateAt: iso(NOW - 2000) }
+            mocks.answer = reported('STOPPED', iso(NOW - 1000))
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            await flush()
+            expect(pill().dataset.statePill).toBe('STOPPED')
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    const deferredControls = () => Promise.withResolvers<Awaited<ReturnType<typeof readFactoryControlsAction>>>()
+    const ownerRead = { ok: true, controls: { ...memberControls, isOwner: true, activeRepo: 'o/r' } } as const
+    const memberRead = { ok: true, controls: memberControls } as const
+    const stop = () => host.querySelector<HTMLButtonElement>('[data-state-button="DRAINING"]')
+    const retry = () => host.querySelector('[data-run-retry]')
+
+    it.each(['rejected promise', 'error result'] as const)('shows enabled Stop when the mount read succeeds after a first snapshot refresh %s', async failure => {
+        const initial = deferredControls()
+        const refresh = deferredControls()
+        const read = vi.mocked(readFactoryControlsAction)
+        read.mockImplementationOnce(() => initial.promise).mockImplementationOnce(() => refresh.promise)
+        mocks.answer = controlReport('RUNNING', NOW)
+        await mount()
+
+        expect(read).toHaveBeenCalledTimes(2)
+        expect(stop()).toBeNull()
+        await act(async () => {
+            if (failure === 'rejected promise') refresh.reject(new Error('offline'))
+            else refresh.resolve({ ok: false, code: 'generic', error: 'offline' })
+        })
+        expect(retry()).not.toBeNull()
+        await act(async () => { initial.resolve(ownerRead) })
+        expect(stop()?.disabled).toBe(false)
+        expect(retry()).toBeNull()
+    })
+
+    it('shows usable controls without waiting for a hung refresh', async () => {
+        const initial = deferredControls()
+        const refresh = deferredControls()
+        const read = vi.mocked(readFactoryControlsAction)
+        read.mockImplementationOnce(() => initial.promise).mockImplementationOnce(() => refresh.promise)
+        mocks.answer = controlReport('RUNNING', NOW)
+        await mount()
+
+        expect(read).toHaveBeenCalledTimes(2)
+        await act(async () => { initial.resolve(ownerRead) })
+        expect(stop()?.disabled).toBe(false)
+        await act(async () => { refresh.resolve(memberRead) })
+        expect(stop()?.disabled).toBe(true)
+    })
+
+    it.each(['success', 'error'] as const)('ignores an older %s after an accepted read', async outcome => {
+        const initial = deferredControls()
+        const refresh = deferredControls()
+        vi.mocked(readFactoryControlsAction).mockImplementationOnce(() => initial.promise).mockImplementationOnce(() => refresh.promise)
+        mocks.answer = controlReport('RUNNING', NOW)
+        await mount()
+
+        await act(async () => { refresh.resolve(ownerRead) })
+        expect(stop()?.disabled).toBe(false)
+        await act(async () => {
+            if (outcome === 'success') initial.resolve(memberRead)
+            else initial.reject(new Error('offline'))
+        })
+        expect(stop()?.disabled).toBe(false)
+        expect(retry()).toBeNull()
+    })
+
+    it.each([
+        ['non-owner view', memberRead, true],
+        ['access denial', { ok: false, code: 'notMember', error: 'Not a workspace member' }, undefined],
+    ] as const)('does not restore owner controls after a newer %s', async (_, result, disabled) => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const old = deferredControls()
+            const refresh = deferredControls()
+            vi.mocked(readFactoryControlsAction).mockResolvedValueOnce(ownerRead).mockImplementationOnce(() => old.promise).mockImplementationOnce(() => refresh.promise)
+            mocks.answer = controlReport('RUNNING', NOW)
+            await mount()
+            expect(stop()?.disabled).toBe(false)
+
+            mocks.answer = controlReport('STOPPED', NOW + 1000)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            await act(async () => { refresh.resolve(result) })
+            expect(stop()?.disabled).toBe(disabled)
+            await act(async () => { old.resolve(ownerRead) })
+            expect(stop()?.disabled).toBe(disabled)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it.each(['workspace', 'user', 'role'] as const)('hides prior controls and ignores in-flight reads when changing %s', async scope => {
+        const old = deferredControls()
+        const current = deferredControls()
+        const read = vi.mocked(readFactoryControlsAction)
+        read.mockResolvedValueOnce(ownerRead).mockImplementationOnce(() => old.promise).mockImplementation(() => current.promise)
+        mocks.answer = controlReport('RUNNING', NOW)
+        await mount()
+        expect(stop()?.disabled).toBe(false)
+
+        if (scope === 'workspace') mocks.workspace = { id: 8 }
+        else if (scope === 'user') mocks.user = { id: 'member' }
+        else mocks.role = 'member'
+        await mount()
+        expect(read.mock.calls.length).toBeGreaterThan(2)
+        expect(stop()).toBeNull()
+        await act(async () => { old.resolve(ownerRead) })
+        expect(stop()).toBeNull()
+        await act(async () => { current.resolve(memberRead) })
+        expect(stop()?.disabled).toBe(true)
+    })
+
+    it('keeps the newer reported stop visible while a controls refresh is pending or fails', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const base = snapshotWith([])
+            const report = (state: string, at: number) => ({ ...base, snapshot: { ...base.snapshot, control: { state, at: iso(at), applied_request_id: iso(at), by: 'owner' } } })
+            mocks.answer = report('RUNNING', NOW - 60_000)
+            mocks.controls = { ...memberControls, state: 'RUNNING', stateAt: iso(NOW - 60_000) }
+            await mount()
+            let fail!: () => void
+            vi.mocked(readFactoryControlsAction).mockImplementationOnce(() => new Promise((_, reject) => { fail = () => reject(new Error('offline')) }))
+            mocks.answer = report('STOPPED', NOW)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            const pill = () => host.querySelector<HTMLElement>('[data-state-pill]')!
+            expect(pill().dataset.statePill).toBe('STOPPED')
+            await act(async () => { fail() })
+            expect(pill().dataset.statePill).toBe('STOPPED')
+            expect(pill().querySelector('.animate-pulse')).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('keeps the acknowledged Stop in the pill when an older Pause poll finishes last', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const pause = controlReport('PAUSED', NOW - 1000)
+            const stop = controlReport('STOPPED', NOW)
+            const oldPoll = Promise.withResolvers<typeof pause>()
+            const newPoll = Promise.withResolvers<typeof stop>()
+            mocks.answer = controlReport('RUNNING', NOW - 60_000)
+            mocks.controls = { ...memberControls, state: 'RUNNING', stateAt: iso(NOW - 60_000) }
+            await mount()
+            const pill = () => host.querySelector<HTMLElement>('[data-state-pill]')!
+            expect(pill().dataset.statePill).toBe('RUNNING')
+
+            const read = vi.mocked(readFactorySnapshotAction)
+            read.mockImplementationOnce(() => oldPoll.promise)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            mocks.controls = { ...mocks.controls, state: 'STOPPED', stateAt: iso(NOW) }
+            read.mockImplementationOnce(() => newPoll.promise)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            await act(async () => { newPoll.resolve(stop) })
+            expect(pill().dataset.statePill).toBe('STOPPED')
+            expect(pill().querySelector('.animate-pulse')).toBeNull()
+
+            await act(async () => { oldPoll.resolve(pause) })
+            expect(pill().dataset.statePill).toBe('STOPPED')
+            expect(pill().querySelector('.animate-pulse')).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('accepts a successful overlapping snapshot despite an empty or failed poll', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const stop = controlReport('STOPPED', NOW)
+            const successful = Promise.withResolvers<typeof stop>()
+            const failed = Promise.withResolvers<null>()
+            mocks.answer = controlReport('RUNNING', NOW - 60_000)
+            await mount()
+            const pill = () => host.querySelector<HTMLElement>('[data-state-pill]')!
+            const read = vi.mocked(readFactorySnapshotAction)
+            read.mockImplementationOnce(() => successful.promise).mockImplementationOnce(() => failed.promise)
+            await act(async () => { vi.advanceTimersByTime(60_000) })
+            await act(async () => { failed.reject(new Error('offline')) })
+            expect(pill().dataset.statePill).toBe('RUNNING')
+
+            read.mockResolvedValueOnce(null)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            await act(async () => { successful.resolve(stop) })
+            expect(pill().dataset.statePill).toBe('STOPPED')
+
+            read.mockRejectedValueOnce(new Error('offline'))
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            expect(pill().dataset.statePill).toBe('STOPPED')
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('Stop and Start: busy while sent, the ask pulses until the factory reports it, a failed send frees the controls', async () => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        const failed = vi.spyOn(toast, 'error').mockImplementation(() => '')
+        try {
+            const base = snapshotWith([])
+            const order = { id: 'o1', repo: 'o/r', kind: 'issue' as const, issues: [42], text: '', status: 'active' as const, action: null, created_at: iso(NOW - 5000), cancelled_at: null }
+            const report = async (state: string, at: number, jobs: unknown[] = []) => {
+                mocks.answer = { ...base, snapshot: { ...base.snapshot, jobs, control: { state, at: iso(at), by: 'owner' } } }
+                await act(async () => { vi.advanceTimersByTime(30_000) })
+                await flush()
+            }
+            mocks.answer = { ...base, snapshot: { ...base.snapshot, jobs: [job(42, { state: 'queued' })], control: { state: 'RUNNING', at: iso(NOW - 60_000), by: 'owner' } } }
+            mocks.controls = { isOwner: true, activeRepo: 'o/r', state: 'RUNNING', stateAt: iso(NOW - 61_000), providersOff: [], throttle: null, projectLimits: null, orders: [order] }
+            await mount()
+            const pill = () => host.querySelector<HTMLElement>('[data-state-pill]')!
+            const busy = () => host.querySelector('[role="group"][aria-busy]')!.getAttribute('aria-busy')
+            const locked = () => Array.from(host.querySelectorAll<HTMLButtonElement>('[data-state-button], [data-more-controls]')).map(b => b.disabled)
+            const loader = () => (world() as unknown as { scene: (t: number, now: number) => { tiles: { id: string; style: { status?: { labelKey?: string } } }[] } })
+                .scene(0, Date.now()).tiles.find(t => t.id === 'Delegator')!.style.status?.labelKey
+            const press = (state: string) => act(async () => { host.querySelector<HTMLButtonElement>(`[data-state-button="${state}"]`)!.click() })
+            expect(loader()).toBe('working')
+
+            let land!: () => void
+            mocks.setState.mockImplementationOnce(state => new Promise(done => { land = () => { mocks.controls = { ...mocks.controls!, state, stateAt: iso(NOW) }; done({ ok: true }) } }))
+            await press('DRAINING')
+            expect(busy()).toBe('true')
+            expect(locked()).toEqual([true, true, true, true, true])
+            await act(async () => { land() })
+            await flush()
+            expect(busy()).toBe('false')
+            expect(locked()).toEqual([false, false, false, false, false])
+            expect(pill().dataset.statePill).toBe('asked')
+            expect(pill().querySelector('.animate-pulse')).not.toBeNull()
+
+            await report('STOPPED', NOW)
+            expect(pill().dataset.statePill).toBe('STOPPED')
+            expect(pill().querySelector('.animate-pulse')).toBeNull()
+            expect(loader()).toBeUndefined()
+
+            mocks.setState.mockRejectedValueOnce(new Error('offline'))
+            await press('RUNNING')
+            await flush()
+            expect(failed).toHaveBeenCalledOnce()
+            expect(busy()).toBe('false')
+            expect(locked()).toEqual([false, false, false, false, false])
+            expect(pill().dataset.statePill).toBe('STOPPED')
+
+            await press('RUNNING')
+            await flush()
+            expect(mocks.setState).toHaveBeenLastCalledWith('RUNNING')
+            expect(pill().dataset.statePill).toBe('asked')
+            await report('RUNNING', NOW + 1000)
+            expect(pill().dataset.statePill).toBe('RUNNING')
+            expect(pill().querySelector('.animate-pulse')).toBeNull()
+        } finally {
+            failed.mockRestore()
+            vi.useRealTimers()
+        }
     })
 
     it('mounts the coworker panel', async () => {

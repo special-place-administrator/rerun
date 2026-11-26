@@ -206,6 +206,41 @@ describe('FactoryTopBar', () => {
         expect(trigger.getAttribute('aria-expanded')).toBe('true')
     })
 
+    it('after a click the pill shows the ask until the factory reports it', async () => {
+        const s = snapshot()
+        const at = (state: 'RUNNING' | 'STOPPED') => createElement(TooltipProvider, null, createElement(FactoryTopBar, {
+            snapshot: { ...s, control: { state, by: 'owner', at: s.madeAt } }, selected: null, onSelect: () => {}, names: {}, onOpenCoworker: () => {},
+            controls: { view: { isOwner: true, activeRepo: 'o/r', state: 'STOPPED', providersOff: [], throttle: null, orders: [], projectLimits: null }, loadError: null, reload: async () => {} },
+        }))
+        await act(async () => { root.render(at('RUNNING')) })
+        const pill = q('[data-state-pill]')!
+        expect(pill.getAttribute('data-state-pill')).toBe('asked')
+        expect(pill.textContent).toContain('Asked for stopped: waiting for the factory')
+        expect(pill.querySelector('.animate-pulse')).not.toBeNull()
+        await act(async () => { root.render(at('STOPPED')) })
+        expect(q('[data-state-pill]')!.getAttribute('data-state-pill')).toBe('STOPPED')
+        expect(q('[data-state-pill]')!.querySelector('.animate-pulse')).toBeNull()
+    })
+
+    it('keeps a newer Stop pending when the Pause report arrives late', async () => {
+        const base = snapshot()
+        const pause = '2026-01-01T00:00:01.000Z'
+        const stop = '2026-01-01T00:00:02.000Z'
+        const late = '2026-01-01T00:00:03.000Z'
+        const show = (asked: 'PAUSED' | 'DRAINING', stateAt: string, state: string, applied_request_id: string) => render({
+            snapshot: factorySnapshotSchema.parse({ ...base, control: { state, by: 'owner', at: late, applied_request_id } }),
+            controls: { view: { isOwner: true, activeRepo: 'o/r', state: asked, stateAt, providersOff: [], throttle: null, orders: [], projectLimits: null }, loadError: null, reload: async () => {} },
+        })
+        await show('PAUSED', pause, 'RUNNING', '2026-01-01T00:00:00.000Z')
+        await show('DRAINING', stop, 'RUNNING', '2026-01-01T00:00:00.000Z')
+        await show('DRAINING', stop, 'PAUSED', pause)
+        expect(q('[data-state-pill]')?.dataset.statePill).toBe('asked')
+        await show('DRAINING', stop, 'STOPPED', pause)
+        expect(q('[data-state-pill]')?.dataset.statePill).toBe('asked')
+        await show('DRAINING', stop, 'STOPPED', stop)
+        expect(q('[data-state-pill]')?.dataset.statePill).toBe('STOPPED')
+    })
+
     it('with no snapshot says it is the sample and has no chips', () => {
         render({ snapshot: null })
         expect(host.textContent).toContain(SAMPLE_TEXT)

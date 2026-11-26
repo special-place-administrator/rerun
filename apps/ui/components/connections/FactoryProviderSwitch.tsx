@@ -8,11 +8,13 @@ import { thrown, useFactoryControls } from '@/components/factory/use-factory-con
 import { Switch } from '@/components/ui/switch'
 import { useErrorText } from '@/hooks/useErrorText'
 import type { BoxConnection } from '@/lib/engine/types'
+import { useSession } from '@/supabase/session/SessionProvider'
 
 export type FactoryProviders = { off: ReadonlySet<string>; isOwner: boolean; busy: string | null; error: string; toggle: (connectionId: string, enabled: boolean) => void }
 
 export function useFactoryProviders(): FactoryProviders | null {
-    const { view, reload } = useFactoryControls()
+    const session = useSession()
+    const { view, reload } = useFactoryControls(session)
     const errorText = useErrorText()
     const [busy, setBusy] = useState<string | null>(null)
     const [error, setError] = useState('')

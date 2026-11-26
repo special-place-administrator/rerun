@@ -410,6 +410,7 @@ class Controls(Pair):
         self.assertEqual(len(self.lines_said("#control RUNNING -> PAUSED by rob")), 1)
         self.assertIn("control PAUSED", self.d.lines["o/r"].beat_line)
         self.assertEqual(self.w.reports[-1]["control"]["state"], "PAUSED")
+        self.assertEqual(self.w.reports[-1]["control"]["applied_request_id"], self.answer["control"]["at"])
 
     def jobs_by_state(self):
         return sorted((j["issue"], j["state"]) for j in self.d.lines["o/r"].store.jobs())
@@ -432,6 +433,7 @@ class Controls(Pair):
         self.tick()
         self.assertEqual((self.d.read("control", {})["state"], self.w.reports[-1]["control"]["state"]), ("STOPPED", "STOPPED"))
         self.tick(2)
+        self.assertEqual(self.w.reports[-1]["control"]["applied_request_id"], self.answer["control"]["at"])
         self.assertEqual((self.jobs_by_state(), len(self.w.sends), self.w.cancels), ([(5, "cancelled"), (6, "cancelled")], 1, []))
         self.assertEqual(self.w.rows("SELECT status FROM fires"), [("done",)])
         self.assertEqual(self.d.read("control", {})["state"], "STOPPED")
