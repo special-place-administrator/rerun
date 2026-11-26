@@ -195,7 +195,7 @@ describe('factory page', () => {
         vi.useFakeTimers({ toFake: ['setInterval'] })
         try {
             const base = snapshotWith([])
-            const report = (state: string, at: number) => ({ ...base, snapshot: { ...base.snapshot, control: { state, at: iso(at), by: 'owner' } } })
+            const report = (state: string, at: number) => ({ ...base, snapshot: { ...base.snapshot, control: { state, at: iso(at), applied_request_id: iso(at), by: 'owner' } } })
             mocks.answer = report('RUNNING', NOW - 60_000)
             mocks.controls = { ...memberControls, state: 'RUNNING', stateAt: iso(NOW - 60_000) }
             await mount()

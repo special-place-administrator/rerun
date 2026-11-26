@@ -412,7 +412,7 @@ class Lines:
     def drained(self):
         if self.control() != "DRAINING" or any(d.store.running() or d.store.pending() for d in self.lines.values()):
             return
-        self.change("control", {"state": "STOPPED", "by": "factory", "at": self.mod.iso(self.now())}, "DRAINING -> STOPPED")
+        self.change("control", dict(self.read("control", {}), state="STOPPED", by="factory", at=self.mod.iso(self.now())), "DRAINING -> STOPPED")
 
     def learn_providers(self, ask):
         if ask is None:
@@ -429,7 +429,7 @@ class Lines:
     def extra(self):
         out = {"home": self.home, "finishing": [{"repo": r, "jobs": n} for r, n in self.finishing()][:10]}
         saved = self.read("control", {})
-        out["control"] = {"state": self.control(), "by": saved.get("by"), "at": saved.get("at")}
+        out["control"] = {"state": self.control(), "by": saved.get("by"), "at": saved.get("at"), "applied_request_id": saved.get("asked_at")}
         listed = (self.lines[self.active].connections or {}).get("connections") if isinstance(self.lines[self.active].connections, dict) else None
         ids = sorted(c["id"] for c in listed or [] if isinstance(c, dict) and isinstance(c.get("id"), str))
         out["providers"] = {"off": self.off(), "enabled": [c for c in ids if c not in self.off()]}
