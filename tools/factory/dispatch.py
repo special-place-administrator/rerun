@@ -1111,7 +1111,7 @@ class Dispatcher:
                         dead = [[d, got[d]] for d in unmet if got[d] not in ("live", "not a factory job") and not self.re_plannable(d, got[d])]
                         line = "waits on " + ", ".join(DEP_TEXT.get(got[d], "dead #%d (" + got[d] + ")") % d for d in unmet)
                         work = self.work or {}
-                        promote = [d for d in unmet if got[d] in ("live", "not a factory job", "blocked", "failed", "returned")
+                        promote = [d for d in unmet if got[d] in ("live", "not a factory job", "blocked", "failed", "returned", "rejected")
                                    and d not in work.get("skipped", ())] if i["number"] in work.get("order", ()) else []
                         if not old or old["state"] != "waiting" or old.get("wait_line") != line or old.get("order_blockers", []) != promote:
                             data = {"issue": i["number"], "title": i["title"], "body": i.get("body") or "", "state": "waiting",

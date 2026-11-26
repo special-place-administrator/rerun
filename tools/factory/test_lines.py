@@ -763,23 +763,25 @@ class OrderRules(Pair):
     def test_after_a_normal_stop_a_re_added_issue_is_taken_once_on_start(self):
         self.stop_readd_start("DRAINING", "reviewing")
 
-    def test_order_parks_waiter_runs_failed_dependency_first_and_resumes(self):
+    def test_order_parks_waiter_runs_dead_dependencies_first_and_resumes(self):
         self.w.issue(5)["body"] = ready(deps="#9")
-        self.w.issues.extend([issue(4), issue(9)])
-        self.w.open_numbers.update([4, 5, 9])
-        self.w.unlabelled.add(9)
+        self.w.issues.extend([issue(4), issue(9, deps="#10"), issue(10)])
+        self.w.open_numbers.update([4, 5, 9, 10])
+        self.w.unlabelled.update([9, 10])
         self.ready_order("all_issues", [5, 4])
         line = self.d.lines["o/r"]
-        line.store.put_job("9", "failed", dict(issue=9, title="Dependency", body=ready(), state="failed",
-                                              round=1, worker="coder", reason="build failed", relabelled=True))
-        self.tick(3)
-        self.assertEqual((self.state(5), self.state(9), self.d.work()["issues"]), ("waiting", "building", [9]))
-        self.assertIsNone(line.store.get_job("4"))
-        self.assertEqual(line.store.get_job("9")["take"], 2)
-        self.w.open_numbers.remove(9)
-        self.w.issue(9)["state"] = "CLOSED"
-        blocker = line.store.get_job("9")
-        line.store.put_job("9", "merged", dict(blocker, state="merged", relabelled=True, commented=True))
+        for n, state, why in ((9, "blocked", "dependency #10 ended rejected"), (10, "rejected", "review failed")):
+            line.store.put_job(str(n), state, dict(issue=n, title="Dependency", body=self.w.issue(n)["body"],
+                                                  state=state, round=1, worker="coder", reason=why, relabelled=True))
+        for n in (10, 9):
+            self.tick(5)
+            self.assertEqual((self.state(5), self.state(n), self.d.work()["issues"]), ("waiting", "building", [n]))
+            self.assertIsNone(line.store.get_job("4"))
+            self.assertEqual(line.store.get_job(str(n))["take"], 2)
+            self.w.open_numbers.remove(n)
+            self.w.issue(n)["state"] = "CLOSED"
+            blocker = line.store.get_job(str(n))
+            line.store.put_job(str(n), "merged", dict(blocker, state="merged", relabelled=True, commented=True))
         self.tick(3)
         self.assertEqual(self.state(5), "building")
         self.assertIsNone(line.store.get_job("4"))
