@@ -168,7 +168,7 @@ export const factoryDigestSchema = z.object({
             kind: z.enum(['repo', 'instructions']),
             before: z.number().min(0).nullable(),
             after: z.number().min(0).nullable(),
-            verdict: z.enum(['kept', 'revert', 'dropped']).nullable(),
+            verdict: z.enum(['kept', 'revert', 'dropped', 'inconclusive']).nullable(),
             revert: z.number().int().positive().nullable(),
         })).max(20),
     }).optional(),

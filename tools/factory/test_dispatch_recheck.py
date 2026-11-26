@@ -71,6 +71,23 @@ class Recheck(Base):
         self.assertEqual(self.state(), "returned")
         self.assertEqual(self.job()["reason"], "plan: dev already caps do_it")
 
+    def test_a_done_elsewhere_answer_closes_the_job_as_superseded(self):
+        self.tick()
+        self.d.store.set("recheck:5", "attempt", "1")
+        self.d.store.set("recheck:5", "state", "blocked")
+        self.d.store.set("recheck:5", "why", "done elsewhere: 8fa9522")
+        self.tick()
+        self.assertEqual(self.state(), "superseded")
+        self.assertEqual(self.job()["done_by"], "8fa9522")
+
+    def test_a_done_elsewhere_answer_without_a_commit_returns_the_job(self):
+        self.tick()
+        self.d.store.set("recheck:5", "attempt", "1")
+        self.d.store.set("recheck:5", "state", "blocked")
+        self.d.store.set("recheck:5", "why", "done elsewhere: on dev")
+        self.tick()
+        self.assertEqual(self.state(), "returned")
+
     def test_a_change_that_names_nothing_the_job_relies_on_builds_at_once(self):
         self.compare = ELSEWHERE
         self.tick()
