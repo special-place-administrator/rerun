@@ -102,6 +102,26 @@ class CommentTest(unittest.TestCase):
         self.assertEqual(lines[-1], "Fix the issue text and the planner labels it again.")
 
 class UntrustedAuthorsTest(unittest.TestCase):
+    def test_bare_factory_plan_requires_canonical_bot_identity(self):
+        # gh issue view and REST identify the same comment differently (#1578).
+        station = planning.Station.__new__(planning.Station)
+        station.repo = "special-place-ai-heaven/moldwright"
+        comment = {"id": "IC_kwDOVoK7_s8AAAABq4ImvA", "author": {"login": "moldwright-factory"},
+                   "url": "https://github.com/%s/issues/1578#issuecomment-7172400828" % station.repo,
+                   "body": "## Plan\n\n### Result"}
+        for login, kind, expected in (("moldwright-factory[bot]", "Bot", comment["body"]),
+                                      ("moldwright-factory", "User", None),
+                                      ("moldwright-factory[bot]", "User", None),
+                                      ("other[bot]", "Bot", None)):
+            def gh(args):
+                if args[:2] == ["issue", "view"]:
+                    return json.dumps({"comments": [comment]})
+                self.assertEqual(args[:2], ["api", "repos/%s/issues/comments/7172400828" % station.repo])
+                return json.dumps({"node_id": comment["id"], "user": {"login": login, "type": kind}})
+            with self.subTest(login=login, kind=kind):
+                station.gh = gh
+                self.assertEqual(station.latest_plan(1578), expected)
+
     def test_ignores_plan_and_answer_comments_from_untrusted_github_users(self):
         q = {"issue": 7, "options": ["first", "second"]}
         stranger_view = {
