@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
         focusAgentOnBoard: vi.fn(),
     },
     workspace: { id: 7 } as { id: number } | null,
+    user: { id: 'owner' },
+    role: 'admin',
     theme: 'dark' as string | undefined,
 }))
 
@@ -54,7 +56,7 @@ vi.mock('next-themes', () => ({ useTheme: () => ({ resolvedTheme: mocks.theme })
 vi.mock('@/stores/board.store', () => ({
     useBoardStore: Object.assign((select: (s: typeof mocks.board) => unknown) => select(mocks.board), { getState: () => mocks.board }),
 }))
-vi.mock('@/supabase/session/SessionProvider', () => ({ useSession: () => ({ workspace: mocks.workspace }) }))
+vi.mock('@/supabase/session/SessionProvider', () => ({ useSession: () => ({ workspace: mocks.workspace, user: mocks.user, role: mocks.role }) }))
 
 import { toast } from 'sonner'
 import { readFactoryControlsAction, readFactorySnapshotAction } from '@/app/api/_actions/factory.actions'
@@ -99,11 +101,14 @@ beforeEach(() => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
     mocks.answer = null
     vi.mocked(readFactorySnapshotAction).mockReset()
+    vi.mocked(readFactoryControlsAction).mockReset()
     mocks.controls = null
     mocks.createOrder.mockClear()
     mocks.setState.mockClear()
     mocks.world.current = null
     mocks.workspace = { id: 7 }
+    mocks.user = { id: 'owner' }
+    mocks.role = 'admin'
     mocks.theme = 'dark'
     Object.assign(mocks.board, { agents: [], hydrated: false, selectedAgentId: null })
     mocks.board.hydrate.mockReset()
@@ -198,6 +203,109 @@ describe('factory page', () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+
+    const deferredControls = () => Promise.withResolvers<Awaited<ReturnType<typeof readFactoryControlsAction>>>()
+    const ownerRead = { ok: true, controls: { ...memberControls, isOwner: true, activeRepo: 'o/r' } } as const
+    const memberRead = { ok: true, controls: memberControls } as const
+    const stop = () => host.querySelector<HTMLButtonElement>('[data-state-button="DRAINING"]')
+    const retry = () => host.querySelector('[data-run-retry]')
+
+    it.each(['rejected promise', 'error result'] as const)('shows enabled Stop when the mount read succeeds after a first snapshot refresh %s', async failure => {
+        const initial = deferredControls()
+        const refresh = deferredControls()
+        const read = vi.mocked(readFactoryControlsAction)
+        read.mockImplementationOnce(() => initial.promise).mockImplementationOnce(() => refresh.promise)
+        mocks.answer = controlReport('RUNNING', NOW)
+        await mount()
+
+        expect(read).toHaveBeenCalledTimes(2)
+        expect(stop()).toBeNull()
+        await act(async () => {
+            if (failure === 'rejected promise') refresh.reject(new Error('offline'))
+            else refresh.resolve({ ok: false, code: 'generic', error: 'offline' })
+        })
+        expect(retry()).not.toBeNull()
+        await act(async () => { initial.resolve(ownerRead) })
+        expect(stop()?.disabled).toBe(false)
+        expect(retry()).toBeNull()
+    })
+
+    it('shows usable controls without waiting for a hung refresh', async () => {
+        const initial = deferredControls()
+        const refresh = deferredControls()
+        const read = vi.mocked(readFactoryControlsAction)
+        read.mockImplementationOnce(() => initial.promise).mockImplementationOnce(() => refresh.promise)
+        mocks.answer = controlReport('RUNNING', NOW)
+        await mount()
+
+        expect(read).toHaveBeenCalledTimes(2)
+        await act(async () => { initial.resolve(ownerRead) })
+        expect(stop()?.disabled).toBe(false)
+        await act(async () => { refresh.resolve(memberRead) })
+        expect(stop()?.disabled).toBe(true)
+    })
+
+    it.each(['success', 'error'] as const)('ignores an older %s after an accepted read', async outcome => {
+        const initial = deferredControls()
+        const refresh = deferredControls()
+        vi.mocked(readFactoryControlsAction).mockImplementationOnce(() => initial.promise).mockImplementationOnce(() => refresh.promise)
+        mocks.answer = controlReport('RUNNING', NOW)
+        await mount()
+
+        await act(async () => { refresh.resolve(ownerRead) })
+        expect(stop()?.disabled).toBe(false)
+        await act(async () => {
+            if (outcome === 'success') initial.resolve(memberRead)
+            else initial.reject(new Error('offline'))
+        })
+        expect(stop()?.disabled).toBe(false)
+        expect(retry()).toBeNull()
+    })
+
+    it.each([
+        ['non-owner view', memberRead, true],
+        ['access denial', { ok: false, code: 'notMember', error: 'Not a workspace member' }, undefined],
+    ] as const)('does not restore owner controls after a newer %s', async (_, result, disabled) => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const old = deferredControls()
+            const refresh = deferredControls()
+            vi.mocked(readFactoryControlsAction).mockResolvedValueOnce(ownerRead).mockImplementationOnce(() => old.promise).mockImplementationOnce(() => refresh.promise)
+            mocks.answer = controlReport('RUNNING', NOW)
+            await mount()
+            expect(stop()?.disabled).toBe(false)
+
+            mocks.answer = controlReport('STOPPED', NOW + 1000)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            await act(async () => { refresh.resolve(result) })
+            expect(stop()?.disabled).toBe(disabled)
+            await act(async () => { old.resolve(ownerRead) })
+            expect(stop()?.disabled).toBe(disabled)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it.each(['workspace', 'user', 'role'] as const)('hides prior controls and ignores in-flight reads when changing %s', async scope => {
+        const old = deferredControls()
+        const current = deferredControls()
+        const read = vi.mocked(readFactoryControlsAction)
+        read.mockResolvedValueOnce(ownerRead).mockImplementationOnce(() => old.promise).mockImplementation(() => current.promise)
+        mocks.answer = controlReport('RUNNING', NOW)
+        await mount()
+        expect(stop()?.disabled).toBe(false)
+
+        if (scope === 'workspace') mocks.workspace = { id: 8 }
+        else if (scope === 'user') mocks.user = { id: 'member' }
+        else mocks.role = 'member'
+        await mount()
+        expect(read.mock.calls.length).toBeGreaterThan(2)
+        expect(stop()).toBeNull()
+        await act(async () => { old.resolve(ownerRead) })
+        expect(stop()).toBeNull()
+        await act(async () => { current.resolve(memberRead) })
+        expect(stop()?.disabled).toBe(true)
     })
 
     it('keeps the newer reported stop visible while a controls refresh is pending or fails', async () => {
