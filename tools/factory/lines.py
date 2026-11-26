@@ -267,11 +267,12 @@ class Lines:
         issues = list(dict.fromkeys(priority + issues)) if priority else issues
         for n in issues:
             j, kv = store.get_job(str(n)) or {}, store.get_all(str(n))
+            recover = n in priority and j.get("state") in ("failed", "blocked", "returned", "rejected")
             if n in skipped or (j.get("state") in (None, "cancelled") and kv.get("closed_unstarted")) or (order["kind"] == "all_issues" and kv.get("order_paused")) or (
-                    j.get("state") == "blocked" and DEPENDENCY_ENDED.match(j.get("reason") or "")):
+                    not recover and j.get("state") == "blocked" and DEPENDENCY_ENDED.match(j.get("reason") or "")):
                 done.append(n)
                 continue
-            recover = n in priority and j.get("state") in ("failed", "blocked", "returned")
+
             if j.get("state") in FAILED and not recover and retried.get(str(n)) != j.get("take", 1):
                 return {"wait": "job #%d failed: retry or skip" % n, "issues": picked, "order": issues, "done": done, "halted": n, "skipped": skipped}
             if j.get("state") in states.END and not recover and j.get("state") not in FAILED + ("cancelled",):
