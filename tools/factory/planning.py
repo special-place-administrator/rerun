@@ -799,9 +799,23 @@ class Station:
 
     def latest_plan(self, n):
         view = json.loads(self.gh(["issue", "view", str(n), "-R", self.repo, "--json", "title,body,comments"]))
-        plans = [c.get("body") or "" for c in view.get("comments", [])
-                 if authors.trusted_author(c) and (c.get("body") or "").startswith("## Plan")]
-        return plans[-1] if plans else None
+        for c in reversed(view.get("comments", [])):
+            body = c.get("body") or ""
+            if not body.startswith("## Plan"):
+                continue
+            if authors.trusted_author(c):
+                return body
+            # gh issue view drops [bot]. Verify the same comment via REST rather
+            # than adding the bare login to the workspace-wide trust list.
+            if (c.get("author") or {}).get("login") != "moldwright-factory" or not c.get("id"):
+                continue
+            match = re.search(r"#issuecomment-([0-9]+)$", c.get("url") or "")
+            if match:
+                canonical = json.loads(self.gh(["api", "repos/%s/issues/comments/%s" % (self.repo, match[1])]))
+                user = canonical.get("user") or {}
+                if canonical.get("node_id") == c["id"] and user.get("login") == "moldwright-factory[bot]" and user.get("type") == "Bot":
+                    return body
+        return None
     def free_critic(self, r):
         kind = r.get("type", "planner")
         t = pools.types(self.cfg).get(kind)
