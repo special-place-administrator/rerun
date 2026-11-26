@@ -763,6 +763,28 @@ class OrderRules(Pair):
     def test_after_a_normal_stop_a_re_added_issue_is_taken_once_on_start(self):
         self.stop_readd_start("DRAINING", "reviewing")
 
+    def test_order_parks_waiter_runs_failed_dependency_first_and_resumes(self):
+        self.w.issue(5)["body"] = ready(deps="#9")
+        self.w.issues.extend([issue(4), issue(9)])
+        self.w.open_numbers.update([4, 5, 9])
+        self.w.unlabelled.add(9)
+        self.ready_order("all_issues", [5, 4])
+        line = self.d.lines["o/r"]
+        line.store.put_job("9", "failed", dict(issue=9, title="Dependency", body=ready(), state="failed",
+                                              round=1, worker="coder", reason="build failed", relabelled=True))
+        self.tick(3)
+        self.assertEqual((self.state(5), self.state(9), self.d.work()["issues"]), ("waiting", "building", [9]))
+        self.assertIsNone(line.store.get_job("4"))
+        self.assertEqual(line.store.get_job("9")["take"], 2)
+        self.w.open_numbers.remove(9)
+        self.w.issue(9)["state"] = "CLOSED"
+        blocker = line.store.get_job("9")
+        line.store.put_job("9", "merged", dict(blocker, state="merged", relabelled=True, commented=True))
+        self.tick(3)
+        self.assertEqual(self.state(5), "building")
+        self.assertIsNone(line.store.get_job("4"))
+        self.assertTrue(any(t["from_state"] == "waiting" and t["to_state"] == "queued" for t in line.store.transitions_of("5")))
+
     def test_a_failed_job_halts_the_sequence_until_the_owner_retries_or_skips_it(self):
         self.w.issues.append(issue(6, "Six"))
         self.w.open_numbers.add(6)
