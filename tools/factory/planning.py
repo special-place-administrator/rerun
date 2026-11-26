@@ -805,8 +805,6 @@ class Station:
                 continue
             if authors.trusted_author(c):
                 return body
-            # gh issue view drops [bot]. Verify the same comment via REST rather
-            # than adding the bare login to the workspace-wide trust list.
             if (c.get("author") or {}).get("login") != "moldwright-factory" or not c.get("id"):
                 continue
             match = re.search(r"#issuecomment-([0-9]+)$", c.get("url") or "")

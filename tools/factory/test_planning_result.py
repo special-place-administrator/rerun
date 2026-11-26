@@ -103,7 +103,6 @@ class CommentTest(unittest.TestCase):
 
 class UntrustedAuthorsTest(unittest.TestCase):
     def test_bare_factory_plan_requires_canonical_bot_identity(self):
-        # gh issue view and REST identify the same comment differently (#1578).
         station = planning.Station.__new__(planning.Station)
         station.repo = "special-place-ai-heaven/moldwright"
         comment = {"id": "IC_kwDOVoK7_s8AAAABq4ImvA", "author": {"login": "moldwright-factory"},
