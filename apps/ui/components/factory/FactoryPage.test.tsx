@@ -74,10 +74,14 @@ const snapshotWith = (jobs: unknown[], coworkers: unknown[] = [{ name: 'code', i
     },
     receivedAt: NOW, ageMs: 0,
 })
-const controlReport = (state: NonNullable<FactoryControlsView['state']>, at: number) => {
-    const base = snapshotWith([])
-    return { ...base, receivedAt: at, snapshot: { ...base.snapshot, control: { state, at: iso(at), applied_request_id: iso(at), by: 'owner' } } }
-}
+const controlReport = (state: NonNullable<FactoryControlsView['state']>, at: number): NonNullable<Awaited<ReturnType<typeof readFactorySnapshotAction>>> => ({
+    snapshot: {
+        version: 1, madeAt: iso(at), beat: 1, repo: 'o/r', jobs: [], pools: [], holds: [],
+        endedToday: { merged: 0, rejected: 0, blocked: 0, failed: 0, returned: 0 },
+        control: { state, at: iso(at), applied_request_id: iso(at), by: 'owner' },
+    },
+    receivedAt: at, ageMs: 0,
+})
 
 let host: HTMLDivElement
 let root: Root
