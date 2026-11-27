@@ -164,6 +164,9 @@ class World:
     def gh(self, args):
         a = list(args)
         self.gh_calls.append(a)
+        if a[:2] == ["api", "repos/o/r/issues?state=open&per_page=100"]:
+            numbers = sorted(self.open_numbers, reverse=True)
+            return "\n".join(map(str, numbers if "--paginate" in a else numbers[:100]))
         timeline = a[:2] == ["api", "graphql"] and any("UNLABELED_EVENT" in x for x in a)
         gone = a[0] == "issue" and len(a) > 2 and a[2].isdigit() and int(a[2]) in self.deleted
         if a[:2] == ["issue", "create"] or "factory-problem" in a or (a[0] == "issue" and self.problem(a)) or timeline or gone:
@@ -198,7 +201,8 @@ class World:
             return json.dumps([{"number": i["number"], "title": i["title"], "body": i.get("body", ""), "labels": i["labels"], "createdAt": i.get("createdAt", "")}
                                for i in self.issues if i.get("labels")])
         if a[:2] == ["issue", "list"] and "--label" not in a:
-            return json.dumps([{"number": n} for n in sorted(self.open_numbers)])
+            limit = int(a[a.index("--limit") + 1]) if "--limit" in a else 30
+            return json.dumps([{"number": n} for n in sorted(self.open_numbers, reverse=True)[:limit]])
         if a[:2] == ["issue", "list"]:
             return json.dumps([{"number": i["number"], "title": i["title"], "body": i["body"], "labels": [{"name": x} for x in i.get("labels", [])]}
                                for i in self.issues if i["number"] not in self.unlabelled])
