@@ -73,6 +73,24 @@ class Waiters(Base):
         self.assertIsNotNone(self.job(5))
         self.assertEqual(self.job(8)["state"], "queued")
 
+    def built_outside_window(self, state):
+        self.w.issues = [issue(5), issue(8)]
+        self.d = self.new()
+        self.d.work = {"wait": None, "issues": [5], "order": [5]}
+        self.d.store.put_job("8", state, {"issue": 8, "title": "t8", "body": ready(), "state": state,
+                                         "round": 1, "worker": "coder", "builder": "b1", "pr": 11, "head": "abc1234"})
+
+    def test_a_built_job_outside_the_work_order_is_still_reviewed(self):
+        self.built_outside_window("review_wait")
+        self.tick()
+        self.assertEqual(self.job(8)["state"], "reviewing")
+
+    def test_a_built_job_outside_the_work_order_keeps_its_intake_room(self):
+        self.cfg.update(types={"coder": {"coworkers": [{"id": "b1", "name": "B1"}], "max_jobs": 1}})
+        self.built_outside_window("proof_wait")
+        self.tick()
+        self.assertIsNone(self.job(5))
+
     def test_a_building_row_closed_by_a_merged_pull_request_ends_merged(self):
         self.w.issues = [issue(5)]
         self.w.unlabelled.add(5)

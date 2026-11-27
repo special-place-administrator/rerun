@@ -86,6 +86,16 @@ class Find(unittest.TestCase):
 
 
 class Heard(Base):
+    def test_no_idle_line_when_every_waiting_job_is_parked_by_the_work_order(self):
+        self.cfg["resolver"] = {"detect": True, "resolve": False}
+        self.w.issues = [{"number": 5, "title": "t5", "body": ready(), "comments": []}]
+        self.d = self.new()
+        self.d.work = {"wait": None, "issues": [], "order": []}
+        self.d.store.put_job("5", "queued", {"issue": 5, "title": "t5", "body": ready(), "state": "queued", "round": 1})
+        self.tick(12)
+        self.assertEqual(self.state(), "queued")
+        self.assertNotIn("idle line", self.d.resolver.found)
+
     def test_pass_level_log_lines_are_collected_and_a_new_dispatcher_starts_empty(self):
         D.log("-", "left over")
         self.tick()
