@@ -17,6 +17,7 @@ const DOT: Record<FactoryControlState, string> = { RUNNING: 'bg-emerald-500', PA
 
 export function FactoryStatePill({ snapshot, controls, now, onProjects, onChooseWork }: { snapshot: FactorySnapshot; controls: FactoryControlsState; now: number; onProjects?: () => void; onChooseWork?: () => void }) {
     const t = useTranslations('factory.controls')
+    const tFeed = useTranslations('factory.feed')
     const tProjects = useTranslations('factory.projects')
     const tOrders = useTranslations('factory.orders')
     const locale = useLocale()
@@ -31,20 +32,25 @@ export function FactoryStatePill({ snapshot, controls, now, onProjects, onChoose
 
     const askedAt = controls.view?.stateAt
     const appliedRequestId = snapshot.control?.applied_request_id
+    const statesDiffer = asked !== null && asked !== reported && !(asked === 'DRAINING' && reported === 'STOPPED')
+    const legacyReportNewerThanRequest = appliedRequestId == null && statesDiffer
+        && Date.parse(snapshot.control?.at ?? '') > Date.parse(askedAt ?? '')
     const pending = asked !== null && (askedAt && appliedRequestId
         ? Date.parse(askedAt) > Date.parse(appliedRequestId)
-        : asked !== reported && !(asked === 'DRAINING' && reported === 'STOPPED'))
+        : statesDiffer && !legacyReportNewerThanRequest)
     const short = wait ? t('idleShort', { wait }) : hold ? t('holdShort', { kind: hold.kind }) : t('state', { state: reported })
-    const long = pending ? t('asked', { state: asked }) : wait ? t('idleLong', { reason }) : hold ? t('holdLong', { kind: hold.kind, seconds: Math.ceil((Date.parse(hold.until) - now) / 1000) }) : short
+    const status = wait ? t('idleLong', { reason }) : hold ? t('holdLong', { kind: hold.kind, seconds: Math.ceil((Date.parse(hold.until) - now) / 1000) }) : short
+    const request = pending ? t('asked', { state: asked }) : legacyReportNewerThanRequest ? tFeed('requested', { detail: asked }) : null
+    const long = pending ? request : request ? `${status} · ${request}` : status
     const sentence = wait
         ? t('idleSentence', { reason })
         : hold
         ? t('holdSentence', { kind: hold.kind, time: formatDate(hold.until, locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) })
         : t('now', { state: reported })
-    const folds = pending || wait !== null || hold !== undefined
+    const folds = request !== null || wait !== null || hold !== undefined
     const finishing = (snapshot.finishing ?? []).filter(f => f.jobs > 0).map(f => tProjects('finishing', { count: f.jobs, repo: f.repo }))
     const halted = snapshot.work_order?.halted ? [tOrders('halted', { issue: snapshot.work_order.halted })] : []
-    const lines = [sentence, ...(pending ? [t('asked', { state: asked })] : []), ...(waiting > 0 ? [t('noProvider', { count: waiting })] : []), ...halted, ...finishing]
+    const lines = [sentence, ...(request ? [request] : []), ...(waiting > 0 ? [t('noProvider', { count: waiting })] : []), ...halted, ...finishing]
 
     return (
         <>

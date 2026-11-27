@@ -330,6 +330,40 @@ describe('factory page', () => {
         }
     })
 
+    it.each([
+        ['omitted', {}],
+        ['null', { applied_request_id: null }],
+    ] as const)('shows the legacy reported state separately from the request during a failed refresh (ID %s)', async (_, requestId) => {
+        vi.useFakeTimers({ toFake: ['setInterval'] })
+        try {
+            const report = (state: NonNullable<FactoryControlsView['state']>, at: number) => {
+                const { snapshot, ...rest } = controlReport(state, at)
+                return { ...rest, snapshot: { ...snapshot, control: { state, at: iso(at), by: 'owner', ...requestId } } }
+            }
+            mocks.answer = report('RUNNING', NOW - 60_000)
+            mocks.controls = { ...ownerRead.controls, state: 'RUNNING', stateAt: iso(NOW - 60_000) }
+            await mount()
+            const pill = () => host.querySelector<HTMLElement>('[data-state-pill]')!
+            expect(pill().dataset.statePill).toBe('RUNNING')
+
+            const refresh = deferredControls()
+            vi.mocked(readFactoryControlsAction).mockImplementationOnce(() => refresh.promise)
+            mocks.answer = report('STOPPED', NOW)
+            await act(async () => { vi.advanceTimersByTime(30_000) })
+            expect.soft(pill().dataset.statePill, 'while refresh is pending').toBe('STOPPED')
+            expect.soft(pill().textContent).toContain('Stopped · Start requested')
+            expect.soft(pill().querySelector('.animate-pulse')).toBeNull()
+
+            await act(async () => { refresh.reject(new Error('offline')) })
+            expect(retry()).not.toBeNull()
+            expect.soft(pill().dataset.statePill, 'after refresh rejects').toBe('STOPPED')
+            expect.soft(pill().querySelector('.sr-only')?.textContent).toContain('Start requested')
+            expect.soft(pill().textContent).not.toContain('waiting for the factory')
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('keeps the acknowledged Stop in the pill when an older Pause poll finishes last', async () => {
         vi.useFakeTimers({ toFake: ['setInterval'] })
         try {
