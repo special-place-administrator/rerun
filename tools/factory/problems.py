@@ -15,7 +15,7 @@ class Watch:
     def __init__(self):
         self.heard, self.idle, self.idle_line, self.repeats, self.repeat_line = [], 0, None, None, None
 
-    def find(self, jobs, refused, open_issues, line, now, texts, since="", held=False, room=None):
+    def find(self, jobs, refused, open_issues, line, now, texts, since="", held=False, room=None, *, parked=()):
         out = {"unreadable #%d" % n: "\n".join(e) for n, e in refused.items()}
         if room:
             out["no room"] = room
@@ -39,7 +39,7 @@ class Watch:
             elif ended(j, since) and open_issues is not None and n in open_issues and n not in parents:
                 out["ended #%d" % n] = "job #%d ended %s: %s; pull request %s" % (
                     n, st, j.get("reason") or "-", "#%s" % j["pr"] if j.get("pr") else "none")
-            work = work or st in states.QUEUE
+            work = work or (st in states.QUEUE and n not in parked)
             busy = busy or (st in states.RUNNING and bool(j.get("agent")))
         self.idle = self.idle + 1 if work and not busy and not held else 0
         if self.idle < IDLE_BEATS:

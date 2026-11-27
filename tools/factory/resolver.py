@@ -126,7 +126,8 @@ class Resolver:
             self.open_issues = {i["number"] for i in json.loads(d.gh(
                 ["issue", "list", "-R", d.repo, "--state", "open", "--json", "number", "--limit", "1000"]) or "[]")}
         held = holds.active(d.store, d.now()) is not None
-        self.found = self.watch.find(jobs, d.refused, self.open_issues, line, d.now(), heard, since, held, d.no_room())
+        parked = {j["issue"] for j in jobs if d.outside_build_window(j)}
+        self.found = self.watch.find(jobs, d.refused, self.open_issues, line, d.now(), heard, since, held, d.no_room(), parked=parked)
         self.found.update(inboxsort.alarm(d.store.get_all("-")))
         self.found.update(machine.alarm(getattr(d, "machine", None)))
         self.tickets(d, self.found, resolve)

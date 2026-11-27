@@ -1025,11 +1025,14 @@ class Dispatcher:
         ranks = {n: pos for pos, n in enumerate((self.work or {}).get("issues", ()))}
         return sorted(rows, key=lambda row: (ranks.get(row[key], len(ranks)), row[key]))
 
+    def outside_build_window(self, job):
+        return job["state"] == "queued" and self.work is not None and job["issue"] not in self.work["issues"]
+
     def intake(self):
         if self.run_state in ("DRAINING", "STOPPED"):
             return
         jobs = self.jobs()
-        parked = set() if self.work is None else {j["issue"] for j in jobs if j["state"] in states.QUEUE and j["issue"] not in self.work["issues"]}
+        parked = {j["issue"] for j in jobs if self.outside_build_window(j)}
         queued = {j["issue"]: j.get("worker", "coder") for j in jobs if self.work is not None and j["state"] == "queued"
                   and not j.get("sending") and j["issue"] not in parked}
         self.deferred_starts = set(queued)
@@ -1835,7 +1838,7 @@ class Dispatcher:
                 return
         if st in states.QUEUE and j.get("not_before") and self.now() < j["not_before"]:
             return
-        if st in states.QUEUE and self.work is not None and j["issue"] not in self.work["issues"]:
+        if self.outside_build_window(j):
             return
         if st == "queued" and (not self.taking or j["issue"] in self.deferred_starts):
             return
