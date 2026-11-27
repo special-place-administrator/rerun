@@ -73,17 +73,80 @@ class Waiters(Base):
         self.assertIsNotNone(self.job(5))
         self.assertEqual(self.job(8)["state"], "queued")
 
-    def built_outside_window(self, state):
+    def built_outside_window(self, state, **extra):
         self.w.issues = [issue(5), issue(8)]
         self.d = self.new()
         self.d.work = {"wait": None, "issues": [5], "order": [5]}
-        self.d.store.put_job("8", state, {"issue": 8, "title": "t8", "body": ready(), "state": state,
-                                         "round": 1, "worker": "coder", "builder": "b1", "pr": 11, "head": "abc1234"})
+        self.d.store.put_job("8", state, dict(issue=8, title="t8", body=ready(), state=state, round=1,
+                                             worker="coder", builder="b1", pr=11, head="abc1234", **extra))
 
     def test_a_built_job_outside_the_work_order_is_still_reviewed(self):
         self.built_outside_window("review_wait")
         self.tick()
         self.assertEqual(self.job(8)["state"], "reviewing")
+
+    def park_queued_job(self, n, paths):
+        queued = issue(n)
+        self.w.issues.append(queued)
+        self.d.store.put_job(str(n), "queued", dict(issue=n, title=queued["title"], body=queued["body"], state="queued",
+                                                  round=1, worker="coder", paths=paths))
+
+    def test_a_parked_queued_job_does_not_take_the_only_review_slot(self):
+        self.cfg.update(max_jobs=1, slots=1)
+        self.built_outside_window("review_wait")
+        self.park_queued_job(6, ["c/d.py"])
+        self.tick()
+        self.assertEqual((self.state(6), self.state(8)), ("queued", "reviewing"))
+        self.assertEqual(len(self.w.sends), 1)
+
+    def test_a_parked_queued_job_does_not_hold_a_built_jobs_file(self):
+        self.cfg.update(max_jobs=1, one_file_one_job=True)
+        self.built_outside_window("review_wait", paths=["a/b.py"])
+        self.park_queued_job(6, ["a/b.py"])
+        self.tick()
+        self.assertEqual((self.state(6), self.state(8)), ("queued", "reviewing"))
+        self.assertEqual(len(self.w.sends), 1)
+
+    def test_a_new_order_does_not_reclaim_a_file_until_its_built_owner_finishes(self):
+        self.cfg["one_file_one_job"] = True
+        self.built_outside_window("review_wait", paths=["a/b.py"])
+        self.park_queued_job(6, ["a/b.py"])
+        self.d.work = {"wait": None, "issues": [6], "order": [6], "id": "new"}
+        self.tick()
+        self.assertEqual((self.state(6), self.state(8)), ("queued", "reviewing"))
+        self.ended(8, "merged")
+        self.tick()
+        self.assertEqual(self.state(6), "building")
+        self.assertEqual(len(self.w.sends), 2)
+
+    def finished_order(self, state="review_wait"):
+        self.built_outside_window(state)
+        self.ended(5, "merged")
+        self.d.work = {"wait": "the work order is done", "issues": [], "order": [5], "done": [5], "id": "w"}
+        self.park_queued_job(6, ["c/d.py"])
+
+    def test_a_finished_order_does_not_hold_a_built_job_in_running(self):
+        self.finished_order()
+        self.tick()
+        self.assertEqual((self.state(6), self.state(8)), ("queued", "reviewing"))
+        self.assertEqual(len(self.w.sends), 1)
+        self.assertIn("no work", holds.active_kinds(self.d.store, self.d.now()))
+
+    def test_a_finished_order_still_obeys_pause_and_resource_holds(self):
+        self.finished_order("proof_wait")
+        self.d.run_state = "PAUSED"
+        self.tick()
+        self.assertEqual(self.state(8), "proof_wait")
+        self.d.run_state = "RUNNING"
+        for kind in ("disk", "plan limit"):
+            with self.subTest(hold=kind):
+                holds.arm(self.d.store, kind, self.d.now() + 60)
+                self.tick()
+                self.assertEqual(self.state(8), "proof_wait")
+                self.assertEqual(self.w.sends, [])
+                holds.clear(self.d.store, kind)
+        self.tick()
+        self.assertEqual((self.state(6), self.state(8)), ("queued", "proving"))
 
     def test_a_built_job_outside_the_work_order_keeps_its_intake_room(self):
         self.cfg.update(types={"coder": {"coworkers": [{"id": "b1", "name": "B1"}], "max_jobs": 1}})

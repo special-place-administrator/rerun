@@ -672,6 +672,8 @@ class Dispatcher:
         total = self.pace_slots(total)
         waiting = {}
         for j in self.jobs():
+            if self.outside_build_window(j):
+                continue
             s = slots.station(j)
             if s:
                 waiting[s] = waiting.get(s, 0) + 1
@@ -890,15 +892,23 @@ class Dispatcher:
         t = pools.types(self.cfg).get(worker)
         if t is None:
             return None
-        cfg = self.with_holds({"types": {worker: dict(t, coworkers=[c for c in t["coworkers"] if c["id"] not in skip])}})
+        cfg = self.with_holds({"types": {worker: dict(t, coworkers=[c for c in t["coworkers"] if c["id"] not in skip])}}, j)
         if j is None:
             return pools.pick_copy(cfg, worker, self.running())
         return self.warm_pick(j, pools.free_copies(cfg, worker, self.running()))
 
-    def with_holds(self, cfg):
-        now = self.now()
-        return dict(cfg, held=bool(self.cfg.get("held") or holds.blocks_all(self.store, now)),
-                    held_plan=holds.blocks_subscription(self.store, now), pool=cfg.get("pool", self.cfg.get("pool")))
+    def hold_flags(self, j=None):
+        kinds = holds.active_kinds(self.store, self.now())
+        held = self.cfg.get("held")
+        state = j.get("state") if j is not None else None
+        if (state in states.QUEUE and state != "queued" and self.run_state == "RUNNING"
+                and (self.work or {}).get("wait") == "the work order is done" and "no work" in kinds):
+            kinds.remove("no work")
+            held = False
+        return dict(held=bool(held or kinds.difference(holds.SUBSCRIPTION_KINDS)), held_plan=bool(kinds))
+
+    def with_holds(self, cfg, j=None):
+        return dict(cfg, **self.hold_flags(j), pool=cfg.get("pool", self.cfg.get("pool")))
 
     def cache_kind(self, agent):
         for t in (self.cfg.get("types") or {}).values():
@@ -923,18 +933,18 @@ class Dispatcher:
         if t is None:
             return None
         pool = "acceptor" if all(c["id"] in judged for c in t["coworkers"]) else "reviewer"
-        return self.warm_pick(j, pools.free_copies(self.cfg, pool, self.running(), exclude=skip))
+        return self.warm_pick(j, pools.free_copies(self.with_holds(self.cfg, j), pool, self.running(), exclude=skip))
 
     def free_second(self, j, first):
         skip = self.unresolved() | self.held_ids() | {first}
-        return self.warm_pick(j, pools.free_copies(self.cfg, "reviewer", self.running(), exclude=skip))
+        return self.warm_pick(j, pools.free_copies(self.with_holds(self.cfg, j), "reviewer", self.running(), exclude=skip))
 
     def free_copy_of(self, agent, j=None):
         kind = next((t for t, v in pools.types(self.cfg).items() if any(c["id"] == agent for c in v["coworkers"])), None)
         mine = [c for c in (pools.types(self.cfg).get(kind) or {}).get("coworkers", []) if c["id"] == agent]
         if not mine or agent in self.unresolved() or agent in self.held_ids():
             return None
-        cfg = self.with_holds({"types": {kind: {"coworkers": mine}}})
+        cfg = self.with_holds({"types": {kind: {"coworkers": mine}}}, j)
         if j is None:
             got = pools.pick_copy(cfg, kind, self.running())
             return got[1] if got else None
@@ -1000,16 +1010,16 @@ class Dispatcher:
         if not paths:
             return None
         window = {n: i for i, n in enumerate((self.work or {}).get("issues", ()))}
-        rank = (stage in (None, "queued"), window.get(issue, issue))
+        rank = (stage in (None, "queued"), window.get(issue, len(window) + issue))
         for j in self.jobs():
             if j["issue"] == issue or j["state"] in END + ("waiting",):
                 continue
             if j["state"] in states.QUEUE and not j.get("sending"):
                 n = j["issue"]
-                if issue in window and (n not in window or (j["state"] == "queued" and n in self.deferred_starts)):
+                if self.outside_build_window(j) or (issue in window and j["state"] == "queued" and n in self.deferred_starts):
                     continue
-                if issue in window or (self.work is None and stage is not None):
-                    if (j["state"] == "queued", window.get(n, n)) > rank:
+                if issue in window or stage is not None:
+                    if (j["state"] == "queued", window.get(n, len(window) + n)) > rank:
                         continue
             shared = [p for p in paths if p in (j.get("paths") or [])]
             if shared:
@@ -1026,7 +1036,8 @@ class Dispatcher:
         return sorted(rows, key=lambda row: (ranks.get(row[key], len(ranks)), row[key]))
 
     def outside_build_window(self, job):
-        return job["state"] == "queued" and self.work is not None and job["issue"] not in self.work["issues"]
+        return (job["state"] == "queued" and not job.get("sending")
+                and self.work is not None and job["issue"] not in self.work["issues"])
 
     def intake(self):
         if self.run_state in ("DRAINING", "STOPPED"):
@@ -1834,7 +1845,7 @@ class Dispatcher:
             return self.lost_run(j)
         if st in states.QUEUE:
             self.cfg["held_plan"] = holds.blocks_subscription(self.store, self.now())
-            if self.cfg.get("held") or holds.blocks_all(self.store, self.now()):
+            if self.hold_flags(j)["held"]:
                 return
         if st in states.QUEUE and j.get("not_before") and self.now() < j["not_before"]:
             return
@@ -1931,7 +1942,7 @@ class Dispatcher:
             else:
                 self.end(j, "rejected", gist(verdict, 200) or last_line(out))
         elif st == "fix_wait" and j.get("proven") and not j.get("builder"):
-            got = self.free(j.get("worker", "coder"))
+            got = self.free(j.get("worker", "coder"), j)
             if got and self.take(j, got[0]):
                 self.start(j, got[0], "fix of #%s" % j["pr"], "fixing", copy=got[1], builder=got[0])
         elif st == "fix_wait":
