@@ -108,7 +108,7 @@ class Waiters(Base):
         self.assertEqual(len(self.w.sends), 1)
 
     def test_a_new_order_does_not_reclaim_a_file_until_its_built_owner_finishes(self):
-        self.cfg["one_file_one_job"] = True
+        self.cfg.update(one_file_one_job=True, slots=1)
         self.built_outside_window("review_wait", paths=["a/b.py"])
         self.park_queued_job(6, ["a/b.py"])
         self.d.work = {"wait": None, "issues": [6], "order": [6], "id": "new"}

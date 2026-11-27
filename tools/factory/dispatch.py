@@ -672,7 +672,7 @@ class Dispatcher:
         total = self.pace_slots(total)
         waiting = {}
         for j in self.jobs():
-            if self.outside_build_window(j):
+            if self.outside_build_window(j) or self.waits_for_file(j):
                 continue
             s = slots.station(j)
             if s:
@@ -1005,6 +1005,10 @@ class Dispatcher:
                                        plan_run=failures.plan_run(self.store, j), brief=j.get("brief_v"), runs=runs, cost=cost)
         except Exception as e:
             log(j["issue"], "failures: %s" % type(e).__name__)
+
+    def waits_for_file(self, j):
+        return (j["state"] in states.QUEUE and self.cfg.get("one_file_one_job")
+                and self.file_holder(j["issue"], j.get("paths") or [], stage=j["state"]))
 
     def file_holder(self, issue, paths, *, stage=None):
         if not paths:
@@ -1853,7 +1857,7 @@ class Dispatcher:
             return
         if st == "queued" and (not self.taking or j["issue"] in self.deferred_starts):
             return
-        if st in states.QUEUE and self.cfg.get("one_file_one_job") and self.file_holder(j["issue"], j.get("paths") or [], stage=st):
+        if self.waits_for_file(j):
             return
         if st == "queued" and proven_line(j.get("body")):
             if self.take(j):
